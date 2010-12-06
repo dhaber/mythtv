@@ -229,6 +229,8 @@ class AvFormatDecoder : public DecoderBase
     bool HasVideo(const AVFormatContext *ic);
     float normalized_fps(AVStream *stream, AVCodecContext *enc);
 
+    virtual int GetAudioProperties(void);
+
   private:
     PrivateDecoder *private_dec;
 

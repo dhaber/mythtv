@@ -507,6 +507,7 @@ class MPUBLIC ProgramInfo
     bool        Reload(void);
 
     // Slow DB sets
+    void SaveAudioProps(int props);
     void SaveFilesize(uint64_t fsize);
     void SaveBookmark(uint64_t frame);
     void SaveDVDBookmark(const QStringList &fields) const;

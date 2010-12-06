@@ -191,6 +191,10 @@ class DecoderBase
 
     virtual QString GetXDS(const QString&) const { return QString::null; }
 
+    virtual int GetAudioProperties(void) = 0;
+
+    int GetAudioPropertiesFromContext(AVCodecContext *context);
+
     // MHEG/MHI stuff
     virtual bool SetAudioByComponentTag(int) { return false; }
     virtual bool SetVideoByComponentTag(int) { return false; }

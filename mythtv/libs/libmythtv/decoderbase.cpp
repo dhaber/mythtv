@@ -993,6 +993,65 @@ int DecoderBase::SetTrack(uint type, int trackNo)
     return currentTrack[type];
 }
 
+/** \fn DecoderBase::GetAudioPropertiesFromContext(AVCodecContext *context)
+ *  \brief Get Audio Properties Enum from context object
+ *
+ *  \return int with bitwise properties, -1 otherwise
+ */
+int DecoderBase::GetAudioPropertiesFromContext(AVCodecContext *context)
+{
+    int props = 0;
+    // mmake sure there's a context
+    if (!context)
+    {
+        VERBOSE(VB_IMPORTANT, LOC + QString("No context; ignoring audio props"));
+        return -1;
+    }
+
+    // use the channel_layout to approximate the data sound type
+    // we can't use channels because it gets overwritten in AutoSelectAudioTrack
+    int channel_layout = context->channel_layout;
+
+    VERBOSE(VB_AUDIO, LOC + QString("Channel Layout: %1").arg(channel_layout));
+
+    // assume DOLBY
+    if (    (channel_layout & CH_LAYOUT_5POINT1) == CH_LAYOUT_5POINT1 )
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("Found DOLBY"));
+        props |= AUD_DOLBY;
+    }
+
+    // assume SURROUND
+    else if ( (channel_layout & CH_LAYOUT_SURROUND) == CH_LAYOUT_SURROUND)
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("Found SURROUND"));
+        props |= AUD_SURROUND;
+    }
+
+    // assume stereo
+    else if ( (channel_layout & CH_LAYOUT_STEREO) == CH_LAYOUT_STEREO )
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("Found STEREO"));
+        props |= AUD_STEREO;
+    }
+
+    // assume mono
+    else if ((channel_layout & CH_LAYOUT_MONO) == CH_LAYOUT_MONO)
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("Found MONO"));
+        props |= AUD_MONO;
+    }
+    
+    // otherwise unknown
+    else
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("Found UNKNOWN"));
+        props |= AUD_UNKNOWN;
+    }
+
+    return props;
+}
+
 StreamInfo DecoderBase::GetTrackInfo(uint type, uint trackNo) const
 {
     QMutexLocker locker(avcodeclock);
@@ -1021,6 +1080,8 @@ bool DecoderBase::InsertTrack(uint type, const StreamInfo &info)
 
     return true;
 }
+
+
 
 /** \fn DecoderBase::AutoSelectTrack(uint)
  *  \brief Select best track.

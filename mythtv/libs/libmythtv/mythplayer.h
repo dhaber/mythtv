@@ -185,6 +185,8 @@ class MPUBLIC MythPlayer
     void      GetCodecDescription(InfoMap &infoMap);
     QString   GetXDS(const QString &key) const;
     PIPLocation GetNextPIPLocation(void) const;
+    int       GetAudioProperties(void);
+
 
     // Bool Gets
     bool    GetRawAudioState(void) const;

@@ -207,6 +207,8 @@ class MPUBLIC PlayerContext
      */
     float               ts_normal; 
     float               ts_alt;
+    AspectOverrideMode  overrideMode;
+    AdjustFillMode      adjustFillMode;
 
     mutable QMutex      playingInfoLock;
     mutable QMutex      deletePlayerLock;

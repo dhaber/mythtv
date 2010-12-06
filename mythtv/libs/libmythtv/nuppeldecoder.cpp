@@ -1352,6 +1352,24 @@ bool NuppelDecoder::GetFrame(DecodeType decodetype)
     return true;
 }
 
+int NuppelDecoder::GetAudioProperties(void)
+{
+    VERBOSE(VB_AUDIO, LOC + QString("Getting Nuppel Audio Props"));
+     
+    if (!mpa_audctx)
+    {
+        VERBOSE(VB_AUDIO, LOC + QString("No Audio Context, ignoring audio props"));
+        return -1;
+    }
+
+    int props = GetAudioPropertiesFromContext(mpa_audctx);
+
+    // no way to find AUD_HARDHEAR so ignore
+    // DH: I don't know what AUD_VISUALIMPAIR is so ignore
+
+    return props;
+}
+
 void NuppelDecoder::SeekReset(long long newKey, uint skipFrames,
                               bool doFlush, bool discardFrames)
 {

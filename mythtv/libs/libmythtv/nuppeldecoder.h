@@ -56,6 +56,8 @@ class NuppelDecoder : public DecoderBase
     QString GetRawEncodingType(void);
     MythCodecID GetVideoCodecID(void) const;
 
+    int GetAudioProperties(void);
+
   private:
     inline bool ReadFileheader(struct rtfileheader *fileheader);
     inline bool ReadFrameheader(struct rtframeheader *frameheader);

@@ -4713,4 +4713,68 @@ static int dts_decode_header(uint8_t *indata_ptr, int *rate,
     return fsize;
 }
 
+// returns the AudioProperties for the current data
+int AvFormatDecoder::GetAudioProperties(void)
+{
+    VERBOSE(VB_AUDIO, LOC + QString("Getting AFD Audio Props"));
+
+    if (!ic)
+    {
+        VERBOSE(VB_IMPORTANT, LOC + QString("No FormatContext, ignoring audio props"));
+        return -1;
+    }
+
+    int props = 0;
+
+    // first try to find audio properties form the audio tracks
+    sinfo_vec_t::iterator it = tracks[kTrackTypeAudio].begin();
+    for (; it != tracks[kTrackTypeAudio].end(); ++it)
+    // for (uint i = 0; i < ic->nb_streams; i++)
+    {
+        //AVStream *stream = ic->streams[i];
+        AVStream *stream = ic->streams[it->av_stream_index];
+       int i = it->av_stream_index;
+
+        VERBOSE(VB_AUDIO, LOC + QString("Inspecting Audio Stream id #%1 ").arg(i));
+
+        // make sure there's a stream
+        if (!stream)
+        {
+             VERBOSE(VB_IMPORTANT, LOC + QString("No Stream for Stream id #%1").arg(i));
+             continue;
+        }
+
+        AVCodecContext *codec = stream->codec;
+
+        // mmake sure there's a codec
+        if (!codec)
+        {
+             VERBOSE(VB_IMPORTANT, LOC + QString("No Codec for Stream id #%1").arg(i));
+             continue;
+        }
+
+        props |= GetAudioPropertiesFromContext(codec);
+    }
+
+    // if there are any of these assume hard hearing
+    int track_count = kTrackTypeCount;
+    if (
+         (track_count >= kTrackTypeSubtitle         && tracks[kTrackTypeSubtitle].size() > 0)         ||
+         (track_count >= kTrackTypeCC608            && tracks[kTrackTypeCC608].size() > 0)            ||
+         (track_count >= kTrackTypeCC708            && tracks[kTrackTypeCC708].size() > 0)            ||
+         (track_count >= kTrackTypeTeletextCaptions && tracks[kTrackTypeTeletextCaptions].size() > 0) ||
+         (track_count >= kTrackTypeTeletextMenu     && tracks[kTrackTypeTeletextMenu].size() > 0)     ||
+         (track_count >= kTrackTypeTextSubtitle     && tracks[kTrackTypeTextSubtitle].size() > 0)
+        )
+    {
+            VERBOSE(VB_AUDIO, LOC + QString("Found HARDHEARING Track"));
+            props |= AUD_HARDHEAR;
+    }
+
+    // DH: I don't know what AUD_VISUALIMPAIR is, so ignore it
+    return props;
+}
+
+
+
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

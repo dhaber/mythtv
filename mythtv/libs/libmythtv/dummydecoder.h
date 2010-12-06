@@ -28,6 +28,8 @@ class DummyDecoder : public DecoderBase
     virtual MythCodecID GetVideoCodecID(void) const { return kCodec_NONE; }
 
     virtual bool SyncPositionMap(void) { return false; }
+
+    virtual int GetAudioProperties(void) { return -1; }
 };
 
 #endif

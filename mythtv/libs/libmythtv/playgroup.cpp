@@ -141,6 +141,8 @@ PlayGroupConfig::PlayGroupConfig(QString _name) : name(_name)
     cgroup->addChild(new SkipBack(*this));
     cgroup->addChild(new JumpMinutes(*this));
     cgroup->addChild(new TimeStretch(*this));
+    cgroup->addChild(new AspectOverrideModeSetting(*this));
+    cgroup->addChild(new AdjustFillModeSetting(*this));
 
     addChild(cgroup);
 };

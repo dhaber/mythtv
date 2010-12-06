@@ -5,6 +5,7 @@ using namespace std;
 
 #include "programtypes.h"
 #include "mythscreentype.h"
+#include "udpnotify.h"
 
 #define OSD_DLG_VIDEOEXIT "OSD_VIDEO_EXIT"
 #define OSD_DLG_MENU      "OSD_MENU"
@@ -172,6 +173,9 @@ class OSD
     void EnableSubtitles(int type);
     void ClearSubtitles(void);
     void DisplayDVDButton(AVSubtitle* dvdButton, QRect &pos);
+//    void StartNotify(const UDPNotifyOSDSet *notifySet);
+//    void ClearNotify(const QString &name);
+
 
   private:
     void TearDown(void);

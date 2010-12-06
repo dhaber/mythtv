@@ -2055,6 +2055,31 @@ void ProgramInfo::SaveFilesize(uint64_t fsize)
     updater->insert(chanid, recstartts, kPIUpdateFileSize, fsize);
 }
 
+/** \fn ProgramInfo::SaveAudioProps(int props)
+ *  \brief Saves the audio properties to DB
+ */
+void ProgramInfo::SaveAudioProps(int props)
+{
+    // first set the props in the object
+    properties |= props;
+
+    // next write it to the DB
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    VERBOSE(VB_AUDIO, QString("Setting Audio Props %1").arg(props));
+    query.prepare("UPDATE recordedprogram SET audioprop ="
+    " :PROP WHERE chanid = :CHANID AND starttime = :STARTTIME;");
+
+    query.bindValue(":PROP", props);
+    query.bindValue(":CHANID", chanid);
+    query.bindValue(":STARTTIME", startts);
+
+    if (!query.exec())
+        MythDB::DBError("UpdateRes", query);
+
+}
+
+
 /// \brief Gets recording file size from database.
 uint64_t ProgramInfo::QueryFilesize(void) const
 {

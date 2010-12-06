@@ -1155,6 +1155,7 @@ void TVRec::TeardownRecorder(bool killFile)
 
         recorder->StopRecording();
         pthread_join(recorder_thread, NULL);
+
     }
     ClearFlags(kFlagRecorderRunning);
 
@@ -1176,6 +1177,7 @@ void TVRec::TeardownRecorder(bool killFile)
         {
             if (curRecording->IsLocal())
                 PreviewGeneratorQueue::GetPreviewImage(*curRecording, "");
+            (new AudioPropsGenerator(curRecording))->Start();
 
             if (!tvchain)
             {

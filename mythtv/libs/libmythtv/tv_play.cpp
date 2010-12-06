@@ -5181,6 +5181,11 @@ bool TV::StartPlayer(PlayerContext *mctx, PlayerContext *ctx,
     {
         ctx->StartOSD(this);
         SetSpeedChangeTimer(25, __LINE__);
+
+        if (ctx->player) {
+            ctx->player->ToggleAspectOverride(ctx->overrideMode);
+            ctx->player->ToggleAdjustFill(ctx->adjustFillMode);
+        }
     }
 
     VERBOSE(VB_PLAYBACK, LOC + QString("StartPlayer(%1, %2, %3) -- end %4")

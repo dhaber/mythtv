@@ -49,6 +49,7 @@ PlayerContext::PlayerContext(const QString &inUseID) :
     // DB values
     fftime(0), rewtime(0),
     jumptime(0), ts_normal(1.0f), ts_alt(1.5f),
+    overrideMode(kAspect_Off), adjustFillMode(kAdjustFill_Off),
     // locks
     playingInfoLock(QMutex::Recursive), deletePlayerLock(QMutex::Recursive),
     stateLock(QMutex::Recursive),
@@ -945,6 +946,8 @@ void PlayerContext::SetPlayGroup(const QString &group)
     jumptime     = PlayGroup::GetSetting(group, "jump", 10);
     ts_normal    = PlayGroup::GetSetting(group, "timestretch", 100) * 0.01f;
     ts_alt       = (ts_normal == 1.0f) ? 1.5f : 1.0f;
+    overrideMode = (AspectOverrideMode) PlayGroup::GetSetting(group, "aspectoverridemode", kAspect_Off);
+    adjustFillMode = (AdjustFillMode) PlayGroup::GetSetting(group, "adjustfillmode", kAdjustFill_Off);
 }
 
 void PlayerContext::SetPseudoLiveTV(

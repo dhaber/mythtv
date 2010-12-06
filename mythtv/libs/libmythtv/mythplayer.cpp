@@ -338,6 +338,30 @@ MythPlayer::~MythPlayer(void)
     }
 }
 
+int MythPlayer::GetAudioProperties(void)
+{
+/*
+    using_null_videoout = true;
+
+    VERBOSE(VB_AUDIO, LOC + "opening file for audio props");
+    if (OpenFile(false, 0, false) < 0)
+    {
+        VERBOSE(VB_IMPORTANT, LOC_ERR + "Could not open file for audio props.");
+        return NULL;
+    }
+
+    VERBOSE(VB_AUDIO, LOC + "Getting decoder for audio props");
+    if (GetDecoder())
+    {
+       VERBOSE(VB_AUDIO, QString("Found decoder, getting audio props"));
+       return GetDecoder()->GetAudioProperties();
+    }
+
+*/
+    VERBOSE(VB_IMPORTANT, QString("Found no decoder for audio props"));
+    return -1;
+}
+
 void MythPlayer::SetWatchingRecording(bool mode)
 {
     QMutexLocker locker(&decoder_change_lock);

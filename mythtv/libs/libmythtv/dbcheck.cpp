@@ -4884,6 +4884,9 @@ NULL
 "DELETE FROM keybindings WHERE action = 'EDIT' and context = 'qt';",
 "DELETE FROM keybindings WHERE action = 'TOGGLEEDIT' "
     "AND context IN ('TV Playback', 'TV Editing');",
+"ALTER TABLE playgroup ADD COLUMN aspectoverridemode INT NOT NULL DEFAULT 0;",
+"ALTER TABLE playgroup ADD COLUMN adjustfillmode INT NOT NULL DEFAULT 0;",
+"UPDATE playgroup SET aspectoverridemode = 0, adjustfillmode = 0;",
 NULL
 };
         if (!performActualUpdate(updates, "1244", dbver))
