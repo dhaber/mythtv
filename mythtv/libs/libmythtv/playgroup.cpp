@@ -1,6 +1,7 @@
 #include "mythdb.h"
 #include "playgroup.h"
 #include "programinfo.h"
+#include "videoouttypes.h"
 #include "mythwidgets.h"
 
 class PlayGroupConfig: public ConfigurationWizard
@@ -130,6 +131,58 @@ class TimeStretch : public SpinBoxSetting, public PlayGroupDBStorage
         PlayGroupDBStorage::Save();
     }
 };
+
+class AspectOverrideModeSetting : public ComboBoxSetting, public PlayGroupDBStorage
+{
+  public:
+    AspectOverrideModeSetting(const PlayGroupConfig& _parent) :
+        ComboBoxSetting(this),
+       PlayGroupDBStorage(this, _parent, "aspectoverridemode")
+    {
+        setLabel(QObject::tr("Aspect Ratio"));
+        setHelpText(QObject::tr("Change the default Aspect Ratio. "));
+    }
+
+    void Load(void)
+    {
+        for (int j = kAspect_Off; j < kAspect_END; j++)
+        {
+            // swap 14:9 and 16:9
+            int i = ((kAspect_14_9 == j) ? kAspect_16_9 :
+                    ((kAspect_16_9 == j) ? kAspect_14_9 : j));
+
+            addSelection(toString((AspectOverrideMode) i), QString("%1").arg(i));
+        }
+
+        PlayGroupDBStorage::Load();
+    }
+
+};
+
+class AdjustFillModeSetting : public ComboBoxSetting, public PlayGroupDBStorage
+{
+  public:
+    AdjustFillModeSetting(const PlayGroupConfig& _parent) :
+        ComboBoxSetting(this),
+       PlayGroupDBStorage(this, _parent, "adjustfillmode")
+    {
+        setLabel(QObject::tr("Fill Mode"));
+        setHelpText(QObject::tr("Change the default Fill Modeo. "));
+    }
+
+    void Load(void)
+    {
+        for (int i = kAdjustFill_Off; i < kAdjustFill_END; i++)
+        {
+            addSelection(toString((AdjustFillMode) i), QString("%1").arg(i));
+        }
+
+        PlayGroupDBStorage::Load();
+    }
+
+};
+
+
 
 PlayGroupConfig::PlayGroupConfig(QString _name) : name(_name)
 {

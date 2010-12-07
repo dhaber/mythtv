@@ -26,6 +26,7 @@ using namespace std;
 #include "recordingrule.h"
 #include "eitscanner.h"
 #include "ringbuffer.h"
+#include "audiopropsgenerator.h"
 #include "storagegroup.h"
 #include "remoteutil.h"
 #include "tvremoteutil.h"

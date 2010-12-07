@@ -1,5 +1,5 @@
 // MythTV headers
-#include "RingBuffer.h"
+#include "ringbuffer.h"
 #include "mythplayer.h"
 #include "audiopropsgenerator.h"
 #include "tv_rec.h"
@@ -110,7 +110,7 @@ bool AudioPropsGenerator::UpdateAudioProps(void)
     PlayerContext *ctx = new PlayerContext(kAudioGeneratorInUseID);
 
     VERBOSE(VB_AUDIO, LOC + QString("Using file: %1").arg(programInfo.GetPathname()));
-    RingBuffer *rbuf = new RingBuffer(programInfo.GetPathname(), false, false, 0);
+    RingBuffer *rbuf = RingBuffer::Create(programInfo.GetPathname(), false, false, 0);
 
     VERBOSE(VB_AUDIO, LOC + QString("Setting player"));
     ctx->SetRingBuffer(rbuf);
