@@ -5119,6 +5119,7 @@ bool TV::StartPlayer(PlayerContext *mctx, PlayerContext *ctx,
     }
 
     if (ok)
+    {
         SetSpeedChangeTimer(25, __LINE__);
 
         if (ctx->player) {
