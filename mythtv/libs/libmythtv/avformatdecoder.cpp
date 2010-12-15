@@ -11,6 +11,7 @@ using namespace std;
 #include <QTextCodec>
 
 // MythTV headers
+#include "mythexp.h"
 #include "mythconfig.h"
 #include "avformatdecoder.h"
 #include "privatedecoder.h"
@@ -73,12 +74,10 @@ static int cc608_parity(uint8_t byte);
 static int cc608_good_parity(const int *parity_table, uint16_t data);
 static void cc608_build_parity_table(int *parity_table);
 
-static int dts_syncinfo(uint8_t *indata_ptr, int *flags,
-                        int *sample_rate, int *bit_rate);
 static int dts_decode_header(uint8_t *indata_ptr, int *rate,
                              int *nblks, int *sfreq);
-static int encode_frame(bool dts, unsigned char* data, int len,
-                        short *samples, int &samples_size);
+static int extract_core_dts(unsigned char *data, int len);
+
 static QSize get_video_dim(const AVCodecContext &ctx)
 {
     return QSize(ctx.width >> ctx.lowres, ctx.height >> ctx.lowres);
@@ -263,7 +262,8 @@ AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
       internal_vol(false),
       disable_passthru(false),
       dummy_frame(NULL),
-      m_fps(0.0f)
+      m_fps(0.0f),
+      m_spdifenc(NULL)
 {
     bzero(&params, sizeof(AVFormatParameters));
     bzero(&readcontext, sizeof(readcontext));
@@ -335,6 +335,9 @@ AvFormatDecoder::~AvFormatDecoder()
         lcd->setVariousLEDs(VARIOUS_SPDIF, false);
         lcd->setSpeakerLEDs(SPEAKER_71, false);    // should clear any and all speaker LEDs
     }
+
+    if (m_spdifenc)
+        delete m_spdifenc;
 }
 
 void AvFormatDecoder::CloseCodecs()
@@ -916,7 +919,12 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
     fmt->flags &= ~AVFMT_NOFILE;
 
     if (!livetv && !ringBuffer->IsDisc())
+    {
         av_estimate_timings(ic, 0);
+        // generate timings based on the video stream to avoid bogus ffmpeg
+        // values for duration and bitrate
+        av_update_stream_timings_video(ic);
+    }
 
     // Scan for the initial A/V streams
     ret = ScanStreams(novideo);
@@ -1052,17 +1060,17 @@ float AvFormatDecoder::normalized_fps(AVStream *stream, AVCodecContext *enc)
     if (stream->r_frame_rate.den && stream->r_frame_rate.num) // tbr
         estimated_fps = av_q2d(stream->r_frame_rate);
 
-    if (QString(ic->iformat->name).contains("matroska") && 
+    if (QString(ic->iformat->name).contains("matroska") &&
         avg_fps < 121.0f && avg_fps > 3.0f)
         fps = avg_fps; // matroska default_duration
-    else if (QString(ic->iformat->name).contains("avi") && 
+    else if (QString(ic->iformat->name).contains("avi") &&
         container_fps < 121.0f && container_fps > 3.0f)
         fps = container_fps; // avi uses container fps for timestamps
-    else if (stream_fps < 121.0f && stream_fps > 3.0f) 
+    else if (stream_fps < 121.0f && stream_fps > 3.0f)
         fps = stream_fps;
-    else if (container_fps < 121.0f && container_fps > 3.0f) 
+    else if (container_fps < 121.0f && container_fps > 3.0f)
         fps = container_fps;
-    else if (estimated_fps < 70.0f && estimated_fps > 20.0f) 
+    else if (estimated_fps < 70.0f && estimated_fps > 20.0f)
         fps = estimated_fps;
     else
         fps = stream_fps;
@@ -1104,7 +1112,11 @@ static enum PixelFormat get_format_vdpau(struct AVCodecContext *avctx,
     return fmt[i];
 }
 
-static enum PixelFormat get_format_dxva2(struct AVCodecContext *avctx,
+// Declared seperately to allow attribute
+static enum PixelFormat get_format_dxva2(struct AVCodecContext *,
+                                         const enum PixelFormat *) MUNUSED;
+
+enum PixelFormat get_format_dxva2(struct AVCodecContext *avctx,
                                          const enum PixelFormat *fmt)
 {
     if (!fmt)
@@ -1123,7 +1135,11 @@ static bool IS_VAAPI_PIX_FMT(enum PixelFormat fmt)
            fmt == PIX_FMT_VAAPI_VLD;
 }
 
-static enum PixelFormat get_format_vaapi(struct AVCodecContext *avctx,
+// Declared seperately to allow attribute
+static enum PixelFormat get_format_vaapi(struct AVCodecContext *,
+                                         const enum PixelFormat *) MUNUSED;
+
+enum PixelFormat get_format_vaapi(struct AVCodecContext *avctx,
                                          const enum PixelFormat *fmt)
 {
     if (!fmt)
@@ -2921,7 +2937,7 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
         return false;
     }
 
-    long long temppts = (long long)(av_q2d(stream->time_base) * 
+    long long temppts = (long long)(av_q2d(stream->time_base) *
                                     mpa_pic->reordered_opaque * 1000);
 
     // Validate the video pts against the last pts. If it's
@@ -3627,19 +3643,15 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
     long long pts       = 0;
     int ret             = 0;
     int data_size       = 0;
-    bool firstloop      = true, dts = false;
+    bool firstloop      = true;
 
     avcodeclock->lock();
     int audIdx = selectedTrack[kTrackTypeAudio].av_stream_index;
     int audSubIdx = selectedTrack[kTrackTypeAudio].av_substream_index;
     avcodeclock->unlock();
 
-    uint ofill = 0, ototal = 0, othresh = 0, total_decoded_audio = 0;
-    if (m_audio->GetBufferStatus(ofill, ototal))
-    {
-        othresh =  ((ototal>>1) + (ototal>>2));
-        allowedquit = (!(decodetype & kDecodeAudio)) && (ofill > othresh);
-    }
+    allowedquit = (!(decodetype & kDecodeAudio)) &&
+        m_audio->IsBufferAlmostFull();
 
     if (pkt->dts != (int64_t)AV_NOPTS_VALUE)
         pts = (long long)(av_q2d(curstream->time_base) * pkt->dts * 1000);
@@ -3731,10 +3743,36 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
 
         if (audioOut.do_passthru)
         {
+            if (!m_spdifenc)
+            {
+                m_spdifenc = new SPDIFEncoder("spdif", ctx);
+                if (!m_spdifenc->Succeeded())
+                {
+                    avcodeclock->unlock();
+                    delete m_spdifenc;
+                    return false;
+                }
+            }
+                // Extract core DTS unless we can process it
+            if (ctx->codec_id == CODEC_ID_DTS && !m_audio->CanHD())
+            {
+                tmp_pkt.size = extract_core_dts(tmp_pkt.data, tmp_pkt.size);
+                if (tmp_pkt.size < 0)
+                {
+                        // error extracting core dts
+                    avcodeclock->unlock();
+                    return false;
+                }
+            }
             data_size = tmp_pkt.size;
-            dts = CODEC_ID_DTS == ctx->codec_id;
-            ret = encode_frame(dts, tmp_pkt.data, tmp_pkt.size, audioSamples,
-                               data_size);
+            m_spdifenc->WriteFrame(tmp_pkt.data, data_size);
+
+            ret = m_spdifenc->GetData((unsigned char *)audioSamples, data_size);
+            if (ret < 0)
+            {
+                avcodeclock->unlock();
+                return true;
+            }
         }
         else
         {
@@ -3771,8 +3809,7 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
 
         if (ret < 0)
         {
-            if (!dts)
-                VERBOSE(VB_IMPORTANT, LOC_ERR + "Unknown audio decoding error");
+            VERBOSE(VB_IMPORTANT, LOC_ERR + "Unknown audio decoding error");
             return false;
         }
 
@@ -3801,29 +3838,7 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
 
         m_audio->AddAudioData((char *)audioSamples, data_size, temppts);
 
-        total_decoded_audio += data_size;
-
         allowedquit |= ringBuffer->IsInDiscMenuOrStillFrame();
-        // Audio can expand by a factor of 6 in audiooutputbase's audiobuffer
-        allowedquit |= !(decodetype & kDecodeVideo) &&
-                       ((ofill + total_decoded_audio * 6) > othresh);
-
-        // top off audio buffers initially in audio only mode
-        if (!allowedquit && !(decodetype & kDecodeVideo))
-        {
-            uint fill, total;
-            if (m_audio->GetBufferStatus(fill, total))
-            {
-                total /= 6; // Possible expansion in aobase (upmix, float conv)
-                allowedquit = fill == 0 || fill > total>>1           ||
-                              total - fill < (uint)(data_size)       ||
-                              ofill + total_decoded_audio > total>>2 ||
-                              total - fill < (uint)(data_size<<1);
-            }
-            else
-                VERBOSE(VB_IMPORTANT, LOC_ERR + "GetFrame() : Failed to top off "
-                                                "buffers in audio only mode");
-        }
 
         tmp_pkt.data += ret;
         tmp_pkt.size -= ret;
@@ -3862,12 +3877,7 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
         skipaudio = false;
     }
 
-    uint ofill = 0, ototal = 0, othresh = 0;
-    if (m_audio->GetBufferStatus(ofill, ototal))
-    {
-        othresh =  ((ototal>>1) + (ototal>>2));
-        allowedquit = ofill > othresh;
-    }
+    allowedquit = m_audio->IsBufferAlmostFull();
 
     if (private_dec && private_dec->HasBufferedFrames() &&
        (selectedTrack[kTrackTypeVideo].av_stream_index > -1))
@@ -4281,6 +4291,10 @@ bool AvFormatDecoder::DoPassThrough(const AVCodecContext *ctx)
         passthru = m_audio->CanAC3();
     else if (ctx->codec_id == CODEC_ID_DTS)
         passthru = m_audio->CanDTS();
+    else if (ctx->codec_id == CODEC_ID_EAC3)
+        passthru = m_audio->CanHD();
+    else if (ctx->codec_id == CODEC_ID_TRUEHD)
+        passthru = m_audio->CanHDLL();
     passthru &= m_audio->CanPassthrough(ctx->sample_rate, ctx->channels);
     passthru &= !internal_vol;
     passthru &= !transcoding && !disable_passthru;
@@ -4384,6 +4398,9 @@ bool AvFormatDecoder::SetupAudioStream(void)
                             audioOut.do_passthru);
     m_audio->ReinitAudio();
 
+    delete m_spdifenc;
+    m_spdifenc = NULL;
+
     if (LCD *lcd = LCD::Get())
     {
         LCDAudioFormatSet audio_format;
@@ -4449,134 +4466,80 @@ bool AvFormatDecoder::SetupAudioStream(void)
     return true;
 }
 
-static int encode_frame(bool dts, unsigned char *data, int len,
-                        short *samples, int &samples_size)
+void AvFormatDecoder::av_update_stream_timings_video(AVFormatContext *ic)
 {
-    int enc_len;
-    int flags, sample_rate, bit_rate;
-    unsigned char* ucsamples = (unsigned char*) samples;
+    int64_t start_time, start_time1, end_time, end_time1;
+    int64_t duration, duration1;
+    AVStream *st = NULL;
 
-    // we don't do any length/crc validation of the AC3 frame here; presumably
-    // the receiver will have enough sense to do that.  if someone has a
-    // receiver that doesn't, here would be a good place to put in a call
-    // to a52_crc16_block(samples+2, data_size-2) - but what do we do if the
-    // packet is bad?  we'd need to send something that the receiver would
-    // ignore, and if so, may as well just assume that it will ignore
-    // anything with a bad CRC...
+    start_time = INT64_MAX;
+    end_time = INT64_MIN;
 
-    uint nr_samples = 0, block_len;
-    if (dts)
+    for (uint i = 0; i < ic->nb_streams; i++)
     {
-        enc_len = dts_syncinfo(data, &flags, &sample_rate, &bit_rate);
-        if (enc_len < 0)
-            return enc_len;
-        int rate, sfreq, nblks;
-        dts_decode_header(data, &rate, &nblks, &sfreq);
-        nr_samples = nblks * 32;
-        block_len = nr_samples * 2 * 2;
-    }
-    else
-    {
-        AC3HeaderInfo hdr;
-        GetBitContext gbc;
-        init_get_bits(&gbc, data, len * 8); // XXX HACK: assumes 8 bit per char
-        if (!ff_ac3_parse_header(&gbc, &hdr))
+        AVStream *st1 = ic->streams[i];
+        if (st1 && st1->codec->codec_type == CODEC_TYPE_VIDEO)
         {
-            enc_len = hdr.frame_size;
+            st = st1;
+            break;
         }
-        else
-        {
-            // creates endless loop
-            enc_len = 0;
-        }
-        block_len = MAX_AC3_FRAME_SIZE;
     }
+    if (!st)
+        return;
+
+   duration = INT64_MIN;
+   if (st->start_time != (int64_t)AV_NOPTS_VALUE && st->time_base.den) {
+       start_time1= av_rescale_q(st->start_time, st->time_base, AV_TIME_BASE_Q);
+       if (start_time1 < start_time)
+           start_time = start_time1;
+       if (st->duration != (int64_t)AV_NOPTS_VALUE) {
+           end_time1 = start_time1
+                     + av_rescale_q(st->duration, st->time_base, AV_TIME_BASE_Q);
+           if (end_time1 > end_time)
+               end_time = end_time1;
+       }
+   }
+   if (st->duration != (int64_t)AV_NOPTS_VALUE) {
+       duration1 = av_rescale_q(st->duration, st->time_base, AV_TIME_BASE_Q);
+       if (duration1 > duration)
+           duration = duration1;
+   }
+    if (start_time != INT64_MAX) {
+        ic->start_time = start_time;
+        if (end_time != INT64_MIN) {
+            if (end_time - start_time > duration)
+                duration = end_time - start_time;
+        }
+    }
+    if (duration != INT64_MIN) {
+        ic->duration = duration;
+        if (ic->file_size > 0) {
+            /* compute the bitrate */
+            ic->bit_rate = (double)ic->file_size * 8.0 * AV_TIME_BASE /
+                (double)ic->duration;
+        }
+    }
+}
+
+static int extract_core_dts(unsigned char *data, int len)
+{
+    int rate, sfreq, nblks;
+
+    int enc_len = dts_decode_header(data, &rate, &nblks, &sfreq);
+    if (enc_len < 0)
+        return enc_len;
+
+    int nr_samples = nblks * 32;
+    int block_len = nr_samples * 2 * 2;
 
     if (enc_len == 0 || enc_len > len)
     {
-        samples_size = 0;
         return len;
     }
 
-    enc_len = min((uint)enc_len, block_len - 8);
-
-    swab((const char*) data, (char*) (ucsamples + 8), enc_len);
-
-    // the following values come from libmpcodecs/ad_hwac3.c in mplayer.
-    // they form a valid IEC958 AC3 header.
-    ucsamples[0] = 0x72;
-    ucsamples[1] = 0xF8;
-    ucsamples[2] = 0x1F;
-    ucsamples[3] = 0x4E;
-    ucsamples[4] = 0x01;
-    if (dts)
-    {
-        switch(nr_samples)
-        {
-            case 512:
-                ucsamples[4] = 0x0B;      /* DTS-1 (512-sample bursts) */
-                break;
-
-            case 1024:
-                ucsamples[4] = 0x0C;      /* DTS-2 (1024-sample bursts) */
-                break;
-
-            case 2048:
-                ucsamples[4] = 0x0D;      /* DTS-3 (2048-sample bursts) */
-                break;
-
-            default:
-                VERBOSE(VB_IMPORTANT, LOC +
-                        QString("DTS: %1-sample bursts not supported")
-                        .arg(nr_samples));
-                ucsamples[4] = 0x00;
-                break;
-        }
-    }
-    ucsamples[5] = 0x00;
-    ucsamples[6] = (enc_len << 3) & 0xFF;
-    ucsamples[7] = (enc_len >> 5) & 0xFF;
-    memset(ucsamples + 8 + enc_len, 0, block_len - 8 - enc_len);
-    samples_size = block_len;
+    enc_len = (enc_len < block_len - 8) ? enc_len : block_len - 8;
 
     return enc_len;
-}
-
-static int DTS_SAMPLEFREQS[16] =
-{
-    0,      8000,   16000,  32000,  64000,  128000, 11025,  22050,
-    44100,  88200,  176400, 12000,  24000,  48000,  96000,  192000
-};
-
-static int DTS_BITRATES[30] =
-{
-    32000,    56000,    64000,    96000,    112000,   128000,
-    192000,   224000,   256000,   320000,   384000,   448000,
-    512000,   576000,   640000,   768000,   896000,   1024000,
-    1152000,  1280000,  1344000,  1408000,  1411200,  1472000,
-    1536000,  1920000,  2048000,  3072000,  3840000,  4096000
-};
-
-static int dts_syncinfo(uint8_t *indata_ptr, int */*flags*/,
-                        int *sample_rate, int *bit_rate)
-{
-    int nblks;
-    int rate;
-    int sfreq;
-
-    int fsize = dts_decode_header(indata_ptr, &rate, &nblks, &sfreq);
-    if (fsize >= 0)
-    {
-        if (rate >= 0 && rate <= 29)
-            *bit_rate = DTS_BITRATES[rate];
-        else
-            *bit_rate = 0;
-        if (sfreq >= 1 && sfreq <= 15)
-            *sample_rate = DTS_SAMPLEFREQS[sfreq];
-        else
-            *sample_rate = 0;
-    }
-    return fsize;
 }
 
 // defines from libavcodec/dca.h
@@ -4584,13 +4547,13 @@ static int dts_syncinfo(uint8_t *indata_ptr, int */*flags*/,
 #define DCA_MARKER_RAW_LE 0xFE7F0180
 #define DCA_MARKER_14B_BE 0x1FFFE800
 #define DCA_MARKER_14B_LE 0xFF1F00E8
-#define DCA_HD_MARKER     0x64582025
+#define DCA_HD_MARKER 0x64582025
 
 static int dts_decode_header(uint8_t *indata_ptr, int *rate,
                              int *nblks, int *sfreq)
 {
     uint id = ((indata_ptr[0] << 24) | (indata_ptr[1] << 16) |
-               (indata_ptr[2] << 8)  | (indata_ptr[3]));
+               (indata_ptr[2] << 8) | (indata_ptr[3]));
 
     switch (id)
     {
@@ -4619,7 +4582,7 @@ static int dts_decode_header(uint8_t *indata_ptr, int *rate,
     ++*nblks;
 
     int fsize = (indata_ptr[5] & 0x03) << 12 |
-                (indata_ptr[6]         << 4) | (indata_ptr[7] >> 4);
+                (indata_ptr[6] << 4) | (indata_ptr[7] >> 4);
     ++fsize;
 
     *sfreq = (indata_ptr[8] >> 2) & 0x0f;

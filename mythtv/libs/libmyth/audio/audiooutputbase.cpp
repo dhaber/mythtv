@@ -73,7 +73,7 @@ AudioOutputBase::AudioOutputBase(const AudioSettings &settings) :
     pSoundStretch(NULL),
     encoder(NULL),              upmixer(NULL),
     source_channels(-1),        source_samplerate(0),
-    source_bytes_per_frame(0),
+    source_bytes_per_frame(0),  upmix_default(false),
     needs_upmix(false),         needs_downmix(false),
     surround_mode(QUALITY_LOW), old_stretchfactor(1.0f),
     volume(80),                 volumeControl(QString()),
@@ -107,8 +107,7 @@ AudioOutputBase::AudioOutputBase(const AudioSettings &settings) :
     src_quality  = QUALITY_MEDIUM;
 
     // Handle override of SRC quality settings
-    if (gCoreContext->GetNumSetting("AdvancedAudioSettings", false) &&
-        gCoreContext->GetNumSetting("SRCQualityOverride",    false))
+    if (gCoreContext->GetNumSetting("SRCQualityOverride", false))
     {
         src_quality = gCoreContext->GetNumSetting("SRCQuality", QUALITY_MEDIUM);
         // Extra test to keep backward compatibility with earlier SRC setting
@@ -145,6 +144,17 @@ AudioOutputBase::~AudioOutputBase()
 
 void AudioOutputBase::InitSettings(const AudioSettings &settings)
 {
+    if (settings.custom)
+    {
+            // got a custom audio report already, use it
+            // this was likely provided by the AudioTest utility
+        output_settings = new AudioOutputSettings;
+        *output_settings = *settings.custom;
+        max_channels = output_settings->BestSupportedChannels();
+        configured_channels = max_channels;
+        return;
+    }
+
     // Ask the subclass what we can send to the device
     output_settings = GetOutputSettingsUsers();
 
@@ -163,7 +173,7 @@ void AudioOutputBase::InitSettings(const AudioSettings &settings)
 /**
  * Returns capabilities supported by the audio device
  * amended to take into account the digital audio
- * options (AC3 and DTS)
+ * options (AC3, DTS, E-AC3 and TrueHD)
  */
 AudioOutputSettings* AudioOutputBase::GetOutputSettingsCleaned(void)
 {
@@ -185,7 +195,7 @@ AudioOutputSettings* AudioOutputBase::GetOutputSettingsCleaned(void)
 /**
  * Returns capabilities supported by the audio device
  * amended to take into account the digital audio
- * options (AC3 and DTS) as well as the user settings
+ * options (AC3, DTS, E-AC3 and TrueHD) as well as the user settings
  */
 AudioOutputSettings* AudioOutputBase::GetOutputSettingsUsers(void)
 {
@@ -211,10 +221,12 @@ bool AudioOutputBase::CanPassthrough(int samplerate, int channels) const
     // Don't know any cards that support spdif clocked at < 44100
     // Some US cable transmissions have 2ch 32k AC-3 streams
     ret &= samplerate >= 44100;
-        // Will downmix if we can't support the amount of channels
-    ret &= channels <= max_channels;
-        // Stereo content will always be decoded so it can later be upmixed
-    ret &= channels != 2;
+    // Will passthrough if surround audio was defined. Amplifier will
+    // do the downmix if required
+    ret &= max_channels >= 6;
+    // Stereo content will always be decoded so it can later be upmixed
+    // unless audio is configured for stereoo
+    ret |= channels == 2 && max_channels == 2;
 
     return ret;
 }
@@ -419,7 +431,8 @@ void AudioOutputBase::Reconfigure(const AudioSettings &orig_settings)
     VBAUDIO(QString("Original codec was %1, %2, %3 kHz, %4 channels")
             .arg(ff_codec_id_string((CodecID)codec))
             .arg(output_settings->FormatToString(format))
-            .arg(samplerate/1000).arg(source_channels));
+            .arg(samplerate/1000)
+            .arg(source_channels));
 
     /* Encode to AC-3 if we're allowed to passthru but aren't currently
        and we have more than 2 channels but multichannel PCM is not supported
@@ -429,22 +442,25 @@ void AudioOutputBase::Reconfigure(const AudioSettings &orig_settings)
            output_settings->canAC3() &&
            ((!output_settings->canLPCM() && configured_channels > 2) ||
             !output_settings->IsSupportedChannels(channels)));
-    VBAUDIO(QString("enc(%1), passthru(%2), canAC3(%3), canDTS(%4), canLPCM(%5)"
-                    ", configured_channels(%6), %7 channels supported(%8)")
+    VBAUDIO(QString("enc(%1), passthru(%2), canAC3(%3), canDTS(%4), canHD(%5), "
+                    "canHDLL(%6), canLPCM(%7), "
+                    "configured_channels(%8), %9 channels supported(%10)")
             .arg(enc)
             .arg(passthru)
             .arg(output_settings->canAC3())
             .arg(output_settings->canDTS())
+            .arg(output_settings->canHD())
+            .arg(output_settings->canHDLL())
             .arg(output_settings->canLPCM())
             .arg(configured_channels)
-            .arg(channels).arg(output_settings->IsSupportedChannels(channels)));
+            .arg(channels)
+            .arg(output_settings->IsSupportedChannels(channels)));
 
     int dest_rate = 0;
 
     // Force resampling if we are encoding to AC3 and sr > 48k
     // or if 48k override was checked in settings
     if ((samplerate != 48000 &&
-         gCoreContext->GetNumSetting("AdvancedAudioSettings", false) &&
          gCoreContext->GetNumSetting("Audio48kOverride", false)) ||
         (enc && (samplerate > 48000 || (need_resampler && dest_rate > 48000))))
     {
@@ -511,8 +527,46 @@ void AudioOutputBase::Reconfigure(const AudioSettings &orig_settings)
         }
     }
 
-    source_bytes_per_frame = source_channels *
-                             output_settings->SampleSize(format);
+    if (passthru)
+    {
+        switch (settings.codec)
+        {
+            case CODEC_ID_EAC3:
+                samplerate *= 4;
+            case CODEC_ID_AC3:
+            case CODEC_ID_DTS:
+                channels = 2;
+                break;
+            case CODEC_ID_TRUEHD:
+                channels = 8;
+                switch(samplerate)
+                {
+                    case 48000:
+                    case 96000:
+                    case 192000:
+                        samplerate = 192000;
+                        break;
+                    case 44100:
+                    case 88200:
+                    case 176400:
+                        samplerate = 176400;
+                        break;
+                    default:
+                        VBAUDIO("TrueHD: Unsupported samplerate");
+                        break;
+                }
+                break;
+        }
+        //AC3, DTS, DTS-HD MA and TrueHD use 16 bits samples
+        format = output_format = FORMAT_S16;
+        source_bytes_per_frame = channels *
+            output_settings->SampleSize(format);
+    }
+    else
+    {
+        source_bytes_per_frame = source_channels *
+            output_settings->SampleSize(format);
+    }
 
     // Turn on float conversion?
     if (need_resampler || needs_upmix || needs_downmix ||
@@ -527,9 +581,6 @@ void AudioOutputBase::Reconfigure(const AudioSettings &orig_settings)
         else
             output_format = output_settings->BestSupportedFormat();
     }
-
-    if (passthru)
-        channels = 2; // IEC958 bitstream - 2 ch
 
     bytes_per_frame =  processing ? 4 : output_settings->SampleSize(format);
     bytes_per_frame *= channels;
@@ -714,7 +765,7 @@ void AudioOutputBase::Reset()
 void AudioOutputBase::SetTimecode(int64_t timecode)
 {
     audbuf_timecode = audiotime = timecode;
-    frames_buffered = (int64_t)((timecode * source_samplerate) / 1000);
+    frames_buffered = (timecode * (int64_t)source_samplerate) / 1000LL;
 }
 
 /**
@@ -771,10 +822,10 @@ int AudioOutputBase::audioready()
  */
 int64_t AudioOutputBase::GetAudiotime(void)
 {
-    if (audbuf_timecode == 0)
-        return 0;
+    if (audbuf_timecode == 0LL)
+        return 0LL;
 
-    int obpf = output_bytes_per_frame;
+    int64_t obpf = (int64_t)output_bytes_per_frame;
     int64_t oldaudiotime;
 
     /* We want to calculate 'audiotime', which is the timestamp of the audio
@@ -793,8 +844,8 @@ int64_t AudioOutputBase::GetAudiotime(void)
 
     QMutexLocker lockav(&avsync_lock);
 
-    int64_t soundcard_buffer = GetBufferedOnSoundcard(); // bytes
-    int64_t main_buffer = audioready();
+    int64_t soundcard_buffer = (int64_t)GetBufferedOnSoundcard(); // bytes
+    int64_t main_buffer =(int64_t)audioready();
 
     /* audioready tells us how many bytes are in audiobuffer
        scaled appropriately if output format != internal format */
@@ -806,8 +857,8 @@ int64_t AudioOutputBase::GetAudiotime(void)
        processing latencies are catered for in AddFrames/SetAudiotime
        to eliminate race */
     audiotime = audbuf_timecode - (
-        ((main_buffer + soundcard_buffer) * eff_stretchfactor ) /
-        (effdsp * obpf));
+        ((main_buffer + soundcard_buffer) * (int64_t)eff_stretchfactor ) /
+        ((int64_t)effdsp * obpf));
 
     /* audiotime should never go backwards, but we might get a negative
        value if GetBufferedOnSoundcard() isn't updated by the driver very
@@ -837,33 +888,39 @@ int64_t AudioOutputBase::GetAudiotime(void)
  */
 void AudioOutputBase::SetAudiotime(int frames, int64_t timecode)
 {
-    int64_t processframes_stretched = 0;
-    int64_t processframes_unstretched = 0;
+    int64_t processframes_stretched = 0LL;
+    int64_t processframes_unstretched = 0LL;
+    int64_t old_audbuf_timecode = audbuf_timecode;
 
     if (needs_upmix && upmixer)
-        processframes_unstretched -= upmixer->frameLatency();
+        processframes_unstretched -= (int64_t)upmixer->frameLatency();
 
     if (pSoundStretch)
     {
-        processframes_unstretched -= pSoundStretch->numUnprocessedSamples();
-        processframes_stretched -= pSoundStretch->numSamples();
+        processframes_unstretched -=
+            (int64_t)pSoundStretch->numUnprocessedSamples();
+        processframes_stretched   -=
+            (int64_t)pSoundStretch->numSamples();
     }
 
     if (encoder)
+    {
         // the input buffered data is still in audio_bytes_per_sample format
-        processframes_stretched -= encoder->Buffered() / output_bytes_per_frame;
+        processframes_stretched -=
+            (int64_t)(encoder->Buffered() / output_bytes_per_frame);
+    }
 
-    int64_t old_audbuf_timecode = audbuf_timecode;
-
-    audbuf_timecode = timecode +
-                (((frames + processframes_unstretched) * 100000) +
-                  (processframes_stretched * eff_stretchfactor )) / effdsp;
+    audbuf_timecode =
+        timecode + (
+            ((int64_t)frames + processframes_unstretched * 100000LL) +
+            (processframes_stretched * (int64_t)eff_stretchfactor)
+                    ) / (int64_t)effdsp;
 
     // check for timecode wrap and reset audiotime if detected
     // timecode will always be monotonic asc if not seeked and reset
     // happens if seek or pause happens
     if (audbuf_timecode < old_audbuf_timecode)
-        audiotime = 0;
+        audiotime = 0LL;
 
     VBAUDIOTS(QString("SetAudiotime atc=%1 tc=%2 f=%3 pfu=%4 pfs=%5")
               .arg(audbuf_timecode)
@@ -883,10 +940,10 @@ void AudioOutputBase::SetAudiotime(int frames, int64_t timecode)
  */
 int64_t AudioOutputBase::GetAudioBufferedTime(void)
 {
-    int ret = audbuf_timecode - GetAudiotime();
+    int64_t ret = audbuf_timecode - (int64_t)GetAudiotime();
     // Pulse can give us values that make this -ve
-    if (ret < 0)
-        return 0;
+    if (ret < 0LL)
+        return 0LL;
     return ret;
 }
 
@@ -961,6 +1018,7 @@ int AudioOutputBase::CopyWithUpmix(char *buffer, int frames, int &org_waud)
     if (!needs_upmix)
     {
         int num  = len;
+
         if (bdiff <= num)
         {
             memcpy(WPOS, buffer, bdiff);
@@ -1039,7 +1097,8 @@ bool AudioOutputBase::AddFrames(void *in_buffer, int in_frames,
     int org_waud = waud,               afree = audiofree();
     int frames   = in_frames;
     void *buffer = in_buffer;
-    int bpf      = bytes_per_frame,    len = frames * source_bytes_per_frame;
+    int bpf      = bytes_per_frame;
+    int len      = frames * source_bytes_per_frame;
     int used     = kAudioRingBufferSize - afree;
     bool music   = false;
     int bdiff;
@@ -1064,8 +1123,8 @@ bool AudioOutputBase::AddFrames(void *in_buffer, int in_frames,
     if (timecode < 0)
     {
         // Send original samples to mythmusic visualisation
-        timecode = (int64_t)(frames_buffered) * 1000 / source_samplerate;
-        frames_buffered += frames;
+        timecode = (frames_buffered * 1000LL) / (int64_t)source_samplerate;
+        frames_buffered += (int64_t)frames;
         dispatchVisual((uchar *)in_buffer, len, timecode, source_channels,
                        output_settings->FormatToBits(format));
         music = true;
@@ -1103,13 +1162,14 @@ bool AudioOutputBase::AddFrames(void *in_buffer, int in_frames,
     }
 
     int frames_remaining = in_frames;
-    int frames_offset = 0;
     int frames_final = 0;
-    int maxframes = (kAudioSRCInputSize / channels) & ~0xf;
+    int maxframes = (kAudioSRCInputSize /
+                     (passthru ? channels : source_channels)) & ~0xf;
+    int offset = 0;
 
     while(frames_remaining > 0)
     {
-        buffer = (char *)in_buffer + frames_offset;
+        buffer = (char *)in_buffer + offset;
         frames = frames_remaining;
 
         len = frames * source_bytes_per_frame;
@@ -1120,11 +1180,12 @@ bool AudioOutputBase::AddFrames(void *in_buffer, int in_frames,
             {
                 frames = maxframes;
                 len = frames * source_bytes_per_frame;
-                frames_offset += len;
+                offset += len;
             }
             // Convert to floats
             len = AudioOutputUtil::toFloat(format, src_in, buffer, len);
         }
+
         frames_remaining -= frames;
 
         // Perform downmix if necessary
@@ -1222,15 +1283,16 @@ bool AudioOutputBase::AddFrames(void *in_buffer, int in_frames,
             int remaining       = len;
             int to_get          = 0;
             // The AC3 encoder can only work on 128kB of data at a time
-            int maxframes       = ((INBUFSIZE / encoder->FrameSize() - 1) *
-                                   encoder->FrameSize()) & ~0xf;
+            int maxlength       =
+                ((ENCODER_INBUFSIZE / encoder->FrameSize() - 1) *
+                 encoder->FrameSize()) & ~0xf;
 
             do
             {
                 len = remaining;
-                if (len > maxframes)
+                if (len > maxlength)
                 {
-                    len = maxframes;
+                    len = maxlength;
                 }
                 remaining -= len;
 

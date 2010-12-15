@@ -38,7 +38,7 @@ PlayerContext::PlayerContext(const QString &inUseID) :
     recUsage(inUseID), player(NULL), playerUnsafe(false), recorder(NULL),
     tvchain(NULL), buffer(NULL), playingInfo(NULL),
     playingLen(0), specialDecode(kAVSpecialDecode_None),
-    nohardwaredecoders(false), last_cardid(-1), last_framerate(30.0f),
+    nohardwaredecoders(false), last_cardid(-1),
     // Fast forward state
     ff_rew_state(0), ff_rew_index(0), ff_rew_speed(0),
     // Other state
@@ -160,13 +160,6 @@ bool PlayerContext::IsPBPSupported(void) const
             supported = vid->IsPBPSupported();
     }
     return supported;
-}
-
-bool PlayerContext::IsOSDFullScreen(void) const
-{
-    // Note: This is to allow future OSD implementations to cover
-    // two or more PBP screens.
-    return false;
 }
 
 void PlayerContext::CreatePIPWindow(const QRect &rect, int pos,
@@ -426,9 +419,9 @@ bool PlayerContext::CreatePlayer(TV *tv, QWidget *widget,
     if (nohardwaredecoders)
         player->DisableHardwareDecoders();
 
-    QString passthru_device = gCoreContext->GetNumSetting("AdvancedAudioSettings", false) &&
-                              gCoreContext->GetNumSetting("PassThruDeviceOverride", false) ?
-                                  gCoreContext->GetSetting("PassThruOutputDevice") : QString::null;
+    QString passthru_device = gCoreContext->GetNumSetting(
+        "PassThruDeviceOverride", false) ?
+        gCoreContext->GetSetting("PassThruOutputDevice") : QString::null;
 
     player->SetPlayerInfo(tv, widget, exact_seeking, this);
     AudioPlayer *audio = player->GetAudio();
@@ -540,26 +533,6 @@ void PlayerContext::DeletePlayerThread(void)
         delete playerThread;
         playerThread = NULL;
     }
-}
-
-/** \fn PlayerContext::StartOSD(TV *tv)
- *  \brief Initializes the on screen display.
- *
- *   If the MythPlayer already exists we grab it's OSD via
- *   MythPlayer::GetOSD().
- */
-bool PlayerContext::StartOSD(TV *tv)
-{
-    QMutexLocker locker(&deletePlayerLock);
-    if (player)
-    {
-        last_framerate = player->GetFrameRate();
-
-        OSD *osd = player->GetOSD();
-        if (osd)
-            return true;
-    }
-    return false;
 }
 
 void PlayerContext::UpdateTVChain(void)
