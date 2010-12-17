@@ -346,7 +346,7 @@ bool AudioPlayer::CanPassthrough(int samplerate, int channels)
 void AudioPlayer::AddAudioData(char *buffer, int len, int64_t timecode)
 {
     if (!m_audioOutput)
-	return;
+        return;
 
     if (m_parent->PrepareAudioSample(timecode) && !no_audio_out)
         m_audioOutput->Drain();
