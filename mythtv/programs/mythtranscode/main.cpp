@@ -66,6 +66,8 @@ static void usage(char *progname)
     cerr << "\t                or -ro: Pass a comma-separated list of\n";
     cerr << "\t                        recordingprofile options to override\n";
     cerr << "\t                        values in the database.\n";
+    cerr << "\t--queue          or -q: Insert transcode job into the JobQueue rather than\n";
+    cerr << "\t                        running transcoding in the foreground\n";
     cerr << "\t--verbose level  or -v: Use '-v help' for level info\n";
     cerr << "\t--help           or -h: Prints this help statement.\n";
 }
@@ -123,6 +125,26 @@ static void UpdateJobQueue(float percent_done)
                                .arg(percent_done, 0, 'f', 1));
 }
 
+static int QueueTranscodeJob(ProgramInfo *pginfo)
+{
+    bool result = JobQueue::QueueJob(
+        JOB_TRANSCODE, pginfo->GetChanID(), pginfo->GetRecordingStartTime(),
+        "", "Job Queued By MythTranscoder");
+
+    if (result)
+    {
+        VERBOSE(VB_IMPORTANT,
+          QString("Queued transcode job for chanid %1 @ %2")
+                   .arg(pginfo->GetChanID()).arg(pginfo->GetRecordingStartTime().toString("yyyyMMddhhmmss")));
+
+        return TRANSCODE_EXIT_OK;
+    }
+    QString tmp = QString("Error queueing job for chanid %1 @ %2")
+        .arg(pginfo->GetChanID()).arg(pginfo->GetRecordingStartTime().toString("yyyyMMddhhmmss"));
+    cerr << tmp.toLocal8Bit().constData() << endl;
+    return TRANSCODE_EXIT_DB_ERROR;
+}
+
 static int CheckJobQueue()
 {
     if (JobQueue::GetJobCmd(glbl_jobID) == JOB_STOP)
@@ -143,7 +165,7 @@ int main(int argc, char *argv[])
     QDateTime startts;
     int jobType = JOB_NONE;
     int otype = REPLEX_MPEG2;
-    bool useCutlist = false, keyframesonly = false;
+    bool useCutlist = false, keyframesonly = false, queueJobInstead = false, foundProfileName = false;
     bool build_index = false, fifosync = false, showprogress = false, mpeg2 = false;
     QMap<QString, QString> settingsOverride;
     frm_dir_map_t deleteMap;
@@ -284,6 +306,7 @@ int main(int argc, char *argv[])
             if (a.argc()-1 > argpos && a.argv()[argpos+1][0] != '-')
             {
                 profilename = a.argv()[argpos + 1];
+                foundProfileName = true;
                 ++argpos;
             }
             else
@@ -474,6 +497,11 @@ int main(int argc, char *argv[])
 
             ++argpos;
         }
+        else if (!strcmp(a.argv()[argpos],"-q") ||
+                 !strcmp(a.argv()[argpos],"--queue"))
+        {
+            queueJobInstead = true;
+        }
         else if (!strcmp(a.argv()[argpos],"-h") ||
                  !strcmp(a.argv()[argpos],"--help"))
         {
@@ -562,6 +590,14 @@ int main(int argc, char *argv[])
          cerr << "Must specify --fifodir to use --fifosync\n";
          return TRANSCODE_EXIT_INVALID_CMDLINE;
     }
+    if (queueJobInstead &&  
+         (found_infile || build_index ||  jobID >= 0 || !outfile.isEmpty() || 
+          !fifodir.isEmpty() || fifosync || showprogress || useCutlist || mpeg2 ||
+          isVideo || keyframesonly || !recorderOptions.isEmpty() || foundProfileName ))
+    {
+         cerr << "--queue can only be used with --chanid and --starttime \n";
+         return TRANSCODE_EXIT_INVALID_CMDLINE;
+    }
 
     VERBOSE(VB_IMPORTANT, QString("Enabled verbose msgs: %1").arg(verboseString));
 
@@ -591,6 +627,11 @@ int main(int argc, char *argv[])
             cerr << msg.toLocal8Bit().constData() << endl;
             delete pginfo;
             return TRANSCODE_EXIT_NO_RECORDING_DATA;
+        }
+
+        if (queueJobInstead)
+        {
+            return QueueTranscodeJob(pginfo);
         }
 
         infile = pginfo->GetPlaybackURL(false, true);
