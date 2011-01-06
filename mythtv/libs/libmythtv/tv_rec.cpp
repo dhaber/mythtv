@@ -1178,7 +1178,7 @@ void TVRec::TeardownRecorder(bool killFile)
         {
             if (curRecording->IsLocal())
                 PreviewGeneratorQueue::GetPreviewImage(*curRecording, "");
-            (new AudioPropsGenerator(curRecording))->Start();
+            //(new AudioPropsGenerator(curRecording))->Start();
 
             if (!tvchain)
             {
