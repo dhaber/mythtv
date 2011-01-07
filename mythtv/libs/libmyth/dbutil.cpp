@@ -11,7 +11,6 @@
 #include <QDateTime>
 #include <QSqlError>
 #include <QSqlRecord>
-#include <QProcess>
 
 #include "dbutil.h"
 #include "mythcorecontext.h"
@@ -20,6 +19,8 @@
 #include "mythdb.h"
 #include "mythdirs.h"
 #include "mythverbose.h"
+#include "mythsystem.h"
+#include "exitcodes.h"
 
 #define LOC QString("DBUtil: ")
 #define LOC_ERR QString("DBUtil Error: ")
@@ -581,7 +582,7 @@ bool DBUtil::DoBackup(const QString &backupScript, QString &filename)
             .arg(backupScript));
 
     QString command = backupScript + scriptArgs + " " + tempDatabaseConfFile;
-    uint status = myth_system(command, kMSDontBlockInputDevs);
+    uint status = myth_system(command, kMSDontBlockInputDevs|kMSAnonLog);
 
     if (hastemp)
     {
@@ -589,7 +590,7 @@ bool DBUtil::DoBackup(const QString &backupScript, QString &filename)
         unlink(tmpfile.constData());
     }
 
-    if (status)
+    if (status != GENERIC_EXIT_OK)
     {
         VERBOSE(VB_IMPORTANT, LOC_ERR +
                 QString("Error backing up database: %1 (%2)")
@@ -686,12 +687,12 @@ bool DBUtil::DoBackup(QString &filename)
     VERBOSE(VB_IMPORTANT, QString("Backing up database to file: '%1'")
             .arg(backupPathname));
 
-    uint status = myth_system(command, kMSDontBlockInputDevs);
+    uint status = myth_system(command, kMSDontBlockInputDevs|kMSAnonLog);
 
     QByteArray tmpfile = tempExtraConfFile.toLocal8Bit();
     unlink(tmpfile.constData());
 
-    if (status)
+    if (status != GENERIC_EXIT_OK)
     {
         VERBOSE(VB_IMPORTANT, LOC_ERR +
                 QString("Error backing up database: '%1' (%2)")
@@ -706,7 +707,7 @@ bool DBUtil::DoBackup(QString &filename)
         compressCommand += " " + backupPathname;
         status = myth_system(compressCommand, kMSDontBlockInputDevs);
 
-        if (status)
+        if (status != GENERIC_EXIT_OK)
         {
             VERBOSE(VB_IMPORTANT,
                    "Compression failed, backup file will remain uncompressed.");
@@ -793,40 +794,37 @@ bool DBUtil::ParseDBMSVersion()
  */
 int DBUtil::CountClients(void)
 {
-    DatabaseParams DB    = gCoreContext->GetDatabaseParams();
-    int            count = 0;
+    int count = 0;
 
-    // QSqlQuery doesn't know how to parse the results of "SHOW PROCESSLIST",
-    // so instead of a nice query.next loop, we have to do it in a hacky way
-
-    QString     cmd = "mysql";
-    QStringList params;
-    QProcess    proc;
-
-    params << "-h" << DB.dbHostName;
-    params << "-u" << DB.dbUserName;
-    params << "-p" + DB.dbPassword;
-    params << "-e" << "SHOW PROCESSLIST";
-
-    proc.start(cmd, params);
-    if (!proc.waitForStarted(1000) ||
-        !proc.waitForFinished(3000))
+    MSqlQuery query(MSqlQuery::InitCon());
+    if (!query.isConnected())
     {
-        proc.kill();
-        return 0;
+        VERBOSE(VB_GENERAL+VB_EXTRA, "DBUtil::CountClients(): "
+                "Not connected to DB");
+        return count;
     }
 
-    while (proc.canReadLine())
+    if (!query.exec("SHOW PROCESSLIST;"))
     {
-        QByteArray dbname = DB.dbName.toAscii();
-        if (proc.readLine().contains(dbname.constData()))
+        MythDB::DBError("DBUtil CountClients", query);
+        return count;
+    }
+
+    QSqlRecord record = query.record();
+    int db_index = record.indexOf("db");
+    QString dbName = gCoreContext->GetDatabaseParams().dbName;
+    QString inUseDB;
+
+    while (query.next())
+    {
+        inUseDB = query.value(db_index).toString();
+        if (inUseDB == dbName)
             ++count;
     }
 
-
     // On average, each myth program has 4 database connections,
     // but we round up just in case a new program is loading:
-    count = (count + 3)/4; 
+    count = (count + 3)/4;
 
     VERBOSE(VB_GENERAL+VB_EXTRA,
             QString("DBUtil::CountClients() found %1").arg(count));

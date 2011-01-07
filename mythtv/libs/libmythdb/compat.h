@@ -26,13 +26,13 @@
 
 #endif
 
-#ifdef _WIN32 
-#ifndef _MSC_VER 
+#ifdef _WIN32
+#ifndef _MSC_VER
  #define close wsock_close
 #endif
 
-#ifndef NOMINMAX 
-#define NOMINMAX 
+#ifndef NOMINMAX
+#define NOMINMAX
 #endif
 
 #include <windows.h>
@@ -124,18 +124,18 @@ inline int random(void)
 #endif
 
 #if defined(__cplusplus) && defined(_MSC_VER)
-inline unsigned int usleep( unsigned int us ) 
-{ 
+inline unsigned int usleep( unsigned int us )
+{
     Sleep( (us + 999) / 1000 );
     return 0;
 }
 
-inline int close( int fd ) 
+inline int close( int fd )
 {
     return _close( fd );
 }
 
-inline int write( int fd, const void *buffer, unsigned int count ) 
+inline int write( int fd, const void *buffer, unsigned int count )
 {
     return _write( fd, buffer, count );
 }
@@ -181,7 +181,6 @@ inline int statfs(const char* path, struct statfs* buffer)
 
 #ifdef USING_MINGW
 #define lstat stat
-#define bzero(x, y) memset((x), 0, (y))
 #define nice(x) ((int)!::SetPriorityClass(\
                     ::GetCurrentProcess(), ((x) < -10) ? \
                         HIGH_PRIORITY_CLASS : (((x) < 0) ? \
@@ -195,12 +194,15 @@ inline int statfs(const char* path, struct statfs* buffer)
 
 #ifdef USING_MINGW
 //signals: not tested
-#define SIGHUP 1
-#define SIGQUIT 1
-#define SIGPIPE 3   // not implemented in MINGW, will produce "unable to ignore sigpipe"
-#define SIGALRM 13
-#define SIGUSR1 16  // used to force UPnP mediamap rebuild in the backend
-#define SIGUSR2 17  // used to restart LIRC as required
+#define SIGHUP  1
+#define SIGQUIT 3
+#define SIGKILL 9
+#define SIGUSR1 10  // used to force UPnP mediamap rebuild in the backend
+#define SIGUSR2 12  // used to restart LIRC as required
+#define SIGPIPE 13  // not implemented in MINGW, will produce "unable to ignore sigpipe"
+#define SIGALRM 14
+#define SIGCONT 18
+#define SIGSTOP 19
 
 #define S_IRGRP 0
 #define S_IROTH 0

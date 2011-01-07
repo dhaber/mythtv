@@ -1450,7 +1450,24 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
         }
 
         if (writemode)
+        {
+            QString dirPath = finfo.absolutePath();
+            QDir qdir(dirPath);
+            if (!qdir.exists())
+            {
+                if (!qdir.mkpath(dirPath))
+                {
+                    VERBOSE(VB_IMPORTANT, QString("ERROR: FileTransfer "
+                            "filename '%1' is in a subdirectory which does "
+                            "not exist, but can not be created.")
+                            .arg(filename));
+                    errlist << "filetransfer_unable_to_create_subdirectory";
+                    socket->writeStringList(errlist);
+                    return;
+                }
+            }
             ft = new FileTransfer(filename, socket, writemode);
+        }
         else
             ft = new FileTransfer(filename, socket, usereadahead, timeout_ms);
 
@@ -4170,7 +4187,7 @@ void MainServer::BackendQueryDiskSpace(QStringList &strlist, bool consolidated,
                 {
                     QByteArray cdir = currentDir.toAscii();
                     getDiskSpace(cdir.constData(), totalKB, usedKB);
-                    bzero(&statbuf, sizeof(statbuf));
+                    memset(&statbuf, 0, sizeof(statbuf));
                     localStr = "1"; // Assume local
                     bSize = 0;
 
@@ -5491,7 +5508,7 @@ void MainServer::connectionClosed(MythSocket *socket)
         {
             list<uint> disconnectedSlaves;
             bool needsReschedule = false;
-    
+
             if (ismaster && pbs->isSlaveBackend())
             {
                 VERBOSE(VB_IMPORTANT,QString("Slave backend: %1 no longer connected")

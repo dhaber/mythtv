@@ -515,6 +515,8 @@ class MPUBLIC MythPlayer
     void  WrapTimecode(int64_t &timecode, TCTypes tc_type);
     void  InitAVSync(void);
     virtual void AVSync(VideoFrame *buffer, bool limit_delay = false);
+    void  ResetAVSync(void);
+    void  SetFrameInterval(FrameScanType scan, double speed);
     void  FallbackDeint(void);
     void  CheckExtraAudioDecode(void);
 
@@ -704,6 +706,8 @@ class MPUBLIC MythPlayer
     int        avsync_delay;
     int        avsync_adjustment;
     int        avsync_avg;
+    int        avsync_predictor;
+    bool       avsync_predictor_enabled;
     int        refreshrate;
     bool       lastsync;
     bool       decode_extra_audio;

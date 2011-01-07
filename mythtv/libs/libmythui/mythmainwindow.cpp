@@ -50,6 +50,7 @@ using namespace std;
 #include "screensaver.h"
 #include "lirc.h"
 #include "lircevent.h"
+#include "mythudplistener.h"
 
 #ifdef USING_APPLEREMOTE
 #include "AppleRemoteListener.h"
@@ -163,7 +164,9 @@ class MythMainWindowPrivate
 
         AllowInput(true),
 
+        gesture(MythGesture()),
         gestureTimer(NULL),
+        hideMouseTimer(NULL),
 
         paintwin(NULL),
 
@@ -173,7 +176,9 @@ class MythMainWindowPrivate
         m_drawDisabledDepth(0),
         m_drawEnabled(true),
 
-        m_themeBase(NULL)
+        m_themeBase(NULL),
+
+        m_udpListener(NULL)
     {
     }
 
@@ -254,6 +259,7 @@ class MythMainWindowPrivate
     bool m_drawEnabled;
 
     MythThemeBase *m_themeBase;
+    MythUDPListener *m_udpListener;
 };
 
 // Make keynum in QKeyEvent be equivalent to what's in QKeySequence
@@ -456,6 +462,8 @@ MythMainWindow::MythMainWindow(const bool useDB)
     if (d->appleRemote->isListeningToRemote())
         d->appleRemote->start();
 #endif
+
+    d->m_udpListener = new MythUDPListener();
 
     InitKeys();
 

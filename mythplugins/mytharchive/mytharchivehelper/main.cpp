@@ -59,6 +59,9 @@ using namespace std;
 #include <programinfo.h>
 #include <mythdirs.h>
 #include <mythconfig.h>
+#include <mythsystem.h>
+#include <util.h>
+
 extern "C" {
 #include <avcodec.h>
 #include <avformat.h>
@@ -91,11 +94,14 @@ NativeArchive::NativeArchive(void)
 {
     // create the lock file so the UI knows we're running
     QString tempDir = getTempDirectory();
-    QString command = QString("echo %1 > " + tempDir +
-                      "/logs/mythburn.lck").arg(getpid());
-    int res = system(qPrintable(command));
-    if (WIFEXITED(res) == 0)
+    QFile file(tempDir + "/logs/mythburn.lck");
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         VERBOSE(VB_IMPORTANT, "NativeArchive: Failed to create lock file");
+
+    QString pid = QString("%1").arg(getpid());
+    file.write(pid.toAscii());
+    file.close();
 }
 
 NativeArchive::~NativeArchive(void)
@@ -198,10 +204,8 @@ static bool createISOImage(QString &sourceDirectory)
     QString command = mkisofs + " -R -J -V 'MythTV Archive' -o ";
     command += tempDirectory + "mythburn.iso " + sourceDirectory;
 
-    int res = system(qPrintable(command));
-    if (WIFEXITED(res))
-        res = WEXITSTATUS(res);
-    if (res != 0)
+    uint res = myth_system(command);
+    if (res != GENERIC_EXIT_OK)
     {
         VERBOSE(VB_JOBQUEUE, QString("ERROR: Failed while running mkisofs. Result: %1")
                 .arg(res));
@@ -256,15 +260,13 @@ static int burnISOImage(int mediaType, bool bEraseDVDRW, bool nativeFormat)
         }
     }
 
-    int res = system(qPrintable(command));
-    if (WIFEXITED(res))
-        res = WEXITSTATUS(res);
-    if (res == 0)
-        VERBOSE(VB_JOBQUEUE, "Finished burning ISO image");
-    else
+    uint res = myth_system(command);
+    if (res != GENERIC_EXIT_OK)
         VERBOSE(VB_JOBQUEUE,
                 QString("ERROR: Failed while running growisofs. Result: %1")
                 .arg(res));
+    else
+        VERBOSE(VB_JOBQUEUE, "Finished burning ISO image");
 
     return res;
 }
@@ -348,9 +350,13 @@ int NativeArchive::doNativeArchive(const QString &jobFile)
 
         saveDirectory += "work/";
 
-        int res = system(qPrintable("rm -fr " + saveDirectory + "*"));
-        if (!WIFEXITED(res) || WEXITSTATUS(res))
-            VERBOSE(VB_IMPORTANT, "NativeArchive: Failed to clear work directory");
+        QDir dir(saveDirectory);
+        if (dir.exists())
+        {
+            if (!MythRemoveDirectory(dir))
+                VERBOSE(VB_IMPORTANT, "NativeArchive: Failed to clear work directory");
+        }
+        dir.mkpath(saveDirectory);
     }
 
     VERBOSE(VB_JOBQUEUE, QString("Saving files to : %1").arg(saveDirectory));
@@ -445,7 +451,9 @@ int NativeArchive::exportRecording(QDomElement   &itemNode,
     // create the directory to hold this items files
     QDir dir(saveDirectory + title);
     if (!dir.exists())
-        dir.mkdir(saveDirectory + title);
+        dir.mkpath(saveDirectory + title);
+    if (!dir.exists())
+        VERBOSE(VB_IMPORTANT, strerror(errno));
 
     VERBOSE(VB_JOBQUEUE, "Creating xml file for " + title);
     QDomDocument doc("MYTHARCHIVEITEM");
@@ -1873,8 +1881,8 @@ static int grabThumbnail(QString inFile, QString thumbList, QString outFile, int
     AVPacket pkt;
     AVPicture orig;
     AVPicture retbuf;
-    bzero(&orig, sizeof(AVPicture));
-    bzero(&retbuf, sizeof(AVPicture));
+    memset(&orig, 0, sizeof(AVPicture));
+    memset(&retbuf, 0, sizeof(AVPicture));
 
     int bufflen = width * height * 4;
     unsigned char *outputbuf = new unsigned char[bufflen];
@@ -2439,7 +2447,7 @@ static int isRemote(QString filename)
         return 0;
 
     struct statfs statbuf;
-    bzero(&statbuf, sizeof(statbuf));
+    memset(&statbuf, 0, sizeof(statbuf));
 
 #if CONFIG_DARWIN
     if ((statfs(qPrintable(filename), &statbuf) == 0) &&
@@ -2463,7 +2471,7 @@ static void showUsage()
     cout << "-t/--createthumbnail infile thumblist outfile framecount\n";
     cout << "       (create one or more thumbnails)\n";
     cout << "       infile     - filename of recording to grab thumbs from\n";
-    cout << "       thumblist  - comma seperated list of required thumbs in seconds\n";
+    cout << "       thumblist  - comma separated list of required thumbs in seconds\n";
     cout << "       outfile    - name of file to save thumbs to eg 'thumb%1-%2.jpg'\n";
     cout << "                    %1 will be replaced with the no. of the thumb\n";
     cout << "                    %2 will be replaced with the frame no.\n";
@@ -2873,7 +2881,7 @@ int main(int argc, char **argv)
     else
         showUsage();
 
-    return res;
+    exit(res);
 }
 
 

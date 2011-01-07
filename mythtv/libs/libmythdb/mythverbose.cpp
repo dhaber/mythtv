@@ -3,9 +3,7 @@
 #include <QtDebug>
 
 #include "mythverbose.h"
-
-#define GENERIC_EXIT_OK                             0
-#define GENERIC_EXIT_INVALID_CMDLINE              252
+#include "exitcodes.h"
 
 const unsigned int verboseDefaultInt = VB_IMPORTANT | VB_GENERAL;
 const char        *verboseDefaultStr = " important general";
@@ -21,7 +19,6 @@ bool         haveUserDefaultValues = false;
 int parse_verbose_arg(QString arg)
 {
     QString option;
-    bool reverseOption;
 
     verbose_mutex.lock();
 
@@ -41,7 +38,7 @@ int parse_verbose_arg(QString arg)
              it != verboseOpts.end(); ++it )
         {
             option = *it;
-            reverseOption = false;
+            bool reverseOption = false;
 
             if (option != "none" && option.left(2) == "no")
             {
