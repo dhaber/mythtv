@@ -827,6 +827,25 @@ extern "C" void HandleDVDStreamChange(void* data)
     decoder->ScanStreams(true);
 }
 
+extern "C" void HandleBDStreamChange(void* data)
+{
+    AvFormatDecoder* decoder = (AvFormatDecoder*) data;
+
+    VERBOSE(VB_PLAYBACK, LOC + "HandleBDStreamChange(): resetting");
+
+    QMutexLocker locker(avcodeclock);
+    decoder->Reset(true, false);
+    decoder->CloseCodecs();
+    decoder->FindStreamInfo();
+    decoder->ScanStreams(false);
+}
+
+int AvFormatDecoder::FindStreamInfo(void)
+{
+    QMutexLocker lock(avcodeclock);
+    return av_find_stream_info(ic);
+}
+
 /**
  *  OpenFile opens a ringbuffer for playback.
  *
@@ -892,17 +911,13 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
         return -1;
     }
 
-    int ret = -1;
-    {
-        QMutexLocker locker(avcodeclock);
-        ret = av_find_stream_info(ic);
-    }
-    if (ringBuffer->IsDVD())
-    {
-        if (!ringBuffer->DVD()->StartFromBeginning())
-            return -1;
-        ringBuffer->DVD()->IgnoreStillOrWait(false);
-    }
+    int ret = FindStreamInfo();
+
+    // Reset DVD/bluray ringbuffers
+    if (!ringBuffer->StartFromBeginning())
+        return -1;
+    ringBuffer->IgnoreWaitStates(false);
+
     if (ret < 0)
     {
         VERBOSE(VB_IMPORTANT, LOC_ERR + "Could not find codec parameters. " +
@@ -914,6 +929,9 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
     ic->streams_changed = HandleStreamChange;
     if (ringBuffer->IsDVD())
         ic->streams_changed = HandleDVDStreamChange;
+    else if (ringBuffer->IsBD())
+        ic->streams_changed = HandleBDStreamChange;
+
     ic->stream_change_data = this;
 
     fmt->flags &= ~AVFMT_NOFILE;
@@ -1946,19 +1964,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
 
         if (enc->codec_type == CODEC_TYPE_SUBTITLE)
         {
-            int lang;
-            if (ringBuffer && ringBuffer->IsBD())
-            {
-                lang = ringBuffer->BD()->
-                    GetSubtitleLanguage(subtitleStreamCount);
-            }
-            else
-            {
-                AVMetadataTag *metatag = av_metadata_get(ic->streams[i]->metadata,
-                                                        "language", NULL, 0);
-                lang = metatag ? get_canonical_lang(metatag->value) : iso639_str3_to_key("und");
-            }
-
+            int lang = GetSubtitleLanguage(subtitleStreamCount, i);
             int lang_indx = lang_sub_cnt[lang]++;
             subtitleStreamCount++;
 
@@ -1974,25 +1980,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
 
         if (enc->codec_type == CODEC_TYPE_AUDIO)
         {
-            int lang;
-            if (ringBuffer && ringBuffer->IsDVD())
-            {
-                lang = ringBuffer->DVD()->GetAudioLanguage(
-                    ringBuffer->DVD()->GetAudioTrackNum(ic->streams[i]->id));
-            }
-            else if (ringBuffer && ringBuffer->IsBD())
-            {
-                lang = ringBuffer->BD()->GetAudioLanguage(audioStreamCount);
-            }
-            else
-            {
-                AVMetadataTag *metatag = av_metadata_get(
-                    ic->streams[i]->metadata,
-                    "language", NULL, 0);
-                lang = metatag ? get_canonical_lang(metatag->value) :
-                    iso639_str3_to_key("und");
-            }
-
+            int lang = GetAudioLanguage(audioStreamCount, i);
             int channels  = ic->streams[i]->codec->channels;
             int lang_indx = lang_aud_cnt[lang]++;
             audioStreamCount++;
@@ -2034,56 +2022,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
             ringBuffer->UpdateRawBitrate(bitrate);
     }
 
-    if (ringBuffer && ringBuffer->IsDVD())
-    {
-        if (tracks[kTrackTypeAudio].size() > 1)
-        {
-            stable_sort(tracks[kTrackTypeAudio].begin(),
-                        tracks[kTrackTypeAudio].end());
-            sinfo_vec_t::iterator it = tracks[kTrackTypeAudio].begin();
-            for (; it != tracks[kTrackTypeAudio].end(); ++it)
-            {
-                VERBOSE(VB_PLAYBACK, LOC +
-                            QString("DVD Audio Track Map "
-                                    "Stream id #%1, MPEG stream %2")
-                                    .arg(it->stream_id)
-                                    .arg(ic->streams[it->av_stream_index]->id));
-            }
-            int trackNo = ringBuffer->DVD()->GetTrack(kTrackTypeAudio);
-            if (trackNo >= (int)GetTrackCount(kTrackTypeAudio))
-                trackNo = GetTrackCount(kTrackTypeAudio) - 1;
-            SetTrack(kTrackTypeAudio, trackNo);
-        }
-        if (tracks[kTrackTypeSubtitle].size() > 0)
-        {
-            stable_sort(tracks[kTrackTypeSubtitle].begin(),
-                        tracks[kTrackTypeSubtitle].end());
-            sinfo_vec_t::iterator it = tracks[kTrackTypeSubtitle].begin();
-            for(; it != tracks[kTrackTypeSubtitle].end(); ++it)
-            {
-                VERBOSE(VB_PLAYBACK, LOC +
-                        QString("DVD Subtitle Track Map "
-                                "Stream id #%1 ")
-                                .arg(it->stream_id));
-                }
-            stable_sort(tracks[kTrackTypeSubtitle].begin(),
-                        tracks[kTrackTypeSubtitle].end());
-            int trackNo = ringBuffer->DVD()->GetTrack(kTrackTypeSubtitle);
-            uint captionmode = m_parent->GetCaptionMode();
-            int trackcount = (int)GetTrackCount(kTrackTypeSubtitle);
-            if (captionmode == kDisplayAVSubtitle &&
-                (trackNo < 0 || trackNo >= trackcount))
-            {
-                m_parent->EnableSubtitles(false);
-            }
-            else if (trackNo >= 0 && trackNo < trackcount &&
-                    !ringBuffer->IsInDiscMenuOrStillFrame())
-            {
-                    SetTrack(kTrackTypeSubtitle, trackNo);
-                    m_parent->EnableSubtitles(true);
-            }
-        }
-    }
+    PostProcessTracks();
 
     // Select a new track at the next opportunity.
     ResetTracks();
@@ -2122,6 +2061,21 @@ int AvFormatDecoder::ScanStreams(bool novideo)
     ScanDSMCCStreams();
 
     return scanerror;
+}
+
+int AvFormatDecoder::GetSubtitleLanguage(uint subtitle_index, uint stream_index)
+{
+    (void)subtitle_index;
+     AVMetadataTag *metatag =
+        av_metadata_get(ic->streams[stream_index]->metadata,
+                        "language", NULL, 0);
+    return metatag ? get_canonical_lang(metatag->value) :
+                     iso639_str3_to_key("und");
+}
+
+int AvFormatDecoder::GetAudioLanguage(uint audio_index, uint stream_index)
+{
+    return GetSubtitleLanguage(audio_index, stream_index);
 }
 
 /**
@@ -3905,40 +3859,7 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
                 allowedquit = true;
         }
 
-        if (ringBuffer->IsDVD())
-        {
-            // Update the title length
-            if (m_parent->AtNormalSpeed() &&
-                ringBuffer->DVD()->PGCLengthChanged())
-            {
-                ResetPosMap();
-                SyncPositionMap();
-                UpdateFramesPlayed();
-            }
-
-            // rescan the non-video streams as necessary
-            if (ringBuffer->DVD()->AudioStreamsChanged())
-                ScanStreams(true);
-
-            // Always use the first video stream
-            // (must come after ScanStreams above)
-            selectedTrack[kTrackTypeVideo].av_stream_index = 0;
-        }
-
-        if (ringBuffer->IsBD())
-        {
-            // Update the title length
-            if (m_parent->AtNormalSpeed() && ringBuffer->BD()->TitleChanged())
-            {
-                ResetPosMap();
-                SyncPositionMap();
-                UpdateFramesPlayed();
-            }
-
-            // Always use the first video stream
-            // (must come after ScanStreams above)
-            selectedTrack[kTrackTypeVideo].av_stream_index = 0;
-        }
+        StreamChangeCheck();
 
         if (gotvideo)
         {
@@ -4003,6 +3924,13 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
 
             if (pkt->pos > readAdjust)
                 pkt->pos -= readAdjust;
+        }
+
+        if (!ic)
+        {
+            VERBOSE(VB_IMPORTANT, LOC_ERR + "No context");
+            av_free_packet(pkt);
+            continue;
         }
 
         if (pkt->stream_index >= (int)ic->nb_streams)

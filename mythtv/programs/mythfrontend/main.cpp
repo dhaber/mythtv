@@ -28,6 +28,7 @@ using namespace std;
 #include "manualschedule.h"
 #include "playbackbox.h"
 #include "themechooser.h"
+#include "setupwizard_general.h"
 #include "customedit.h"
 #include "viewscheduled.h"
 #include "programrecpriority.h"
@@ -36,6 +37,7 @@ using namespace std;
 #include "audiooutput.h"
 #include "globalsettings.h"
 #include "audiogeneralsettings.h"
+#include "grabbersettings.h"
 #include "profilegroup.h"
 #include "playgroup.h"
 #include "networkcontrol.h"
@@ -579,6 +581,26 @@ static void TVMenuCallback(void *data, QString &selection)
             mainStack->AddScreen(tp);
         else
             delete tp;
+    }
+    else if (sel == "settings setupwizard")
+    {
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        GeneralSetupWizard *sw = new GeneralSetupWizard(mainStack, "setupwizard");
+
+        if (sw->Create())
+            mainStack->AddScreen(sw);
+        else
+            delete sw;
+    }
+    else if (sel == "settings grabbers")
+    {
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        GrabberSettings *gs = new GrabberSettings(mainStack, "grabbersettings");
+
+        if (gs->Create())
+            mainStack->AddScreen(gs);
+        else
+            delete gs;
     }
     else if (sel == "screensetupwizard")
     {

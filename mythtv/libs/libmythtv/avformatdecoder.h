@@ -38,6 +38,7 @@ struct SwsContext;
 
 extern "C" void HandleStreamChange(void*);
 extern "C" void HandleDVDStreamChange(void*);
+extern "C" void HandleBDStreamChange(void*);
 
 class AudioInfo
 {
@@ -87,6 +88,7 @@ class AvFormatDecoder : public DecoderBase
 {
     friend void HandleStreamChange(void*);
     friend void HandleDVDStreamChange(void*);
+    friend void HandleBDStreamChange(void*);
   public:
     static void GetDecoders(render_opts &opts);
     AvFormatDecoder(MythPlayer *parent, const ProgramInfo &pginfo,
@@ -147,6 +149,7 @@ class AvFormatDecoder : public DecoderBase
     virtual int SetTrack(uint type, int trackNo);
 
     int ScanStreams(bool novideo);
+    int FindStreamInfo(void);
 
     virtual int  GetNumChapters();
     virtual void GetChapterTimes(QList<long long> &times);
@@ -177,9 +180,8 @@ class AvFormatDecoder : public DecoderBase
     void ScanTeletextCaptions(int av_stream_index);
     void ScanRawTextCaptions(int av_stream_index);
     void ScanDSMCCStreams(void);
-    int AutoSelectAudioTrack(void);
+    int  AutoSelectAudioTrack(void);
 
-  private:
     friend int get_avf_buffer(struct AVCodecContext *c, AVFrame *pic);
     friend void release_avf_buffer(struct AVCodecContext *c, AVFrame *pic);
 
@@ -232,8 +234,11 @@ class AvFormatDecoder : public DecoderBase
     void av_update_stream_timings_video(AVFormatContext *ic);
 
     virtual int GetAudioProperties(void);
+    virtual void StreamChangeCheck(void) { }
+    virtual void PostProcessTracks(void) { }
+    virtual int GetSubtitleLanguage(uint subtitle_index, uint stream_index);
+    virtual int GetAudioLanguage(uint audio_index, uint stream_index);
 
-  private:
     PrivateDecoder *private_dec;
 
     bool is_db_ignored;

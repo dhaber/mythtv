@@ -38,11 +38,16 @@ LIBS += -L../libmythui           -lmythui-$${LIBVERSION}
 LIBS += -L../libmythupnp         -lmythupnp-$${LIBVERSION}
 LIBS += -L../libmythfreesurround -lmythfreesurround-$${LIBVERSION}
 LIBS += -L../../external/FFmpeg/libavcodec -lmythavcodec
-LIBS += -L../../external/FFmpeg/libavcore  -lmythavcodec
+LIBS += -L../../external/FFmpeg/libavcore  -lmythavcore
 LIBS += -L../../external/FFmpeg/libavutil  -lmythavutil
+LIBS += -L../../external/FFmpeg/libavformat -lmythavformat
 LIBS += -L../libmyth              -lmyth-$${LIBVERSION}
 LIBS += -L../libmythtv              -lmythtv-$${LIBVERSION}
 LIBS += -L../libmythbluray        -lmythbluray-$${LIBVERSION}
+LIBS += -L../../external/FFmpeg/libswscale -lmythswscale
+using_mheg:LIBS += -L../libmythfreemheg        -lmythfreemheg-$${LIBVERSION}
+using_live:LIBS += -L../libmythlivemedia        -lmythlivemedia-$${LIBVERSION}
+using_hdhomerun:LIBS += -L../libmythhdhomerun        -lmythhdhomerun-$${LIBVERSION}
 
 mingw {
 
@@ -61,6 +66,8 @@ INSTALLS += inc
 macx {
 
     QMAKE_LFLAGS_SHLIB += -flat_namespace
+
+    using_firewire:using_backend:LIBS += -F$${CONFIG_MAC_AVC} -framework AVCVideoServices
 }
 
 QT += network xml sql

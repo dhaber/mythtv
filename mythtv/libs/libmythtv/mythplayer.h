@@ -76,22 +76,8 @@ enum
     kDisplayTextSubtitle        = 0x020,
     kDisplayDVDButton           = 0x040,
     kDisplayRawTextSubtitle     = 0x080,
-    kDisplayAllCaptions         = 0x0ff,
-    kDisplayTeletextMenu        = 0x100,
-};
-
-class PlayerTimer : public QObject
-{
-    Q_OBJECT
-  public:
-    PlayerTimer(MythPlayer *mp);
-    void PostNextEvent(void);
-    virtual bool event(QEvent *e);
-    static enum QEvent::Type kPlayerEventType;
-
-  private:
-    MythPlayer *m_mp;
-    uint32_t    m_queue_size;
+    kDisplayAllCaptions         = 0x100,
+    kDisplayTeletextMenu        = 0x200,
 };
 
 class DecoderThread : public QThread
@@ -138,7 +124,7 @@ class MPUBLIC MythPlayer
     void SetLength(int len)                   { totalLength = len; }
     void SetFramesPlayed(uint64_t played)     { framesPlayed = played; }
     void SetVideoFilters(const QString &override);
-    void SetEof(void)                         { eof = true; }
+    void SetEof(void)                         { decoderEof = true; }
     void SetPIPActive(bool is_active)         { pip_active = is_active; }
     void SetPIPVisible(bool is_visible)       { pip_visible = is_visible; }
 
@@ -191,7 +177,7 @@ class MPUBLIC MythPlayer
     // Bool Gets
     bool    GetRawAudioState(void) const;
     bool    GetLimitKeyRepeat(void) const     { return limitKeyRepeat; }
-    bool    GetEof(void) const                { return eof; }
+    bool    GetEof(void) const                { return decoderEof; }
     bool    IsErrored(void) const;
     bool    IsPlaying(uint wait_ms = 0, bool wait_for = true) const;
     bool    AtNormalSpeed(void) const         { return next_normal_speed; }
@@ -208,8 +194,8 @@ class MPUBLIC MythPlayer
     VideoOutput *getVideoOutput(void)         { return videoOutput; }
     virtual char *GetScreenGrabAtFrame(uint64_t frameNum, bool absolute,
                                        int &buflen, int &vw, int &vh, float &ar);
-    char        *GetScreenGrab(int secondsin, int &buflen,
-                               int &vw, int &vh, float &ar);
+    virtual char *GetScreenGrab(int secondsin, int &buflen,
+                                int &vw, int &vh, float &ar);
     InteractiveTV *GetInteractiveTV(void);
 
     // Title stuff
@@ -292,7 +278,7 @@ class MPUBLIC MythPlayer
 
     // DVD public stuff
     virtual void ChangeDVDTrack(bool ffw)       { (void) ffw;       }
-    virtual bool GoToDVDMenu(QString str)       { return false;     }
+    virtual bool GoToMenu(QString str)          { return false;     }
     virtual void GoToDVDProgram(bool direction) { (void) direction; }
 
     // Position Map Stuff
@@ -381,9 +367,8 @@ class MPUBLIC MythPlayer
     void JumpChapter(int chapter);
 
     // Playback
-    virtual bool PrebufferEnoughFrames(bool pause_audio = true,
-                                       int  min_buffers = 0);
-    void         SetBuffering(bool new_buffering, bool pause_audio = false);
+    virtual bool PrebufferEnoughFrames(int min_buffers = 0);
+    void         SetBuffering(bool new_buffering);
     void         RefreshPauseFrame(void);
     virtual void DisplayPauseFrame(void);
     virtual void DisplayNormalFrame(bool check_prebuffer = true);
@@ -516,6 +501,7 @@ class MPUBLIC MythPlayer
     void  InitAVSync(void);
     virtual void AVSync(VideoFrame *buffer, bool limit_delay = false);
     void  ResetAVSync(void);
+    int64_t AVSyncGetAudiotime(void);
     void  SetFrameInterval(FrameScanType scan, double speed);
     void  FallbackDeint(void);
     void  CheckExtraAudioDecode(void);
@@ -534,7 +520,6 @@ class MPUBLIC MythPlayer
     PlayerContext *player_ctx;
     DecoderThread *decoderThread;
     QThread       *playerThread;
-    PlayerTimer   *playerTimer;
     bool           no_hardware_decoders;
 
     // Window stuff
@@ -547,6 +532,7 @@ class MPUBLIC MythPlayer
     QWaitCondition decoderThreadUnpause;
     mutable QMutex decoderPauseLock;
     mutable QMutex decoderSeekLock;
+    bool           decoderEof;
     bool           decoderPaused;
     bool           pauseDecoder;
     bool           unpauseDecoder;
@@ -565,7 +551,6 @@ class MPUBLIC MythPlayer
     mutable QWaitCondition playingWaitCond;
     mutable QMutex vidExitLock;
     mutable QMutex playingLock;
-    bool     eof;             ///< At end of file/ringbuffer
     bool     m_double_framerate;///< Output fps is double Video (input) rate
     bool     m_double_process;///< Output filter must processed at double rate
     bool     m_can_double;    ///< VideoOutput capable of doubling frame rate

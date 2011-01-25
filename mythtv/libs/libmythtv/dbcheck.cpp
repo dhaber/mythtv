@@ -12,6 +12,7 @@ using namespace std;
 #include "mythdb.h"
 #include "mythverbose.h"
 #include "diseqcsettings.h" // for convert_diseqc_db()
+#include "videodbcheck.h"
 
 #define MINIMUM_DBMS_VERSION 5,0,15
 
@@ -20,7 +21,7 @@ using namespace std;
    mythtv/bindings/perl/MythTV.pm
 */
 /// This is the DB schema version expected by the running MythTV instance.
-const QString currentDatabaseVersion = "1266";
+const QString currentDatabaseVersion = "1267";
 
 static bool UpdateDBVersionNumber(const QString &newnumber, QString &dbver);
 static bool performActualUpdate(
@@ -731,8 +732,7 @@ NULL
 "ALTER TABLE people ADD UNIQUE name (name(41));",
 "CREATE TABLE programgenres ( "
 "    chanid int unsigned NOT NULL, "
-"    starttime timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP "
-"                        ON UPDATE CURRENT_TIMESTAMP, "
+"    starttime timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, "
 "    relevance char(1) NOT NULL, "
 "    genre char(30), "
 "    PRIMARY KEY (chanid, starttime, relevance) "
@@ -748,8 +748,7 @@ NULL
         const char *updates[] = {
 "CREATE TABLE IF NOT EXISTS programgenres ( "
 "    chanid int unsigned NOT NULL, "
-"    starttime timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP "
-"                        ON UPDATE CURRENT_TIMESTAMP, "
+"    starttime timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, "
 "    relevance char(1) NOT NULL, "
 "    genre char(30), "
 "    PRIMARY KEY (chanid, starttime, relevance) "
@@ -5553,6 +5552,19 @@ NULL
             return false;
     }
 
+    if (dbver == "1266")
+    {
+        if (!doUpgradeVideoDatabaseSchema())
+            return false;
+
+        const char *updates[] = {
+"DELETE FROM settings WHERE value = 'mythvideo.DBSchemaVer'",
+NULL
+};
+        if (!performActualUpdate(updates, "1267", dbver))
+            return false;
+    }
+
     return true;
 }
 
@@ -5573,7 +5585,7 @@ NULL
  *
  * mysqldump --skip-comments --skip-opt --compact --skip-quote-names \
  *     --create-options --ignore-table=mythconverg.schemalock mythconverg | \
- *   sed '/^SET.*;$/d;/^\/\*!40101.*$/d;s/^.*[^;]$/"&"/;s/^);$/");",/'
+ *   sed '/^\(SET\|INS\).*;$/d;/^\/\*!40101.*$/d;s/^.*[^;]$/"&"/;s/^).*;$/"&",/'
  *
  * command to get the initial data:
  *

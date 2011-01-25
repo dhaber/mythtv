@@ -73,12 +73,8 @@ class MythXLocker
 MPUBLIC void          LockMythXDisplays(bool lock);
 MPUBLIC MythXDisplay *GetMythXDisplay(Display*);
 MPUBLIC MythXDisplay *OpenMythXDisplay(void);
-MPUBLIC QSize         MythXGetDisplayDimensions(void);
-MPUBLIC float         MythXGetRefreshRate(void);
 #define XLOCK(dpy, arg) { dpy->Lock(); arg; dpy->Unlock(); }
 #endif // USING_X11
-
-MPUBLIC int GetNumberXineramaScreens();
 
 // These X11 defines conflict with the QT key event enum values
 #undef KeyPress

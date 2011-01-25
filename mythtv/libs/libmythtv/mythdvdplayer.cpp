@@ -2,6 +2,7 @@
 #include "DetectLetterbox.h"
 #include "audiooutput.h"
 #include "myth_imgconvert.h"
+#include "avformatdecoderdvd.h"
 #include "mythdvdplayer.h"
 
 #define LOC      QString("DVDPlayer: ")
@@ -61,10 +62,9 @@ void MythDVDPlayer::DecoderPauseCheck(void)
     MythPlayer::DecoderPauseCheck();
 }
 
-bool MythDVDPlayer::PrebufferEnoughFrames(bool pause_audio, int  min_buffers)
+bool MythDVDPlayer::PrebufferEnoughFrames(int min_buffers)
 {
-    bool instill = player_ctx->buffer->IsInDiscMenuOrStillFrame();
-    return MythPlayer::PrebufferEnoughFrames(!instill, 1);
+    return MythPlayer::PrebufferEnoughFrames(1);
 }
 
 bool MythDVDPlayer::DecoderGetFrameFFREW(void)
@@ -199,19 +199,7 @@ bool MythDVDPlayer::VideoLoop(void)
         return !IsErrored();
     }
 
-    if (videoPaused || isDummy)
-    {
-        usleep(frame_interval);
-        DisplayPauseFrame();
-    }
-    else
-        DisplayNormalFrame();
-
-    if (using_null_videoout && decoder)
-        decoder->UpdateFramesPlayed();
-    else
-        framesPlayed = videoOutput->GetFramesPlayed();
-    return !IsErrored();
+    return MythPlayer::VideoLoop();
 }
 
 void MythDVDPlayer::DisplayLastFrame(void)
@@ -221,10 +209,12 @@ void MythDVDPlayer::DisplayLastFrame(void)
 
     DisplayDVDButton();
 
+    osdLock.lock();
     videofiltersLock.lock();
     videoOutput->ProcessFrame(NULL, osd, videoFilters, pip_players,
                               kScan_Progressive);
     videofiltersLock.unlock();
+    osdLock.unlock();
 
     AVSync(NULL, true);
 }
@@ -283,7 +273,7 @@ void MythDVDPlayer::EventLoop(void)
 
 void MythDVDPlayer::InitialSeek(void)
 {
-    player_ctx->buffer->DVD()->IgnoreStillOrWait(true);
+    player_ctx->buffer->IgnoreWaitStates(true);
     if (m_initial_title > -1)
         player_ctx->buffer->DVD()->PlayTitleAndPart(m_initial_title, 1);
 
@@ -305,7 +295,7 @@ void MythDVDPlayer::InitialSeek(void)
             usleep(50000);
     }
     MythPlayer::InitialSeek();
-    player_ctx->buffer->DVD()->IgnoreStillOrWait(false);
+    player_ctx->buffer->IgnoreWaitStates(false);
 }
 
 void MythDVDPlayer::ResetPlaying(bool resetframes)
@@ -444,7 +434,7 @@ void MythDVDPlayer::SeekForScreenGrab(uint64_t &number, uint64_t frameNum,
 {
     if (!player_ctx->buffer->IsDVD())
         return;
-    if (GoToDVDMenu("menu"))
+    if (GoToMenu("menu"))
     {
         if (player_ctx->buffer->DVD()->IsInMenu() &&
             !player_ctx->buffer->DVD()->IsInStillFrame())
@@ -500,8 +490,10 @@ void MythDVDPlayer::DisplayDVDButton(void)
     if (!numbuttons || !dvdSubtitle || (buttonversion == 0))
     {
         SetCaptionsEnabled(false, false);
+        osdLock.lock();
         if (osd)
             osd->ClearSubtitles();
+        osdLock.unlock();
         m_buttonVersion = 0;
         player_ctx->buffer->DVD()->ReleaseMenuButton();
         return;
@@ -509,12 +501,15 @@ void MythDVDPlayer::DisplayDVDButton(void)
 
     m_buttonVersion = buttonversion;
     QRect buttonPos = player_ctx->buffer->DVD()->GetButtonCoords();
-    osd->DisplayDVDButton(dvdSubtitle, buttonPos);
+    osdLock.lock();
+    if (osd)
+        osd->DisplayDVDButton(dvdSubtitle, buttonPos);
+    osdLock.unlock();
     textDisplayMode = kDisplayDVDButton;
     player_ctx->buffer->DVD()->ReleaseMenuButton();
 }
 
-bool MythDVDPlayer::GoToDVDMenu(QString str)
+bool MythDVDPlayer::GoToMenu(QString str)
 {
     if (!player_ctx->buffer->IsDVD())
         return false;
@@ -659,5 +654,18 @@ void MythDVDPlayer::StillFrameCheck(void)
             player_ctx->buffer->DVD()->SkipStillFrame();
             m_stillFrameLength = 0;
         }
+    }
+}
+
+void MythDVDPlayer::CreateDecoder(char *testbuf, int testreadsize,
+                                  bool allow_libmpeg2, bool no_accel)
+{
+    if (AvFormatDecoderDVD::CanHandle(testbuf, player_ctx->buffer->GetFilename(),
+                                     testreadsize))
+    {
+        SetDecoder(new AvFormatDecoderDVD(this, *player_ctx->playingInfo,
+                                         using_null_videoout,
+                                         allow_libmpeg2, no_accel,
+                                         player_ctx->GetSpecialDecode()));
     }
 }

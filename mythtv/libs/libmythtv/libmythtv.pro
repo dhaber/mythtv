@@ -137,6 +137,7 @@ SOURCES += minilzo.cpp              RTjpegN.cpp
 # Misc. needed by backend/frontend
 HEADERS += recordinginfo.h
 HEADERS += dbcheck.h
+HEADERS += videodbcheck.h
 HEADERS += tvremoteutil.h           tv.h
 HEADERS += jobqueue.h
 HEADERS += filtermanager.h          recordingprofile.h
@@ -164,6 +165,7 @@ HEADERS += streamingringbuffer.h
 
 SOURCES += recordinginfo.cpp
 SOURCES += dbcheck.cpp
+SOURCES += videodbcheck.cpp
 SOURCES += tvremoteutil.cpp         tv.cpp
 SOURCES += jobqueue.cpp
 SOURCES += filtermanager.cpp        recordingprofile.cpp
@@ -277,9 +279,11 @@ using_frontend {
     # A/V decoders
     HEADERS += decoderbase.h
     HEADERS += nuppeldecoder.h          avformatdecoder.h
+    HEADERS += avformatdecoderbd.h      avformatdecoderdvd.h
     HEADERS += privatedecoder.h
     SOURCES += decoderbase.cpp
     SOURCES += nuppeldecoder.cpp        avformatdecoder.cpp
+    SOURCES += avformatdecoderbd.cpp    avformatdecoderdvd.cpp
     SOURCES += privatedecoder.cpp
 
     using_crystalhd {
@@ -297,8 +301,10 @@ using_frontend {
     # On screen display (video output overlay)
     HEADERS += osd.h                    teletextscreen.h
     HEADERS += subtitlescreen.h         interactivescreen.h
+    HEADERS += bdoverlayscreen.h
     SOURCES += osd.cpp                  teletextscreen.cpp
     SOURCES += subtitlescreen.cpp       interactivescreen.cpp
+    SOURCES += bdoverlayscreen.cpp
 
     # Video output
     HEADERS += videooutbase.h           videoout_null.h

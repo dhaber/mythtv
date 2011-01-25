@@ -502,7 +502,7 @@ bool PlaybackBox::Create()
     connect(m_artTimer[kArtworkCover], SIGNAL(timeout()), SLOT(coverartLoad()));
 
     BuildFocusList();
-    m_programInfoCache.ScheduleLoad();
+    m_programInfoCache.ScheduleLoad(false);
     LoadInBackground();
 
     return true;
@@ -519,6 +519,8 @@ void PlaybackBox::Init()
     m_groupList->SetLCDTitles(tr("Groups"));
     m_recordingList->SetLCDTitles(tr("Recordings"),
                                   "titlesubtitle|shortdate|starttime");
+
+    m_recordingList->SetSearchFields("titlesubtitle");
 
     if (gCoreContext->GetNumSetting("QueryInitialFilter", 0) == 1)
         showGroupFilter();
