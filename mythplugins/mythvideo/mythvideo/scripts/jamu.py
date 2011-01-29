@@ -5230,8 +5230,9 @@ class MythTvMetaData(VideoFiles):
                     total_miro_tv+=1
 
         # Prossess all TV shows and Movies
+        do_overwrite = self.config['overwrite']
         for program in programs:
-            program['need'] = False    # Initalize that this program does not need graphic(s) downloaded
+            program['need'] = False or do_overwrite   # Initalize that this program does not need graphic(s) downloaded
             mirodetails = None
             program_override_tv = False
             # Check if a subtitle-less program is really a TV show with an override. This compensates for
@@ -5296,7 +5297,7 @@ class MythTvMetaData(VideoFiles):
                         dir_list = os.listdir(dirct)
                     for flenme in dir_list:
                         if fnmatch.fnmatch(flenme.lower(), (pattern % filename).lower()):
-                            program[directory] = True
+                            program[directory] = True and not do_overwrite
                             if directory == 'coverfile':
                                 total_posters_found +=1
                             elif directory == 'banner':
@@ -5321,6 +5322,7 @@ class MythTvMetaData(VideoFiles):
                     filename = program['title']
                 else:
                     filename = mirodetails[u'moviename']
+
                 self._displayMessage("All Graphics already downloaded for [%s]" % filename)
                 if mirodetails: # Update the Miro MythVideo records with any new graphics
                     self.updateMiroVideo(program)
