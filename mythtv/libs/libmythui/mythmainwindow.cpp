@@ -36,7 +36,7 @@ using namespace std;
 #include <HIToolbox/Menus.h>   // For GetMBarHeight()
 #endif
 
-// libmythdb headers
+// libmythbase headers
 #include "mythdb.h"
 #include "mythverbose.h"
 #include "mythevent.h"
@@ -44,6 +44,7 @@ using namespace std;
 #include "compat.h"
 #include "mythsignalingtimer.h"
 #include "mythcorecontext.h"
+#include "mythmedia.h"
 
 // Libmythui headers
 #include "myththemebase.h"
@@ -176,7 +177,9 @@ class MythMainWindowPrivate
 
         m_themeBase(NULL),
 
-        m_udpListener(NULL)
+        m_udpListener(NULL),
+
+        m_pendingUpdate(false)
     {
     }
 
@@ -257,6 +260,8 @@ class MythMainWindowPrivate
 
     MythThemeBase *m_themeBase;
     MythUDPListener *m_udpListener;
+
+    bool m_pendingUpdate;
 };
 
 // Make keynum in QKeyEvent be equivalent to what's in QKeySequence
@@ -839,6 +844,9 @@ bool MythMainWindow::screenShot(void)
 
 bool MythMainWindow::event(QEvent *e)
 {
+    if (!updatesEnabled() && (e->type() == QEvent::UpdateRequest))
+        d->m_pendingUpdate = true;
+
     if (e->type() == QEvent::Show && !e->spontaneous())
     {
         QCoreApplication::postEvent(
@@ -1064,6 +1072,10 @@ void MythMainWindow::InitKeys()
         ,"Copy text from textedit"), "Ctrl+C");
     RegisterKey("Global", "PASTE", QT_TRANSLATE_NOOP("MythControls",
         "Paste text into textedit"), "Ctrl+V");
+    RegisterKey("Global", "UNDO", QT_TRANSLATE_NOOP("MythControls",
+        "Undo"), "Ctrl+Z");
+    RegisterKey("Global", "REDO", QT_TRANSLATE_NOOP("MythControls",
+        "Redo"), "Ctrl+Y");
     RegisterKey("Global", "SEARCH", QT_TRANSLATE_NOOP("MythControls",
         "Show incremental search dialog"), "Ctrl+S");
 
@@ -1285,11 +1297,17 @@ void MythMainWindow::SetDrawEnabled(bool enable)
 
     if (enable)
     {
-        repaint(); // See #8952
+        if (d->m_pendingUpdate)
+        {
+            QApplication::postEvent(this, new QEvent(QEvent::UpdateRequest), Qt::LowEventPriority);
+            d->m_pendingUpdate = false;
+        }
         d->drawTimer->start(1000 / 70);
+
     }
     else
         d->drawTimer->stop();
+
 
     d->m_setDrawEnabledWait.wakeAll();
 }
@@ -1399,6 +1417,16 @@ bool MythMainWindow::TranslateKeyPress(const QString &context,
                                        bool allowJumps)
 {
     actions.clear();
+
+    // Special case for custom QKeyEvent where the action is embedded directly
+    // in the QKeyEvent text property. Used by MythFEXML http extension
+    if (e->key() == 0 && !e->text().isEmpty() &&
+        e->modifiers() == Qt::NoModifier)
+    {
+        actions.append(e->text());
+        return false;
+    }
+
     int keynum = d->TranslateKeyNum(e);
 
     QStringList localActions;
@@ -2061,6 +2089,45 @@ void MythMainWindow::customEvent(QEvent *ce)
         }
     }
 #endif
+    else if (ce->type() == MythMediaEvent::kEventType)
+    {
+        MythMediaEvent *me = static_cast<MythMediaEvent*>(ce);
+
+        // A listener based system might be more efficient, but we should never
+        // have that many screens open at once so impact should be minimal.
+        //
+        // This approach is simpler for everyone to follow. Plugin writers
+        // don't have to worry about adding their screens to the list because
+        // all screens receive media events.
+        //
+        // Events are even sent to hidden or backgrounded screens, this avoids
+        // the need for those to poll for changes when they become visible again
+        // however this needs to be kept in mind if media changes trigger
+        // actions which would not be appropriate when the screen doesn't have
+        // focus. It is the programmers responsibility to ignore events when
+        // necessary.
+        QVector<MythScreenStack *>::Iterator it;
+        for (it = d->stackList.begin(); it != d->stackList.end(); ++it)
+        {
+            QVector<MythScreenType *> screenList;
+            (*it)->GetScreenList(screenList);
+            QVector<MythScreenType *>::Iterator sit;
+            for (sit = screenList.begin(); sit != screenList.end(); ++sit)
+            {
+                MythScreenType *screen = (*sit);
+                if (screen)
+                    screen->mediaEvent(me);
+            }
+        }
+
+        // Debugging
+        MythMediaDevice *device = me->getDevice();
+        if (device)
+        {
+            VERBOSE(VB_GENERAL, QString("Media Event: %1 - %2")
+                    .arg(device->getDevicePath()).arg(device->getStatus()));
+        }
+    }
     else if (ce->type() == ScreenSaverEvent::kEventType)
     {
         ScreenSaverEvent *sse = static_cast<ScreenSaverEvent *>(ce);

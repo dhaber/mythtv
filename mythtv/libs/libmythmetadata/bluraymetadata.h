@@ -8,12 +8,12 @@
 #include "mythimage.h"
 #include "mythexp.h"
 #include "bluray.h"
-#include "bdnav/meta_data.h"
 
 typedef QList< QPair < uint,QString > > BlurayTitles;
 
 typedef QHash<QString,QString> MetadataMap;
 
+struct meta_dl;
 class MPUBLIC BlurayMetadata : public QObject
 {
   public:
@@ -22,7 +22,9 @@ class MPUBLIC BlurayMetadata : public QObject
 
     void toMap(MetadataMap &metadataMap);
 
-    void Parse(void);
+    bool OpenDisc(void);
+    bool IsOpen() { return m_bdnav; };
+    bool ParseDisc(void);
 
     QString      GetTitle(void) { return m_title; };
     QString      GetAlternateTitle(void) { return m_alttitle; };

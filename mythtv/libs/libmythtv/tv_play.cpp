@@ -514,7 +514,7 @@ void TV::InitKeys(void)
     REG_KEY("TV Playback", "NEXTSOURCE", QT_TRANSLATE_NOOP("MythControls",
             "Next Video Source"), "Y");
     REG_KEY("TV Playback", "PREVSOURCE", QT_TRANSLATE_NOOP("MythControls",
-            "Previous Video Source"), "Ctrl+Y");
+            "Previous Video Source"), "");
     REG_KEY("TV Playback", "NEXTINPUT", QT_TRANSLATE_NOOP("MythControls",
             "Next Input"), "C");
     REG_KEY("TV Playback", "NEXTCARD", QT_TRANSLATE_NOOP("MythControls",
@@ -712,9 +712,9 @@ void TV::InitKeys(void)
     REG_KEY("TV Editing", ACTION_INVERTMAP,   QT_TRANSLATE_NOOP("MythControls",
             "Invert Begin/End cut points"),"I");
     REG_KEY("TV Editing", ACTION_SAVEMAP,     QT_TRANSLATE_NOOP("MythControls",
-            "Save cut list"),"");
+            "Save cuts"),"");
     REG_KEY("TV Editing", ACTION_LOADCOMMSKIP,QT_TRANSLATE_NOOP("MythControls",
-            "Load cut list from commercial skips"), "Z,End");
+            "Load cuts from detected commercials"), "Z,End");
     REG_KEY("TV Editing", ACTION_NEXTCUT,     QT_TRANSLATE_NOOP("MythControls",
             "Jump to the next cut point"), "PgDown");
     REG_KEY("TV Editing", ACTION_PREVCUT,     QT_TRANSLATE_NOOP("MythControls",
@@ -862,7 +862,8 @@ TV::TV(void)
       disableDrawUnusedRects(false),
       isEmbedded(false),            ignoreKeyPresses(false),
       // Timers
-      lcdTimerId(0),                keyListTimerId(0),
+      lcdTimerId(0),                lcdVolumeTimerId(0),
+      keyListTimerId(0),
       networkControlTimerId(0),     jumpMenuTimerId(0),
       pipChangeTimerId(0),
       switchToInputTimerId(0),      ccInputTimerId(0),
@@ -1173,7 +1174,7 @@ TV::~TV(void)
     if (lastProgram)
         delete lastProgram;
 
-    if (class LCD * lcd = LCD::Get())
+    if (LCD *lcd = LCD::Get())
     {
         lcd->setFunctionLEDs(FUNC_TV, false);
         lcd->setFunctionLEDs(FUNC_MOVIE, false);
@@ -1709,7 +1710,7 @@ int TV::Playback(const ProgramInfo &rcinfo)
 
     ReturnPlayerLock(mctx);
 
-    if (class LCD * lcd = LCD::Get())
+    if (LCD *lcd = LCD::Get())
     {
         lcd->switchToChannel(rcinfo.GetChannelSchedulingID(),
                              rcinfo.GetTitle(), rcinfo.GetSubtitle());
@@ -2398,6 +2399,8 @@ void TV::timerEvent(QTimerEvent *te)
     bool handled = true;
     if (timer_id == lcdTimerId)
         HandleLCDTimerEvent();
+    else if (timer_id == lcdVolumeTimerId)
+        HandleLCDVolumeTimerEvent();
     else if (timer_id == sleepTimerId)
         ShowOSDSleep();
     else if (timer_id == sleepDialogTimerId)
@@ -2927,6 +2930,7 @@ bool TV::HandleLCDTimerEvent(void)
     if (lcd)
     {
         float progress = 0.0f;
+        QString lcd_time_string;
         bool showProgress = true;
 
         if (StateIsLiveTV(GetState(actx)))
@@ -2941,10 +2945,16 @@ bool TV::HandleLCDTimerEvent(void)
         if (showProgress)
         {
             osdInfo info;
-            if (actx->CalcPlayerSliderPosition(info))
+            if (actx->CalcPlayerSliderPosition(info)) {
                 progress = info.values["position"] * 0.001f;
+
+                lcd_time_string = info.text["playedtime"] + " / " + info.text["totaltime"];
+                // if the string is longer than the LCD width, remove all spaces
+                if (lcd_time_string.length() > (int)lcd->getLCDWidth())
+                    lcd_time_string.remove(' ');
+            }
         }
-        lcd->setChannelProgress(progress);
+        lcd->setChannelProgress(lcd_time_string, progress);
     }
     ReturnPlayerLock(actx);
 
@@ -2953,6 +2963,21 @@ bool TV::HandleLCDTimerEvent(void)
     lcdTimerId = StartTimer(kLCDTimeout, __LINE__);
 
     return true;
+}
+
+void TV::HandleLCDVolumeTimerEvent()
+{
+    PlayerContext *actx = GetPlayerReadLock(-1, __FILE__, __LINE__);
+    LCD *lcd = LCD::Get();
+    if (lcd)
+    {
+        ShowLCDChannelInfo(actx);
+        lcd->switchToChannel(lcdCallsign, lcdTitle, lcdSubtitle);
+    }
+    ReturnPlayerLock(actx);
+
+    QMutexLocker locker(&timerIdLock);
+    KillTimer(lcdVolumeTimerId);
 }
 
 int  TV::StartTimer(int interval, int line)
@@ -3278,7 +3303,8 @@ bool TV::eventFilter(QObject *o, QEvent *e)
         return ignoreKeyPresses?false:event(e);
 
     if (e->type() == MythEvent::MythEventMessage ||
-        e->type() == MythEvent::MythUserMessage)
+        e->type() == MythEvent::MythUserMessage  ||
+        e->type() == MythEvent::kUpdateTvProgressEventType)
     {
         customEvent(e);
         return true;
@@ -7359,7 +7385,7 @@ void TV::UpdateLCD(void)
 
 void TV::ShowLCDChannelInfo(const PlayerContext *ctx)
 {
-    class LCD * lcd = LCD::Get();
+    LCD *lcd = LCD::Get();
     ctx->LockPlayingInfo(__FILE__, __LINE__);
     if (!lcd || !ctx->playingInfo)
     {
@@ -7396,7 +7422,7 @@ static void format_time(int seconds, QString &tMin, QString &tHrsMin)
 
 void TV::ShowLCDDVDInfo(const PlayerContext *ctx)
 {
-    class LCD * lcd = LCD::Get();
+    LCD *lcd = LCD::Get();
 
     if (!lcd || !ctx->buffer || !ctx->buffer->IsDVD())
     {
@@ -7787,6 +7813,26 @@ void TV::ChangeVolume(PlayerContext *ctx, bool up)
                         kOSDFunctionalType_PictureAdjust, "%", curvol * 10,
                         kOSDTimeout_Med);
         SetUpdateOSDPosition(false);
+
+        if (LCD *lcd = LCD::Get())
+        {
+            QString appName = tr("Video");
+
+            if (StateIsLiveTV(GetState(ctx)))
+                appName = tr("TV");
+
+            if (ctx->buffer && ctx->buffer->IsDVD())
+                appName = tr("DVD");
+            
+            lcd->switchToVolume(appName);
+            lcd->setVolumeLevel((float)curvol / 100);
+
+            QMutexLocker locker(&timerIdLock);
+            if (lcdVolumeTimerId)
+                KillTimer(lcdVolumeTimerId);
+
+            lcdVolumeTimerId = StartTimer(2000, __LINE__);
+        }
     }
 }
 
@@ -8138,6 +8184,12 @@ void TV::PauseAudioUntilBuffered(PlayerContext *ctx)
 /// This handles all custom events
 void TV::customEvent(QEvent *e)
 {
+    if (e->type() == MythEvent::kUpdateTvProgressEventType && myWindow)
+    {
+        myWindow->UpdateProgress();
+        return;
+    }
+
     if (e->type() == MythEvent::MythUserMessage)
     {
         MythEvent *me = (MythEvent *)e;
@@ -8908,7 +8960,18 @@ void TV::ShowOSDCutpoint(PlayerContext *ctx, const QString &type)
             osd->DialogAddButton(QObject::tr("Add New Cut"),
                                  QString("DIALOG_CUTPOINT_NEWCUT_%1")
                                          .arg(frame));
+            osd->DialogAddButton(QObject::tr("Join Surrounding Cuts"),
+                                 QString("DIALOG_CUTPOINT_DELETE_%1")
+                                         .arg(frame));
         }
+        if (ctx->player->DeleteMapHasUndo())
+            osd->DialogAddButton(QObject::tr("Undo") + " - " +
+                                 ctx->player->DeleteMapGetUndoMessage(),
+                                 QString("DIALOG_CUTPOINT_UNDO_0"));
+        if (ctx->player->DeleteMapHasRedo())
+            osd->DialogAddButton(QObject::tr("Redo") + " - " +
+                                 ctx->player->DeleteMapGetRedoMessage(),
+                                 QString("DIALOG_CUTPOINT_REDO_0"));
         if ("EDIT_CUT_POINTS" == type)
             osd->DialogAddButton(QObject::tr("Cut List Options"),
                                  "DIALOG_CUTPOINT_CUTLISTOPTIONS_0", true);
@@ -8917,28 +8980,28 @@ void TV::ShowOSDCutpoint(PlayerContext *ctx, const QString &type)
     {
         osd->DialogShow(OSD_DLG_CUTPOINT,
                         QObject::tr("Cut List Options"));
-        osd->DialogAddButton(QObject::tr("Clear Cut List"),
+        osd->DialogAddButton(QObject::tr("Clear Cuts"),
                              "DIALOG_CUTPOINT_CLEARMAP_0");
-        osd->DialogAddButton(QObject::tr("Invert Cut List"),
+        osd->DialogAddButton(QObject::tr("Reverse Cuts"),
                              "DIALOG_CUTPOINT_INVERTMAP_0");
         osd->DialogAddButton(QObject::tr("Undo Changes"),
                              "DIALOG_CUTPOINT_REVERT_0");
         osd->DialogAddButton(QObject::tr("Exit Without Saving"),
                              "DIALOG_CUTPOINT_REVERTEXIT_0");
-        osd->DialogAddButton(QObject::tr("Save Cut List"),
+        osd->DialogAddButton(QObject::tr("Save Cuts"),
                              "DIALOG_CUTPOINT_SAVEMAP_0");
-        osd->DialogAddButton(QObject::tr("Save Cut List and Exit"),
+        osd->DialogAddButton(QObject::tr("Save Cuts and Exit"),
                              "DIALOG_CUTPOINT_SAVEEXIT_0");
     }
     else if ("EXIT_EDIT_MODE" == type)
     {
         osd->DialogShow(OSD_DLG_CUTPOINT,
-                        QObject::tr("Exit Cut List Editor"));
-        osd->DialogAddButton(QObject::tr("Save Cut List and Exit"),
+                        QObject::tr("Exit Recording Editor"));
+        osd->DialogAddButton(QObject::tr("Save Cuts and Exit"),
                              "DIALOG_CUTPOINT_SAVEEXIT_0");
         osd->DialogAddButton(QObject::tr("Exit Without Saving"),
                              "DIALOG_CUTPOINT_REVERTEXIT_0");
-        osd->DialogAddButton(QObject::tr("Save Cut List"),
+        osd->DialogAddButton(QObject::tr("Save Cuts"),
                              "DIALOG_CUTPOINT_SAVEMAP_0");
         osd->DialogAddButton(QObject::tr("Undo Changes"),
                              "DIALOG_CUTPOINT_REVERT_0");
@@ -10190,7 +10253,8 @@ void TV::FillOSDMenuNavigate(const PlayerContext *ctx, OSD *osd,
     int num_angles    = GetNumAngles(ctx);
     TVState state     = ctx->GetState();
     bool isdvd        = state == kState_WatchingDVD;
-    bool isbd         = state == kState_WatchingBD;
+    bool isbd         = ctx->buffer && ctx->buffer->IsBD() &&
+                        ctx->buffer->BD()->IsHDMVNavigation();
     bool islivetv     = StateIsLiveTV(state);
     bool isrecording  = state == kState_WatchingPreRecorded;
     bool previouschan = false;
@@ -10224,7 +10288,6 @@ void TV::FillOSDMenuNavigate(const PlayerContext *ctx, OSD *osd,
                                  "DIALOG_MENU_COMMSKIP_0",
                                  true, selected == "COMMSKIP");
         }
-        // FIXME need to check whether we are in HDMV navigation mode
         if (isbd)
         {
             osd->DialogAddButton(tr("Top menu"), ACTION_JUMPTODVDROOTMENU);

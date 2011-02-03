@@ -124,7 +124,7 @@ class MPUBLIC MythPlayer
     void SetLength(int len)                   { totalLength = len; }
     void SetFramesPlayed(uint64_t played)     { framesPlayed = played; }
     void SetVideoFilters(const QString &override);
-    void SetEof(void)                         { decoderEof = true; }
+    void SetEof(bool eof);
     void SetPIPActive(bool is_active)         { pip_active = is_active; }
     void SetPIPVisible(bool is_visible)       { pip_visible = is_visible; }
 
@@ -177,7 +177,7 @@ class MPUBLIC MythPlayer
     // Bool Gets
     bool    GetRawAudioState(void) const;
     bool    GetLimitKeyRepeat(void) const     { return limitKeyRepeat; }
-    bool    GetEof(void) const                { return decoderEof; }
+    bool    GetEof(void);
     bool    IsErrored(void) const;
     bool    IsPlaying(uint wait_ms = 0, bool wait_for = true) const;
     bool    AtNormalSpeed(void) const         { return next_normal_speed; }
@@ -399,6 +399,10 @@ class MPUBLIC MythPlayer
     bool IsTemporaryMark(uint64_t frame);
     bool HasTemporaryMark(void);
     bool IsCutListSaved(PlayerContext *ctx) { return deleteMap.IsSaved(ctx); }
+    bool DeleteMapHasUndo(void) { return deleteMap.HasUndo(); }
+    bool DeleteMapHasRedo(void) { return deleteMap.HasRedo(); }
+    QString DeleteMapGetUndoMessage(void) { return deleteMap.GetUndoMessage(); }
+    QString DeleteMapGetRedoMessage(void) { return deleteMap.GetRedoMessage(); }
 
     // Reinit
     void ReinitOSD(void);
@@ -532,7 +536,6 @@ class MPUBLIC MythPlayer
     QWaitCondition decoderThreadUnpause;
     mutable QMutex decoderPauseLock;
     mutable QMutex decoderSeekLock;
-    bool           decoderEof;
     bool           decoderPaused;
     bool           pauseDecoder;
     bool           unpauseDecoder;
@@ -569,7 +572,7 @@ class MPUBLIC MythPlayer
     int jumpchapter;
 
     // Bookmark stuff
-    long long bookmarkseek;
+    uint64_t bookmarkseek;
 
     // Seek
     /// If fftime>0, number of frames to seek forward.

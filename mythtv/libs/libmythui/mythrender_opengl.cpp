@@ -175,11 +175,9 @@ void MythRenderOpenGL::makeCurrent()
 
 void MythRenderOpenGL::doneCurrent()
 {
-    // we don't explicitly call QGlContext::doneCurrent() as it should be
-    // unnecessary (makeCurrent() will switch contexts as necessary), it
-    // appears to cause performance issues and breaks rendering in certain
-    // situations
     m_lock_level--;
+    if (m_lock_level == 0)
+        QGLContext::doneCurrent();
     if (m_lock_level < 0)
         VERBOSE(VB_IMPORTANT, LOC_ERR + "Mis-matched calls to makeCurrent()");
     m_lock->unlock();
@@ -2186,7 +2184,8 @@ uint MythRenderOpenGL::GetBufferSize(QSize size, uint fmt, uint type)
     return size.width() * size.height() * bpp * bytes;
 }
 
-void MythRenderOpenGL::SetProgramParams(uint prog, void* vals)
+void MythRenderOpenGL::SetProgramParams(uint prog, void* vals,
+                                        const char* uniform)
 {
     makeCurrent();
     const float *v = (float*)vals;
@@ -2204,7 +2203,7 @@ void MythRenderOpenGL::SetProgramParams(uint prog, void* vals)
     else if (kGLHighProfile == m_profile)
     {
         EnableShaderObject(prog);
-        GLint loc = m_glGetUniformLocation(prog, "m_colourMatrix");
+        GLint loc = m_glGetUniformLocation(prog, uniform);
         m_glUniformMatrix4fv(loc, 1, GL_FALSE, v);
     }
 
