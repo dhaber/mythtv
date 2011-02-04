@@ -38,12 +38,57 @@ QHash <int, int>          m_remotedirPositions;
 QHash <int, DIR *>        m_localdirs;
 QHash <int, QString>      m_dirnames;
 
-QMutex     m_callbackLock;
-void*      m_callbackObject = NULL;
-callback_t m_callback = NULL;
+class Callback
+{
+  public:
+    Callback(void* object, callback_t callback)
+      : m_object(object), m_callback(callback) { }
+    void       *m_object;
+    callback_t  m_callback;
+};
+
+QMutex                        m_callbackLock;
+QMultiHash<QString, Callback> m_fileOpenCallbacks;
 
 #define LOC     QString("mythiowrapper: ")
 #define LOC_ERR QString("mythiowrapper: ERROR: ")
+
+void mythfile_open_register_callback(const QString &path, void* object,
+                                     callback_t func)
+{
+    m_callbackLock.lock();
+    if (m_fileOpenCallbacks.contains(path))
+    {
+        // if we already have a callback registered for this path with this
+        // object then remove the callback and return (i.e. end callback)
+        QMutableHashIterator<QString,Callback> it(m_fileOpenCallbacks);
+        while (it.hasNext())
+        {
+            it.next();
+            if (object == it.value().m_object)
+            {
+                it.remove();
+                VERBOSE(VB_PLAYBACK, LOC +
+                    QString("Removing fileopen callback for %1").arg(path));
+                VERBOSE(VB_PLAYBACK, LOC + QString("%1 callbacks remaining")
+                    .arg(m_fileOpenCallbacks.size()));
+                m_callbackLock.unlock();
+                return;
+            }
+        }
+    }
+
+    QString new_path = path;
+    new_path.detach();
+    Callback new_callback(object, func);
+    m_fileOpenCallbacks.insert(path, new_callback);
+    VERBOSE(VB_PLAYBACK, LOC +
+        QString("Added fileopen callback for %1").arg(path));
+    VERBOSE(VB_PLAYBACK, LOC + QString("%1 callbacks open")
+        .arg(m_fileOpenCallbacks.size()));
+
+    m_callbackLock.unlock();
+}
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -70,23 +115,6 @@ static int getNextFileID(void)
     VERBOSE(VB_FILE+VB_EXTRA, LOC + QString("getNextFileID() = %1").arg(id));
 
     return id;
-}
-
-void mythfile_open_register_callback(void* object, callback_t func)
-{
-    m_callbackLock.lock();
-
-    if (m_callback && (m_callbackObject != object))
-    {
-        VERBOSE(VB_IMPORTANT, LOC_ERR + "mythfile_open_register_callback: "
-                                        "another object is already registered");
-        m_callbackLock.unlock();
-        return;
-    }
-
-    m_callback = func;
-    m_callbackObject = m_callback ? object : NULL;
-    m_callbackLock.unlock();
 }
 
 int mythfile_check(int id)
@@ -178,8 +206,17 @@ int mythfile_open(const char *pathname, int flags)
     }
 
     m_callbackLock.lock();
-    if (m_callback && m_callbackObject)
-        m_callback(m_callbackObject);
+    if (!m_fileOpenCallbacks.isEmpty())
+    {
+        QString path(pathname);
+        QHashIterator<QString,Callback> it(m_fileOpenCallbacks);
+        while (it.hasNext())
+        {
+            it.next();
+            if (path.startsWith(it.key()))
+                it.value().m_callback(it.value().m_object);
+        }
+    }
     m_callbackLock.unlock();
 
     return fileID;
