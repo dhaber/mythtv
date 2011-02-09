@@ -266,7 +266,7 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
         else if (RemoteGetFreeRecorderCount())
         {
             VERBOSE(VB_PLAYBACK, LOC + "tv->LiveTV() -- begin");
-            if (!tv->LiveTV(showDialogs, startInGuide))
+            if (!tv->LiveTV(showDialogs))
             {
                 tv->SetExitPlayer(true, true);
                 quitAll = true;
@@ -276,6 +276,9 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
                 startSysEventSent = true;
                 SendMythSystemEvent("LIVETV_STARTED");
             }
+
+            if (!quitAll && (startInGuide || tv->StartLiveTVInGuide()))
+                tv->DoEditSchedule();
 
             VERBOSE(VB_PLAYBACK, LOC + "tv->LiveTV() -- end");
         }
@@ -863,7 +866,6 @@ TV::TV(void)
       isEmbedded(false),            ignoreKeyPresses(false),
       // Timers
       lcdTimerId(0),                lcdVolumeTimerId(0),
-      keyListTimerId(0),
       networkControlTimerId(0),     jumpMenuTimerId(0),
       pipChangeTimerId(0),
       switchToInputTimerId(0),      ccInputTimerId(0),
@@ -1267,9 +1269,8 @@ TVState TV::GetState(const PlayerContext *actx) const
 /** \fn TV::LiveTV(bool,bool)
  *  \brief Starts LiveTV
  *  \param showDialogs if true error dialogs are shown, if false they are not
- *  \param startInGuide if true the EPG will be shown upon entering LiveTV
  */
-bool TV::LiveTV(bool showDialogs, bool startInGuide)
+bool TV::LiveTV(bool showDialogs)
 {
     requestDelete = false;
     allowRerecord = false;
@@ -1280,7 +1281,7 @@ bool TV::LiveTV(bool showDialogs, bool startInGuide)
         RequestNextRecorder(actx, showDialogs))
     {
         actx->SetInitialTVState(true);
-        ScheduleStateChange(actx);
+        HandleStateChange(actx, actx);
         switchToRec = NULL;
 
         // Start Idle Timer
@@ -1289,32 +1290,6 @@ bool TV::LiveTV(bool showDialogs, bool startInGuide)
             idleTimerId = StartTimer(db_idle_timeout, __LINE__);
             VERBOSE(VB_GENERAL, QString("Using Idle Timer. %1 minutes")
                     .arg(db_idle_timeout*(1.0f/60000.0f)));
-        }
-
-        if (startInGuide || db_start_in_guide)
-        {
-            MSqlQuery query(MSqlQuery::InitCon());
-            query.prepare("SELECT keylist FROM keybindings WHERE "
-                          "context = 'TV Playback' AND action = :GUIDE AND "
-                          "hostname = :HOSTNAME ;");
-            query.bindValue(":GUIDE", ACTION_GUIDE);
-            query.bindValue(":HOSTNAME", gCoreContext->GetHostName());
-
-            if (query.exec() && query.isActive() && query.size() > 0)
-            {
-                query.next();
-
-                QKeySequence keyseq(query.value(0).toString());
-
-                int keynum = keyseq[0];
-                keynum &= ~Qt::UNICODE_ACCEL;
-
-                QMutexLocker locker(&timerIdLock);
-                keyList.push_front(
-                    new QKeyEvent(QEvent::KeyPress, keynum, 0, 0));
-                if (!keyListTimerId)
-                    keyListTimerId = StartTimer(1, __LINE__);
-            }
         }
 
         ReturnPlayerLock(actx);
@@ -1706,7 +1681,7 @@ int TV::Playback(const ProgramInfo &rcinfo)
 
     mctx->SetPlayingInfo(&rcinfo);
     mctx->SetInitialTVState(false);
-    ScheduleStateChange(mctx);
+    HandleStateChange(mctx, mctx);
 
     ReturnPlayerLock(mctx);
 
@@ -2577,49 +2552,6 @@ void TV::timerEvent(QTimerEvent *te)
     if (handled)
         return;
 
-    // Check if it matches keyListTimerId
-    QKeyEvent *keyEvent = NULL;
-    {
-        QMutexLocker locker(&timerIdLock);
-
-        if (timer_id == keyListTimerId)
-        {
-            keyEvent = keyList.dequeue();
-            if (keyList.empty())
-            {
-                KillTimer(keyListTimerId);
-                keyListTimerId = 0;
-            }
-        }
-    }
-
-    if (keyEvent)
-    {
-        PlayerContext *actx = GetPlayerWriteLock(-1, __FILE__, __LINE__);
-        if (actx->HasPlayer())
-        {
-            ProcessKeypress(actx, keyEvent);
-
-            delete keyEvent;
-        }
-        else
-        {
-            VERBOSE(VB_IMPORTANT,
-                    "Ignoring key event for now because player is not set");
-
-            QMutexLocker locker(&timerIdLock);
-            keyList.push_front(keyEvent);
-            if (keyListTimerId)
-                KillTimer(keyListTimerId);
-            keyListTimerId = StartTimer(20, __LINE__);
-        }
-        ReturnPlayerLock(actx);
-        handled = true;
-    }
-
-    if (handled)
-        return;
-
     // Check if it matches networkControlTimerId
     QString netCmd = QString::null;
     {
@@ -3340,12 +3272,13 @@ bool TV::event(QEvent *e)
 
     if (QEvent::KeyPress == e->type())
     {
-        QKeyEvent *k = new QKeyEvent(*(QKeyEvent *)e);
-        QMutexLocker locker(&timerIdLock);
-        keyList.enqueue(k);
-        if (!keyListTimerId)
-            keyListTimerId = StartTimer(1, __LINE__);
-        return true;
+        bool handled = false;
+        PlayerContext *actx = GetPlayerWriteLock(-1, __FILE__, __LINE__);
+        if (actx->HasPlayer())
+            handled = ProcessKeypress(actx, (QKeyEvent *)e);
+        ReturnPlayerLock(actx);
+        if (handled)
+            return true;
     }
 
     switch (e->type())
@@ -3477,7 +3410,7 @@ static bool has_action(QString action, const QStringList &actions)
     return false;
 }
 
-void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
+bool TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
 {
     bool ignoreKeys = actx->IsPlayerChangingBuffers();
 #if DEBUG_ACTIONS
@@ -3500,7 +3433,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
                   "TV Playback", e, actions);
 
         if (handled || actions.isEmpty())
-            return;
+            return true;
 
         bool esc   = has_action("ESCAPE", actions) ||
                      has_action("BACK", actions);
@@ -3508,7 +3441,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
         bool play  = has_action(ACTION_PLAY, actions);
 
         if ((!esc || browsehelper->IsBrowsing()) && !pause && !play)
-            return;
+            return false;
     }
 
     OSD *osd = GetOSDLock(actx);
@@ -3566,7 +3499,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
     }
 
     if (handled)
-        return;
+        return true;
 
     // If text is already queued up, be more lax on what is ok.
     // This allows hex teletext entry and minor channel entry.
@@ -3578,7 +3511,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
         if (ok || txt=="_" || txt=="-" || txt=="#" || txt==".")
         {
             AddKeyToInputQueue(actx, txt.at(0).toLatin1());
-            return;
+            return true;
         }
     }
 
@@ -3597,7 +3530,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
                 if (actx->player->HandleTeletextAction(tt_actions[i]))
                 {
                     actx->UnlockDeletePlayer(__FILE__, __LINE__);
-                    return;
+                    return true;
                 }
             }
         }
@@ -3617,7 +3550,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
                 if (actx->player->ITVHandleAction(itv_actions[i]))
                 {
                     actx->UnlockDeletePlayer(__FILE__, __LINE__);
-                    return;
+                    return true;
                 }
             }
         }
@@ -3628,7 +3561,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
               "TV Playback", e, actions);
 
     if (handled || actions.isEmpty())
-        return;
+        return true;
 
     handled = false;
 
@@ -3655,7 +3588,7 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
 #endif // DEBUG_ACTIONS
 
     if (handled)
-        return;
+        return true;
 
     if (!handled)
     {
@@ -3672,6 +3605,8 @@ void TV::ProcessKeypress(PlayerContext *actx, QKeyEvent *e)
             }
         }
     }
+
+    return true;
 }
 
 bool TV::BrowseHandleAction(PlayerContext *ctx, const QStringList &actions)
@@ -10256,7 +10191,8 @@ void TV::FillOSDMenuNavigate(const PlayerContext *ctx, OSD *osd,
     bool isbd         = ctx->buffer && ctx->buffer->IsBD() &&
                         ctx->buffer->BD()->IsHDMVNavigation();
     bool islivetv     = StateIsLiveTV(state);
-    bool isrecording  = state == kState_WatchingPreRecorded;
+    bool isrecording  = state == kState_WatchingPreRecorded ||
+                        state == kState_WatchingRecording;
     bool previouschan = false;
     if (islivetv)
     {
