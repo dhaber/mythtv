@@ -1,7 +1,7 @@
 #ifndef SYSTEM_UNIX_H_
 #define SYSTEM_UNIX_H_
 
-#include "mythexp.h"
+#include "mythbaseexp.h"
 #include <signal.h>
 #include <QObject>
 #include <QMap>
@@ -10,14 +10,15 @@
 #include <QThread>
 #include <QWaitCondition>
 #include <QMutex>
+#include <QPointer>
 #include <sys/select.h>
 #include "mythsystem.h"
 
 class MythSystemUnix;
 
-typedef QMap<pid_t, MythSystemUnix *> MSMap_t;
+typedef QMap<pid_t, QPointer<MythSystemUnix> > MSMap_t;
 typedef QMap<int, QBuffer *> PMap_t;
-typedef QList<MythSystemUnix *> MSList_t;
+typedef QList<QPointer<MythSystemUnix> > MSList_t;
 
 class MythSystemIOHandler: public QThread
 {
@@ -67,7 +68,7 @@ class MythSystemSignalManager : public QThread
 };
 
 
-class MPUBLIC MythSystemUnix : public MythSystemPrivate
+class MBASE_PUBLIC MythSystemUnix : public MythSystemPrivate
 {
     Q_OBJECT
 

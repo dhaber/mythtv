@@ -4,7 +4,6 @@
 #include <cmath>
 #include <unistd.h>
 #include <stdint.h>
-#include <pthread.h>
 
 #include <algorithm>
 using namespace std;
@@ -16,6 +15,7 @@ using namespace std;
 #include <QDir>
 #include <QKeyEvent>
 #include <QEvent>
+#include <QThread>
 
 #include "mythdb.h"
 #include "tv_play.h"
@@ -296,12 +296,11 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
         tv->setUnderNetworkControl(initByNetworkCommand);
 
         // Process Events
-        VERBOSE(VB_PLAYBACK, LOC + "StartTV -- process events begin");
+        VERBOSE(VB_GENERAL, LOC + "Entering main playback loop.");
 
         while (true)
         {
-            if (qApp->hasPendingEvents())
-                qApp->processEvents();
+            qApp->processEvents();
 
             TVState state = tv->GetState(0);
             if ((kState_Error == state) || (kState_None == state))
@@ -324,7 +323,7 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
             tv->ReturnPlayerLock(mctx);
         }
 
-        VERBOSE(VB_PLAYBACK, LOC + "StartTV -- process events end");
+        VERBOSE(VB_GENERAL, LOC + "Exiting main playback loop.");
 
         if (tv->getJumpToProgram())
         {
@@ -876,7 +875,7 @@ TV::TV(void)
       pseudoChangeChanTimerId(0),   speedChangeTimerId(0),
       errorRecoveryTimerId(0),      exitPlayerTimerId(0)
 {
-    VERBOSE(VB_PLAYBACK, LOC + "ctor -- begin");
+    VERBOSE(VB_GENERAL, LOC + "Creating TV object");
     ctorTime.start();
 
     setObjectName("TV");
@@ -895,7 +894,7 @@ TV::TV(void)
 
     InitFromDB();
 
-    VERBOSE(VB_PLAYBACK, LOC + "ctor -- end");
+    VERBOSE(VB_PLAYBACK, LOC + "Finished creating TV object");
 }
 
 void TV::InitFromDB(void)
@@ -1094,7 +1093,10 @@ bool TV::Init(bool createWindow)
         myWindow = new TvPlayWindow(mainStack, "Playback");
 
         if (myWindow->Create())
+        {
             mainStack->AddScreen(myWindow, false);
+            VERBOSE(VB_GENERAL, LOC + "Created TvPlayWindow.");
+        }
         else
         {
             delete myWindow;
@@ -1102,9 +1104,8 @@ bool TV::Init(bool createWindow)
         }
 
         MythMainWindow *mainWindow = GetMythMainWindow();
-        //QPalette p = mainWindow->palette();
-        //p.setColor(mainWindow->backgroundRole(), Qt::black);
-        //mainWindow->setPalette(p);
+        if (mainWindow->GetPaintWindow())
+            mainWindow->GetPaintWindow()->update();
         mainWindow->installEventFilter(this);
         qApp->processEvents();
     }
@@ -1185,15 +1186,14 @@ TV::~TV(void)
 
     if (ddMapLoaderRunning)
     {
-        pthread_join(ddMapLoader, NULL);
+        ddMapLoader.wait();
         ddMapLoaderRunning = false;
 
         if (ddMapSourceId)
         {
-            int *src = new int;
-            *src = ddMapSourceId;
-            pthread_create(&ddMapLoader, NULL, load_dd_map_post_thunk, src);
-            pthread_detach(ddMapLoader);
+            ddMapLoader.SetParent(NULL);
+            ddMapLoader.SetSourceId(ddMapSourceId);
+            ddMapLoader.start();
         }
     }
 
@@ -1695,81 +1695,6 @@ int TV::Playback(const ProgramInfo &rcinfo)
     return 1;
 }
 
-#ifdef PLAY_FROM_RECORDER
-int TV::PlayFromRecorder(int recordernum)
-{
-    int retval = 0;
-
-    PlayerContext *mctx = GetPlayerReadLock(0, __FILE__, __LINE__);
-
-    if (mctx->recorder)
-    {
-        VERBOSE(VB_IMPORTANT, LOC +
-                QString("PlayFromRecorder(%1): Recorder already exists!")
-                .arg(recordernum));
-        ReturnPlayerLock(mctx);
-        return -1;
-    }
-
-    mctx->SetRecorder(RemoteGetExistingRecorder(recordernum));
-    if (!mctx->recorder)
-    {
-        ReturnPlayerLock(mctx);
-        return -1;
-    }
-
-    ProgramInfo pginfo;
-
-    if (mctx->recorder->IsValidRecorder())
-    {
-        ReturnPlayerLock(mctx);
-
-        // let the mainloop get the programinfo from encoder,
-        // connecting to encoder won't work from here
-        recorderPlaybackInfoLock.lock();
-        int my_timer = StartTimer(1, __LINE__);
-        recorderPlaybackInfoTimerId[my_timer] = my_timer;
-
-        bool done = false;
-        while (!recorderPlaybackInfoWaitCond
-               .wait(&recorderPlaybackInfoLock, 100) && !done)
-        {
-            QMap<int,ProgramInfo>::iterator it =
-                recorderPlaybackInfo.find(my_timer);
-            if (it != recorderPlaybackInfo.end())
-            {
-                pginfo = *it;
-                recorderPlaybackInfo.erase(it);
-                done = true;
-            }
-        }
-        recorderPlaybackInfoLock.unlock();
-
-        mctx = GetPlayerReadLock(0, __FILE__, __LINE__);
-    }
-
-    mctx->SetRecorder(NULL);
-    ReturnPlayerLock(mctx);
-
-    bool fileexists = false;
-    if (pginfo.IsMythStream())
-        fileexists = RemoteCheckFile(&pginfo);
-    else
-    {
-        QFile checkFile(pginfo.GetPlaybackURL(true));
-        fileexists = checkFile.exists();
-    }
-
-    if (fileexists)
-    {
-        Playback(pginfo);
-        retval = 1;
-    }
-
-    return retval;
-}
-#endif // PLAY_FROM_RECORDER
-
 bool TV::StateIsRecording(TVState state)
 {
     return (state == kState_RecordingOnly ||
@@ -1918,14 +1843,14 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
                 chanid = 0;
         }
 
-        VERBOSE(VB_IMPORTANT, "Spawning LiveTV Recorder -- begin");
+        VERBOSE(VB_IMPORTANT, LOC + "Spawning LiveTV Recorder -- begin");
 
         if (chanid && !channum.isEmpty())
             ctx->recorder->SpawnLiveTV(ctx->tvchain->GetID(), false, channum);
         else
             ctx->recorder->SpawnLiveTV(ctx->tvchain->GetID(), false, "");
 
-        VERBOSE(VB_IMPORTANT, "Spawning LiveTV Recorder -- end");
+        VERBOSE(VB_IMPORTANT, LOC + "Spawning LiveTV Recorder -- end");
 
         if (!ctx->ReloadTVChain())
         {
@@ -1944,8 +1869,7 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
 
             bool opennow = (ctx->tvchain->GetCardType(-1) != "DUMMY");
 
-            VERBOSE(VB_IMPORTANT, QString("We have a playbackURL(%1) & "
-                                          "cardtype(%2)")
+            VERBOSE(VB_IMPORTANT, LOC + QString("playbackURL(%1) cardtype(%2)")
                     .arg(playbackURL).arg(ctx->tvchain->GetCardType(-1)));
 
             ctx->SetRingBuffer(
@@ -1956,14 +1880,6 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
             ctx->buffer->SetLiveMode(ctx->tvchain);
         }
 
-        VERBOSE(VB_IMPORTANT, "We have a RingBuffer");
-
-        if (GetMythMainWindow() && !weDisabledGUI)
-        {
-            weDisabledGUI = true;
-            GetMythMainWindow()->PushDrawDisabled();
-            DrawUnusedRects();
-        }
 
         if (ctx->playingInfo && StartRecorder(ctx,-1))
         {
@@ -1980,7 +1896,6 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
         }
         else if (!ctx->IsPIP())
         {
-            GetMythUI()->DisableScreensaver();
             if (!lastLockSeenTime.isValid() ||
                 (lastLockSeenTime < timerOffTime))
             {
@@ -2028,15 +1943,6 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
 
         if (ctx->buffer && ctx->buffer->IsOpen())
         {
-            GetMythUI()->DisableScreensaver();
-
-            if (GetMythMainWindow() && !weDisabledGUI)
-            {
-                weDisabledGUI = true;
-                GetMythMainWindow()->PushDrawDisabled();
-                DrawUnusedRects();
-            }
-
             if (desiredNextState == kState_WatchingRecording)
             {
                 ctx->LockPlayingInfo(__FILE__, __LINE__);
@@ -2188,6 +2094,8 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
              TRANSITION(kState_None, kState_WatchingRecording) ||
              TRANSITION(kState_None, kState_WatchingLiveTV))
     {
+        if (!ctx->IsPIP())
+            GetMythUI()->DisableScreensaver();
         MythMainWindow *mainWindow = GetMythMainWindow();
         mainWindow->setBaseSize(player_bounds.size());
         mainWindow->setMinimumSize(
@@ -2196,10 +2104,18 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
             (db_use_fixed_size) ? player_bounds.size() :
             QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
         mainWindow->setGeometry(player_bounds);
-
-        // hide the GUI paint window
         GetMythMainWindow()->GetPaintWindow()->hide();
-        qApp->processEvents();
+        if (!weDisabledGUI)
+        {
+            weDisabledGUI = true;
+            GetMythMainWindow()->PushDrawDisabled();
+        }
+        DrawUnusedRects();
+        // we no longer need the contents of myWindow
+        if (myWindow)
+            myWindow->DeleteAllChildren();
+
+        VERBOSE(VB_GENERAL, LOC + "Main UI disabled.");
     }
 
     VERBOSE(VB_PLAYBACK, LOC +
@@ -2438,56 +2354,6 @@ void TV::timerEvent(QTimerEvent *te)
         ReturnPlayerLock(mctx);
         handled = true;
     }
-
-    if (handled)
-        return;
-
-#ifdef PLAY_FROM_RECORDER
-    // Check if it matches a recorderPlaybackInfoTimerId
-    bool do_pbinfo_fetch = false;
-    {
-        QMutexLocker locker(&recorderPlaybackInfoLock);
-        QMap<int,int>::iterator it = recorderPlaybackInfoTimerId.find(timer_id);
-        if (it != recorderPlaybackInfoTimerId.end())
-        {
-            KillTimer(timer_id);
-            recorderPlaybackInfoTimerId.erase(it);
-            do_pbinfo_fetch = true;
-        }
-    }
-
-    if (do_pbinfo_fetch)
-    {
-        PlayerContext *mctx = GetPlayerReadLock(0, __FILE__, __LINE__);
-        mctx->recorder->Setup();
-
-        ProgramInfo *pbinfo = NULL;
-        bool ok = true;
-        if (mctx->recorder->IsRecording(&ok))
-        {
-            pbinfo = mctx->recorder->GetRecording();
-            if (pbinfo)
-                RemoteFillProgramInfo(*pbinfo, gCoreContext->GetHostName());
-        }
-        if (!ok || !pbinfo)
-        {
-            VERBOSE(VB_IMPORTANT, LOC_ERR + "lost contact with backend");
-            SetErrored(ctx);
-        }
-
-        ReturnPlayerLock(mctx);
-
-        QMutexLocker locker(&recorderPlaybackInfoLock);
-        if (pbinfo)
-        {
-            recorderPlaybackInfo[timer_id] = *pbinfo;
-            delete pbinfo;
-        }
-        recorderPlaybackInfo[timer_id] = ProgramInfo();
-        recorderPlaybackInfoWaitCond.wakeAll();
-        handled = true;
-    }
-#endif // PLAY_FROM_RECORDER
 
     if (handled)
         return;
@@ -4895,12 +4761,13 @@ bool TV::StartPlayer(PlayerContext *mctx, PlayerContext *ctx,
 
     if (ok)
     {
+        VERBOSE(VB_GENERAL, LOC + QString("Created player."));
         SetSpeedChangeTimer(25, __LINE__);
+    }
 
-        if (ctx->player) {
-            ctx->player->ToggleAspectOverride(ctx->overrideMode);
-            ctx->player->ToggleAdjustFill(ctx->adjustFillMode);
-        }
+    if (ctx->player) {
+         ctx->player->ToggleAspectOverride(ctx->overrideMode);
+         ctx->player->ToggleAdjustFill(ctx->adjustFillMode);
     }
 
     VERBOSE(VB_PLAYBACK, LOC + QString("StartPlayer(%1, %2, %3) -- end %4")
@@ -7652,7 +7519,7 @@ void TV::DoEditSchedule(int editType)
     vector<bool> do_pause;
     do_pause.insert(do_pause.begin(), true, player.size());
     do_pause[find_player_index(actx)] = pause_active;
-    VERBOSE(VB_IMPORTANT, QString("pause_active: %1").arg(pause_active));
+    VERBOSE(VB_PLAYBACK, LOC + QString("Pausing player: %1").arg(pause_active));
 
     saved_pause = DoSetPauseState(actx, do_pause);
 
@@ -9054,28 +8921,12 @@ static void insert_map(InfoMap &infoMap, const InfoMap &newMap)
         infoMap.insert(it.key(), *it);
 }
 
-class load_dd_map
+void TVDDMapThread::run(void)
 {
-  public:
-    load_dd_map(TV *t, uint s) : tv(t), sourceid(s) {}
-    TV   *tv;
-    uint  sourceid;
-};
-
-void *TV::load_dd_map_thunk(void *param)
-{
-    load_dd_map *x = (load_dd_map*) param;
-    x->tv->RunLoadDDMap(x->sourceid);
-    delete x;
-    return NULL;
-}
-
-void *TV::load_dd_map_post_thunk(void *param)
-{
-    uint *sourceid = (uint*) param;
-    SourceUtil::UpdateChannelsFromListings(*sourceid);
-    delete sourceid;
-    return NULL;
+    if (m_parent)
+        m_parent->RunLoadDDMap(m_sourceid);
+    else
+        SourceUtil::UpdateChannelsFromListings(m_sourceid);
 }
 
 /** \fn TV::StartChannelEditMode(PlayerContext*)
@@ -9094,7 +8945,7 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
     QMutexLocker locker(&chanEditMapLock);
     if (ddMapLoaderRunning)
     {
-        pthread_join(ddMapLoader, NULL);
+        ddMapLoader.wait();
         ddMapLoaderRunning = false;
     }
 
@@ -9120,12 +8971,10 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
 
     if (sourceid && (sourceid != ddMapSourceId))
     {
-        ddMapLoaderRunning = true;
-        if (!pthread_create(&ddMapLoader, NULL, load_dd_map_thunk,
-                            new load_dd_map(this, sourceid)))
-        {
-            ddMapLoaderRunning = false;
-        }
+        ddMapLoader.SetParent(this);
+        ddMapLoader.SetSourceId(sourceid);
+        ddMapLoader.start();
+        ddMapLoaderRunning = ddMapLoader.isRunning();
     }
 }
 

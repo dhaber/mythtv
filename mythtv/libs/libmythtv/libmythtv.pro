@@ -135,6 +135,7 @@ HEADERS += minilzo.h                RTjpegN.h
 SOURCES += minilzo.cpp              RTjpegN.cpp
 
 # Misc. needed by backend/frontend
+HEADERS += mythtvexp.h
 HEADERS += recordinginfo.h
 HEADERS += dbcheck.h
 HEADERS += videodbcheck.h
@@ -248,6 +249,7 @@ SOURCES += channelscan/scaninfo.cpp channelscan/channelimporter.cpp
 
 inc.path = $${PREFIX}/include/mythtv/
 inc.files  = playgroup.h
+inc.files += mythtvexp.h
 
 INSTALLS += inc
 
@@ -581,10 +583,10 @@ mingw {
     SOURCES -= NuppelVideoRecorder.cpp
     SOURCES += videoout_d3d.cpp
 
-    LIBS += -lpthread
     LIBS += -lws2_32
 }
 
 include ( ../libs-targetfix.pro )
 
 LIBS += $$LATE_LIBS
+DEFINES += MTV_API

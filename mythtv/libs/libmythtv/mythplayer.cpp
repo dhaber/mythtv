@@ -364,8 +364,8 @@ bool MythPlayer::Pause(void)
     next_normal_speed = false;
     PauseVideo();
     audio.Pause(true);
-    PauseBuffer();
     PauseDecoder();
+    PauseBuffer();
     allpaused = decoderPaused && videoPaused && bufferPaused;
     {
         QMutexLocker locker(&decoder_change_lock);
@@ -1003,7 +1003,7 @@ int MythPlayer::OpenFile(uint retries, bool allow_libmpeg2)
     decoder->setWatchingRecording(watchingrecording);
     decoder->setTranscoding(transcoding);
     CheckExtraAudioDecode();
-    //noVideoTracks = !decoder->GetTrackCount(kTrackTypeVideo);
+    noVideoTracks = !decoder->GetTrackCount(kTrackTypeVideo);
 
     // Set 'no_video_decode' to true for audio only decodeing
     bool no_video_decode = false;
@@ -1983,7 +1983,7 @@ bool MythPlayer::PrebufferEnoughFrames(int min_buffers)
         if ((waited_for & 100) == 100)
         {
             VERBOSE(VB_IMPORTANT, LOC +
-                    QString("Waited 100ms for video buffers %1")
+                    QString("Waited 100ms for video frames from decoder %1")
                     .arg(videoOutput->GetFrameStatus()));
             if (audio.IsBufferAlmostFull())
             {
@@ -2171,7 +2171,7 @@ void MythPlayer::VideoStart(void)
 
 bool MythPlayer::VideoLoop(void)
 {
-    if (videoPaused || isDummy || noVideoTracks)
+    if (videoPaused || isDummy /*|| noVideoTracks*/)
     {
         usleep(frame_interval);
         DisplayPauseFrame();
@@ -2627,7 +2627,7 @@ void MythPlayer::EventLoop(void)
 
     // Disable rewind if we are too close to the beginning of the buffer
     if (CalcRWTime(-ffrew_skip) > 0 &&
-       (!noVideoTracks && (framesPlayed <= keyframedist)))
+       (/*!noVideoTracks && */(framesPlayed <= keyframedist)))
     {
         VERBOSE(VB_PLAYBACK, LOC + "Near start, stopping rewind.");
         float stretch = (ffrew_skip > 0) ? 1.0f : audio.GetStretchFactor();
@@ -2876,10 +2876,12 @@ void MythPlayer::DecoderLoop(bool pause)
 
     while (!killdecoder && !IsErrored())
     {
-        //noVideoTracks = decoder &&
-        //            !decoder->GetTrackCount(kTrackTypeVideo);
-
         DecoderPauseCheck();
+
+        decoder_change_lock.lock();
+        if (decoder)
+            noVideoTracks = !decoder->GetTrackCount(kTrackTypeVideo);
+        decoder_change_lock.unlock();
 
         if (forcePositionMapSync)
         {
@@ -2919,8 +2921,8 @@ void MythPlayer::DecoderLoop(bool pause)
 
         DecodeType dt = (audio.HasAudioOut() && normal_speed) ?
             kDecodeAV : kDecodeVideo;
-        if (noVideoTracks && audio.HasAudioOut())
-            dt = kDecodeAudio;
+        //if (noVideoTracks && audio.HasAudioOut())
+        //    dt = kDecodeAudio;
         DecoderGetFrame(dt);
         decodeOneFrame = false;
     }
@@ -2981,7 +2983,7 @@ bool MythPlayer::DecoderGetFrame(DecodeType decodetype, bool unsafe)
             if (++videobuf_retries >= 2000)
             {
                 VERBOSE(VB_IMPORTANT, LOC +
-                        "Timed out waiting for free video buffers.");
+                        "Decoder timed out waiting for free video buffers.");
                 videobuf_retries = 0;
             }
             return false;
@@ -4005,7 +4007,8 @@ char *MythPlayer::GetScreenGrabAtFrame(uint64_t frameNum, bool absolute,
         decodeOneFrame = true;
         usleep(10000);
         if ((tries & 10) == 10)
-            VERBOSE(VB_PLAYBACK, LOC + QString("Waited 100ms for video frame"));
+            VERBOSE(VB_PLAYBACK, LOC +
+                QString("ScreenGrab: Waited 100ms for video frame"));
     }
 
     if (!(frame = videoOutput->GetLastDecodedFrame()))
@@ -4370,7 +4373,10 @@ void MythPlayer::calcSliderPos(osdInfo &info, bool paddedFields)
     info.values.insert("progbefore", 0);
     info.values.insert("progafter",  0);
 
-    int playbackLen = (totalDuration > 0) ? totalDuration : totalLength;
+    int playbackLen = totalDuration;
+
+    if (totalDuration == 0 || noVideoTracks || decoder->GetCodecDecoderName() == "nuppel")
+        playbackLen = totalLength;
 
     if (livetv && player_ctx->tvchain)
     {
@@ -4388,7 +4394,10 @@ void MythPlayer::calcSliderPos(osdInfo &info, bool paddedFields)
         islive = true;
     }
 
-    float secsplayed = (float)(disp_timecode / 1000.f);
+    float secsplayed = decoder->isCodecMPEG() ?
+        (float)(disp_timecode / 1000.f) :
+        (float)(framesPlayed / video_frame_rate);
+
     calcSliderPosPriv(info, paddedFields, playbackLen, secsplayed, islive);
 }
 
@@ -4701,6 +4710,22 @@ void MythPlayer::SetOSDStatus(const QString &title, OSDTimeout timeout)
     info.text.insert("title", title);
     osd->SetText("osd_status", info.text, timeout);
     osd->SetValues("osd_status", info.values, timeout);
+}
+
+void MythPlayer::SaveTotalDuration(void)
+{
+    if (!decoder)
+        return;
+
+    decoder->SaveTotalDuration();
+}
+
+void MythPlayer::ResetTotalDuration(void)
+{
+    if (!decoder)
+        return;
+
+    decoder->ResetTotalDuration();
 }
 
 static unsigned dbg_ident(const MythPlayer *player)

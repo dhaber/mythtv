@@ -11,7 +11,7 @@ using namespace std;
 #include <QTextCodec>
 
 // MythTV headers
-#include "mythexp.h"
+#include "mythtvexp.h"
 #include "mythconfig.h"
 #include "avformatdecoder.h"
 #include "privatedecoder.h"
@@ -63,8 +63,6 @@ extern void ff_read_frame_flush(AVFormatContext *s);
 #define LOC_WARN QString("AFD Warning: ")
 
 #define MAX_AC3_FRAME_SIZE 6144
-
-static const bool force_reordered_opaque = false;
 
 static const float eps = 1E-5;
 
@@ -263,6 +261,7 @@ AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
       disable_passthru(false),
       dummy_frame(NULL),
       m_fps(0.0f),
+      codec_is_mpeg(false),
       m_spdifenc(NULL)
 {
     memset(&params, 0, sizeof(AVFormatParameters));
@@ -652,6 +651,7 @@ void AvFormatDecoder::SeekReset(long long newKey, uint skipFrames,
         last_pts_for_fault_detection = 0;
         last_dts_for_fault_detection = 0;
         pts_detected = false;
+        reordered_pts_detected = false;
 
         ff_read_frame_flush(ic);
 
@@ -990,8 +990,21 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
         }
     }
 
-    // If watching pre-recorded television or video use ffmpeg duration
-    int64_t dur = ic->duration / (int64_t)AV_TIME_BASE;
+    // If watching pre-recorded television or video use the marked duration
+    // from the db if it exists, else ffmpeg duration
+    int64_t dur = 0;
+
+    if (m_playbackinfo)
+    {
+        dur = m_playbackinfo->QueryTotalDuration();
+        dur /= 1000000;
+    }
+   
+    if (dur == 0)
+    {
+        dur = ic->duration / (int64_t)AV_TIME_BASE;
+    }
+
     if (dur > 0 && !livetv && !watchingrecording)
     {
         m_parent->SetDuration((int)dur);
@@ -1708,6 +1721,8 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                                           "codec id, skipping.").arg(i));
                     continue;
                 }
+
+                codec_is_mpeg = CODEC_IS_FFMPEG_MPEG(enc->codec_id);
 
                 // HACK -- begin
                 // ffmpeg is unable to compute H.264 bitrates in mpegts?
@@ -2573,6 +2588,7 @@ void AvFormatDecoder::MpegPreProcessPkt(AVStream *stream, AVPacket *pkt)
                 last_pts_for_fault_detection = 0;
                 last_dts_for_fault_detection = 0;
                 pts_detected = false;
+                reordered_pts_detected = false;
 
                 // fps debugging info
                 float avFPS = normalized_fps(stream, context);
@@ -2679,6 +2695,7 @@ bool AvFormatDecoder::H264PreProcessPkt(AVStream *stream, AVPacket *pkt)
             last_pts_for_fault_detection = 0;
             last_dts_for_fault_detection = 0;
             pts_detected = false;
+            reordered_pts_detected = false;
 
             // fps debugging info
             float avFPS = normalized_fps(stream, context);
@@ -2762,9 +2779,7 @@ bool AvFormatDecoder::ProcessVideoPacket(AVStream *curstream, AVPacket *pkt)
     avcodeclock->lock();
     if (private_dec)
     {
-        if (QString(ic->iformat->name).contains("avi"))
-            pkt->pts = pkt->dts;
-        if (!pts_detected)
+        if (QString(ic->iformat->name).contains("avi") || !pts_detected)
             pkt->pts = pkt->dts;
         // TODO disallow private decoders for dvd playback
         // N.B. we do not reparse the frame as it breaks playback for
@@ -2821,14 +2836,12 @@ bool AvFormatDecoder::ProcessVideoPacket(AVStream *curstream, AVPacket *pkt)
     {
         pts = mpa_pic.reordered_opaque;
     }
-    else if ((force_reordered_opaque || faulty_pts <= faulty_dts ||
-             pkt->dts == (int64_t)AV_NOPTS_VALUE) &&
-             mpa_pic.reordered_opaque != (int64_t)AV_NOPTS_VALUE)
+    else if (faulty_pts <= faulty_dts && reordered_pts_detected)
     {
-        pts = mpa_pic.reordered_opaque;
+        if (mpa_pic.reordered_opaque != (int64_t)AV_NOPTS_VALUE)
+            pts = mpa_pic.reordered_opaque;
     }
-    else if ((faulty_dts < faulty_pts || !reordered_pts_detected) &&
-             pkt->dts != (int64_t)AV_NOPTS_VALUE)
+    else if (pkt->dts != (int64_t)AV_NOPTS_VALUE)
     {
         pts = pkt->dts;
     }
