@@ -137,12 +137,12 @@ static int QueueTranscodeJob(ProgramInfo *pginfo)
           QString("Queued transcode job for chanid %1 @ %2")
                    .arg(pginfo->GetChanID()).arg(pginfo->GetRecordingStartTime().toString("yyyyMMddhhmmss")));
 
-        return TRANSCODE_EXIT_OK;
+        return GENERIC_EXIT_OK;
     }
     QString tmp = QString("Error queueing job for chanid %1 @ %2")
         .arg(pginfo->GetChanID()).arg(pginfo->GetRecordingStartTime().toString("yyyyMMddhhmmss"));
     cerr << tmp.toLocal8Bit().constData() << endl;
-    return TRANSCODE_EXIT_DB_ERROR;
+    return GENERIC_EXIT_DB_ERROR;
 }
 
 static int CheckJobQueue()
@@ -596,7 +596,7 @@ int main(int argc, char *argv[])
           isVideo || keyframesonly || !recorderOptions.isEmpty() || foundProfileName ))
     {
          cerr << "--queue can only be used with --chanid and --starttime \n";
-         return TRANSCODE_EXIT_INVALID_CMDLINE;
+         return GENERIC_EXIT_INVALID_CMDLINE;
     }
 
     VERBOSE(VB_IMPORTANT, QString("Enabled verbose msgs: %1").arg(verboseString));
