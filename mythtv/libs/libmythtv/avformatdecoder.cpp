@@ -242,6 +242,7 @@ AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
       last_dts_for_fault_detection(0),
       pts_detected(false),
       reordered_pts_detected(false),
+      pts_selected(true),
       using_null_videoout(use_null_videoout),
       video_codec_id(kCodec_NONE),
       no_hardware_decoders(no_hardware_decode),
@@ -1577,7 +1578,7 @@ void AvFormatDecoder::ScanTeletextCaptions(int av_index)
                     VERBOSE(VB_PLAYBACK, LOC + QString(
                                 "Teletext stream #%1 (%2) is in the %3 language"
                                 " on page %4 %5.")
-                            .arg(k).arg((type == 1) ? "Caption" : "Menu")
+                            .arg(k).arg((type == 2) ? "Caption" : "Menu")
                             .arg(iso639_key_toName(language))
                             .arg(magazine).arg(pagenum));
                 }
@@ -2184,7 +2185,7 @@ int get_avf_buffer(struct AVCodecContext *c, AVFrame *pic)
     }
     nd->directrendering = true;
 
-    VideoFrame *frame = nd->GetPlayer()->GetNextVideoFrame(true);
+    VideoFrame *frame = nd->GetPlayer()->GetNextVideoFrame();
 
     if (!frame)
         return -1;
@@ -2251,7 +2252,7 @@ void release_avf_buffer(struct AVCodecContext *c, AVFrame *pic)
 int get_avf_buffer_vdpau(struct AVCodecContext *c, AVFrame *pic)
 {
     AvFormatDecoder *nd = (AvFormatDecoder *)(c->opaque);
-    VideoFrame *frame = nd->GetPlayer()->GetNextVideoFrame(false);
+    VideoFrame *frame = nd->GetPlayer()->GetNextVideoFrame();
 
     pic->data[0] = frame->buf;
     pic->data[1] = frame->priv[0];
@@ -2830,25 +2831,30 @@ bool AvFormatDecoder::ProcessVideoPacket(AVStream *curstream, AVPacket *pkt)
     {
         if (pkt->dts != (int64_t)AV_NOPTS_VALUE)
             pts = pkt->dts;
+        pts_selected = false;
     }
     else if (private_dec && private_dec->NeedsReorderedPTS() &&
              mpa_pic.reordered_opaque != (int64_t)AV_NOPTS_VALUE)
     {
         pts = mpa_pic.reordered_opaque;
+        pts_selected = true;
     }
     else if (faulty_pts <= faulty_dts && reordered_pts_detected)
     {
         if (mpa_pic.reordered_opaque != (int64_t)AV_NOPTS_VALUE)
             pts = mpa_pic.reordered_opaque;
+        pts_selected = true;
     }
     else if (pkt->dts != (int64_t)AV_NOPTS_VALUE)
     {
         pts = pkt->dts;
+        pts_selected = false;
     }
 
     VERBOSE(VB_PLAYBACK+VB_TIMESTAMP+VB_EXTRA, LOC +
-            QString("video packet timestamps reordered %1 pts %2 dts %3")
-            .arg(mpa_pic.reordered_opaque).arg(pkt->pts).arg(pkt->dts));
+            QString("video packet timestamps reordered %1 pts %2 dts %3 (%4 active)")
+            .arg(mpa_pic.reordered_opaque).arg(pkt->pts).arg(pkt->dts)
+            .arg((pts_selected) ? "reordered" : "dts"));
 
     mpa_pic.reordered_opaque = pts;
 
@@ -2876,7 +2882,7 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
         AVPicture tmppicture;
 
         VideoFrame *xf = picframe;
-        picframe = m_parent->GetNextVideoFrame(false);
+        picframe = m_parent->GetNextVideoFrame();
 
         unsigned char *buf = picframe->buf;
         avpicture_fill(&tmppicture, buf, PIX_FMT_YUV420P, context->width,
@@ -2919,15 +2925,16 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
         return false;
     }
 
-    long long temppts = (long long)(av_q2d(stream->time_base) *
-                                    mpa_pic->reordered_opaque * 1000);
+    long long pts = (long long)(av_q2d(stream->time_base) *
+                                mpa_pic->reordered_opaque * 1000);
 
+    long long temppts = pts;
     // Validate the video pts against the last pts. If it's
     // a little bit smaller, equal or missing, compute
     // it from the last. Otherwise assume a wraparound.
     if (!ringBuffer->IsDVD() &&
         temppts <= lastvpts &&
-        (temppts + 10000 > lastvpts || temppts <= 0))
+        (temppts + (1000 / fps) > lastvpts || temppts <= 0))
     {
         temppts = lastvpts;
         temppts += (long long)(1000 / fps);
@@ -2936,8 +2943,9 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
     }
 
     VERBOSE(VB_PLAYBACK+VB_TIMESTAMP, LOC +
-            QString("video timecode %1 %2 %3")
-            .arg(mpa_pic->reordered_opaque).arg(temppts).arg(lastvpts));
+            QString("video timecode %1 %2 %3 %4%5")
+            .arg(mpa_pic->reordered_opaque).arg(pts).arg(temppts).arg(lastvpts)
+            .arg((pts != temppts) ? " fixup" : ""));
 
     picframe->interlaced_frame = mpa_pic->interlaced_frame;
     picframe->top_field_first  = mpa_pic->top_field_first;
@@ -4146,7 +4154,7 @@ bool AvFormatDecoder::GenerateDummyVideoFrame(void)
     if (!m_parent->getVideoOutput())
         return false;
 
-    VideoFrame *frame = m_parent->GetNextVideoFrame(true);
+    VideoFrame *frame = m_parent->GetNextVideoFrame();
     if (!frame)
         return false;
 
