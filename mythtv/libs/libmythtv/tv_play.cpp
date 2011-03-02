@@ -833,6 +833,7 @@ TV::TV(void)
       // Channel Editing
       chanEditMapLock(QMutex::Recursive),
       ddMapSourceId(0), ddMapLoaderRunning(false),
+      ddMapLoader(NULL),
       // Sleep Timer
       sleep_index(0), sleepTimerId(0), sleepDialogTimerId(0),
       // Idle Timer
@@ -1184,16 +1185,17 @@ TV::~TV(void)
         lcd->switchToTime();
     }
 
-    if (ddMapLoaderRunning)
+    if (ddMapLoader && ddMapLoader->isRunning())
     {
-        ddMapLoader.wait();
-        ddMapLoaderRunning = false;
+        ddMapLoader->wait();
+        delete ddMapLoader;
 
         if (ddMapSourceId)
         {
-            ddMapLoader.SetParent(NULL);
-            ddMapLoader.SetSourceId(ddMapSourceId);
-            ddMapLoader.start();
+            ddMapLoader = new TVDDMapThread;
+            ddMapLoader->SetParent(NULL);
+            ddMapLoader->SetSourceId(ddMapSourceId);
+            ddMapLoader->start();
         }
     }
 
@@ -8943,10 +8945,10 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
     ReturnOSDLock(ctx, osd);
 
     QMutexLocker locker(&chanEditMapLock);
-    if (ddMapLoaderRunning)
+    if (ddMapLoader && ddMapLoader->isRunning())
     {
-        ddMapLoader.wait();
-        ddMapLoaderRunning = false;
+        ddMapLoader->wait();
+        delete ddMapLoader;
     }
 
     // Get the info available from the backend
@@ -8971,10 +8973,10 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
 
     if (sourceid && (sourceid != ddMapSourceId))
     {
-        ddMapLoader.SetParent(this);
-        ddMapLoader.SetSourceId(sourceid);
-        ddMapLoader.start();
-        ddMapLoaderRunning = ddMapLoader.isRunning();
+        ddMapLoader = new TVDDMapThread;
+        ddMapLoader->SetParent(this);
+        ddMapLoader->SetSourceId(sourceid);
+        ddMapLoader->start();
     }
 }
 
