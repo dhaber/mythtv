@@ -176,8 +176,7 @@ int main(int argc, char *argv[])
 
     QCoreApplication a(argc, argv);
 
-    QFileInfo finfo(a.argv()[0]);
-    QString binname = finfo.baseName();
+    QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHTRANSCODE);
 
     print_verbose_messages = VB_IMPORTANT;
     verboseString = "important";
@@ -544,8 +543,6 @@ int main(int argc, char *argv[])
         VERBOSE(VB_IMPORTANT, "Failed to init MythContext, exiting.");
         return GENERIC_EXIT_NO_MYTHCONTEXT;
     }
-
-    gCoreContext->SetAppName(binname);
 
     MythTranslation::load("mythfrontend");
 
