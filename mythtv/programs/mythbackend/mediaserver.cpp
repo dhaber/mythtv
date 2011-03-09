@@ -9,12 +9,13 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include "mediaserver.h"
-#include "mythxml.h"
+#include "internetContent.h"
 #include "mythdirs.h"
 
 #include "upnpcdstv.h"
 #include "upnpcdsmusic.h"
 #include "upnpcdsvideo.h"
+#include "htmlserver.h"
 
 #include "serviceHosts/mythServiceHost.h"
 #include "serviceHosts/guideServiceHost.h"
@@ -77,15 +78,9 @@ MediaServer::MediaServer( bool bIsMaster, bool bDisableUPnp /* = FALSE */ )
     QString sDeviceType;
 
     if ( bIsMaster )
-    {
         sFileName  += "devicemaster.xml";
-        sDeviceType = "urn:schemas-mythtv-org:device:MasterMediaServer:1";
-    }
     else
-    {
         sFileName += "deviceslave.xml";
-        sDeviceType = "urn:schemas-mythtv-org:device:SlaveMediaServer:1";
-    }
 
     // ------------------------------------------------------------------
     // Make sure our device Description is loaded.
@@ -95,21 +90,20 @@ MediaServer::MediaServer( bool bIsMaster, bool bDisableUPnp /* = FALSE */ )
 
     g_UPnpDeviceDesc.Load( sFileName );
 
-    UPnpDevice *pMythDevice = UPnpDeviceDesc::FindDevice( RootDevice(),
-                                                            sDeviceType );
-
     // ------------------------------------------------------------------
-    // Register the MythXML protocol...
+    // Register Http Server Extensions...
     // ------------------------------------------------------------------
 
-    VERBOSE(VB_UPNP, "MediaServer::Registering MythXML Service." );
+    VERBOSE(VB_UPNP, "MediaServer::Registering Http Server Extensions." );
 
-    m_pHttpServer->RegisterExtension( new MythXML( pMythDevice , m_sSharePath));
+    m_pHttpServer->RegisterExtension( new InternetContent   ( m_sSharePath ));
 
     m_pHttpServer->RegisterExtension( new MythServiceHost   ( m_sSharePath ));
     m_pHttpServer->RegisterExtension( new GuideServiceHost  ( m_sSharePath ));
     m_pHttpServer->RegisterExtension( new ContentServiceHost( m_sSharePath ));
     m_pHttpServer->RegisterExtension( new DvrServiceHost    ( m_sSharePath ));
+
+    m_pHttpServer->RegisterExtension( new HtmlServerExtension( m_sSharePath ));
 
     if (sIP == "localhost" || sIP.startsWith("127."))
     {
