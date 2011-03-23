@@ -293,6 +293,10 @@ class MTV_PUBLIC MythPlayer
     // Public picture controls
     void ToggleStudioLevels(void);
 
+    // Visualisations
+    bool CanVisualise(void);
+    bool ToggleVisualisation(void);
+
     void SaveTotalDuration(void);
     void ResetTotalDuration(void);
 
@@ -425,6 +429,7 @@ class MTV_PUBLIC MythPlayer
 
     // Audio/Subtitle/EIA-608/EIA-708 stream selection
     QStringList GetTracks(uint type);
+    uint GetTrackCount(uint type);
     virtual int SetTrack(uint type, int trackNo);
     int  GetTrack(uint type);
     int  ChangeTrack(uint type, int dir);

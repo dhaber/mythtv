@@ -915,7 +915,6 @@ void MythMainWindow::Init(void)
 #endif
 
     setWindowFlags(flags);
-    Show();
 
     if (d->does_fill_screen && !GetMythUI()->IsGeometryOverridden())
     {
@@ -930,6 +929,7 @@ void MythMainWindow::Init(void)
     setFixedSize(QSize(d->screenwidth, d->screenheight));
 
     GetMythUI()->ThemeWidget(this);
+    Show();
 
     if (!GetMythDB()->GetNumSetting("HideMouseCursor", 0))
         setMouseTracking(true); // Required for mouse cursor auto-hide
