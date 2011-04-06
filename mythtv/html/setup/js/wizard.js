@@ -1,6 +1,6 @@
 function testDBSettings() {
     var result = 0;
-    var host = $("#dbHost").val();
+    var host = $("#dbHostName").val();
     var user = $("#dbUserName").val();
     var pass = $("#dbPassword").val();
     var name = $("#dbName").val();
@@ -30,6 +30,31 @@ function testDBSettings() {
     return result;
 }
 
-$('#editborder').attr({ class: 'editborder-wizard' });
-$("#wizardtabs").tabs({ cache: true });
+function validateSettingsInDiv(divName) {
+    var result = true;
+    $("#" + divName + " :input").each(function() {
+        if (($(this).attr("type") != "button") &&
+            ($(this).attr("type") != "submit") &&
+            ($(this).attr("type") != "reset")) {
+            if (!validateSetting($(this).attr("id")))
+                result = false;
+        }
+    });
+
+    return result;
+}
+
+function saveWizard() {
+    if (!validateSettingsInDiv("wizard-network")) {
+        setEditErrorMessage("Network Setup has an error.");
+    }
+
+    alert("Saving is not fully functional, the database has not been modified!");
+}
+
+setupTabs("wizardtabs");
+$("#editborder").attr({ class: 'editborder-wizard' });
+$("#editsavebutton").show();
+$("#editsavelink").attr("href", "javascript:saveWizard()");
 showEditWindow();
+

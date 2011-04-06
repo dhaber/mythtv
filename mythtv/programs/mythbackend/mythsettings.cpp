@@ -8,6 +8,12 @@
 #include "mythcontext.h"
 #include "mythdb.h"
 
+MythSetting::SettingType parse_setting_type(const QString &str);
+MythSetting::DataType parse_data_type(const QString &str);
+bool parse_dom(MythSettingList &settings, const QDomElement &element,
+               const QString &filename, const QString &group,
+               bool includeAllChildren, bool &foundGroup);
+
 static QString indent(uint level)
 {
     QString ret;
@@ -65,18 +71,8 @@ static void fill_setting(
         bool do_option_check = false;
         if (MythSetting::kLocalIPAddress == setting->dtype)
         {
-            setting->data_list.clear();
-            setting->display_list.clear();
-            QList<QHostAddress> list = QNetworkInterface::allAddresses();
-            for (uint i = 0; i < (uint)list.size(); i++)
-            {
-                if (list[i].toString().contains(":"))
-                    continue; // ignore IP6 addresses for now
-                setting->data_list.push_back(list[i].toString());
-                setting->display_list.push_back(setting->data_list.back());
-            }
-            if (setting->data_list.isEmpty())
-                setting->data_list.push_back("127.0.0.1");
+            setting->data_list = GetSettingValueList("LocalIPAddress");
+            setting->display_list = setting->data_list;
             do_option_check = true;
         }
         else if (MythSetting::kSelect == setting->dtype)
@@ -109,7 +105,7 @@ static void fill_setting(
                 if (ok)
                 {
                     uint sel = 0;
-                    for (uint i = setting->data_list.size(); i >= 0; i--)
+                    for (int i = setting->data_list.size() - 1; i >= 0; i--)
                     {
                         if (idata < setting->data_list[i].toLongLong())
                             break;
@@ -167,6 +163,26 @@ QString MythSetting::ToHTML(uint level) const
     QString ret = indent(level) +
         QString("<div class=\"setting\" id=\"%1_div\">\r\n").arg(value);
 
+    int size = 20;
+    switch (dtype)
+    {
+        case kFloat:
+        case kInteger:
+        case kIntegerRange:
+        case kUnsignedInteger:
+            size = 10;
+            break;
+        case kTimeOfDay:
+            size = 5;
+            break;
+        case kString:
+            size = 60;
+            break;
+        case kIPAddress:
+            size = 17;
+            break;
+    }
+
     switch (dtype)
     {
         case kInteger:
@@ -179,12 +195,14 @@ QString MythSetting::ToHTML(uint level) const
         case kTimeOfDay:
         case kOther:
             ret += indent(level) +
-                "<div class=\"setting_label\">" + label + "</div>\r\n";
+                "<div class=\"setting_label\">" + label + " "
+                "<a class=\"helpLink\" href=\"javascript:showSettingHelp('" + 
+                value + "')\">[?]</a></div>\r\n";
             ret += indent(level) +
-                QString("<input name=\"%1\" id=\"%2_input\" type=\"text\""
-                        " value=\"%3\"/><div class=\"form_error\""
-                        "id=\"%4_error\"></div>\r\n")
-                .arg(value).arg(value).arg(data).arg(value);
+                QString("<input name=\"%1\" id=\"%2\" type=\"text\""
+                        " value=\"%3\" size='%4'/><div class=\"form_error\""
+                        "id=\"%5_error\"></div>\r\n")
+                .arg(value).arg(value).arg(data).arg(size).arg(value);
             ret += indent(level) +
                 QString("<div style=\"display:none;"
                         "position:absolute;left:-4000px\" "
@@ -193,9 +211,11 @@ QString MythSetting::ToHTML(uint level) const
             break;
         case kCheckBox:
             ret += indent(level) +
-                "<div class=\"setting_label\">" + label + "</div>\r\n";
+                "<div class=\"setting_label\">" + label + " "
+                "<a class=\"helpLink\" href=\"javascript:showSettingHelp('" + 
+                value + "')\">[?]</a></div>\r\n";
             ret += indent(level) +
-                QString("<input name=\"%1\" id=\"%2_input\" type=\"checkbox\""
+                QString("<input name=\"%1_input\" id=\"%2\" type=\"checkbox\""
                         " value=\"1\" %3/><div class=\"form_error\""
                         " id=\"%4_error\"></div>\r\n")
                 .arg(value).arg(value).arg((data.toUInt()) ? "checked" : "")
@@ -211,9 +231,11 @@ QString MythSetting::ToHTML(uint level) const
         case kFrequencyTable:
         case kSelect:
             ret +=  indent(level) +
-                "<div class=\"setting_label\">" + label + "</div>\r\n";
+                "<div class=\"setting_label\">" + label + " "
+                "<a class=\"helpLink\" href=\"javascript:showSettingHelp('" + 
+                value + "')\">[?]</a></div>\r\n";
             ret +=  indent(level) +
-                QString("<select name=\"%1\" id=\"%2_input\">\r\n")
+                QString("<select name=\"%1_input\" id=\"%2\">\r\n")
                 .arg(value).arg(value);
             for (uint i = 0; (i < (uint)data_list.size()) &&
                      (i < (uint)display_list.size()); i++)
@@ -286,6 +308,157 @@ MythSetting::DataType parse_data_type(const QString &str)
         return MythSetting::kOther;
     VERBOSE(VB_IMPORTANT, QString("Unknown type: %1").arg(str));
     return MythSetting::kInvalidDataType;
+}
+
+QMap<QString,QString> GetSettingsMap(MythSettingList &settings,
+                                     const QString &hostname)
+{
+    QMap<QString,QString> result;
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    QString list = extract_query_list(settings, MythSetting::kFile);
+    if (!list.isEmpty())
+    {
+        result = GetConfigFileSettingValues();
+        if (result.isEmpty())
+            return result;
+    }
+
+    list = extract_query_list(settings, MythSetting::kHost);
+    QString qstr =
+        "SELECT value, data "
+        "FROM settings "
+        "WHERE hostname = '" + hostname + "' AND "
+        "      value in (" + list + ")";
+
+    if (!list.isEmpty())
+    {
+        if (!query.exec(qstr))
+        {
+            MythDB::DBError("GetSettingsMap() 1", query);
+            return result;
+        }
+
+        while (query.next())
+            result[query.value(0).toString()] = query.value(1).toString();
+    }
+
+    list = extract_query_list(settings, MythSetting::kGlobal);
+    qstr =
+        "SELECT value, data "
+        "FROM settings "
+        "WHERE hostname IS NULL AND "
+        "      value in (" + list + ")";
+    
+    if (!list.isEmpty())
+    {
+        if (!query.exec(qstr))
+        {
+            MythDB::DBError("GetSettingsMap() 2", query);
+            return result;
+        }
+
+        while (query.next())
+            result[query.value(0).toString()] = query.value(1).toString();
+    }
+
+    return result;
+}
+
+QStringList GetSettingValueList(const QString &type)
+{
+    QStringList sList;
+
+    if (type == "LocalIPAddress")
+    {
+        QList<QHostAddress> list = QNetworkInterface::allAddresses();
+        for (uint i = 0; i < (uint)list.size(); i++)
+        {
+            if (list[i].toString().contains(":"))
+                continue; // ignore IP6 addresses for now
+            sList << list[i].toString();
+        }
+
+        if (sList.isEmpty())
+            sList << "127.0.0.1";
+    }
+
+    return sList;
+}
+
+QString StringMapToJSON(const QMap<QString,QString> &map)
+{
+    QString result;
+
+    QMap<QString,QString>::const_iterator it = map.begin();
+    for (; it != map.end(); ++it)
+    {
+        if (result.isEmpty())
+            result += "{ ";
+        else
+            result += ", ";
+
+        // FIXME, howto encode double quotes in JSON?
+        result += "\"" + it.key() + "\": \"" + it.value() + "\"";
+    }
+
+    if (!result.isEmpty())
+        result += " }";
+    else
+        result = "{ }";
+
+    return result;
+}
+
+QString StringListToJSON(const QString &key,
+                                      const QStringList &sList)
+{
+    QString result;
+
+    QStringList::const_iterator it = sList.begin();
+    for (; it != sList.end(); ++it)
+    {
+        if (result.isEmpty())
+            result += QString("{ \"%1\" : [ ").arg(key);
+        else
+            result += ", ";
+
+        // FIXME, howto encode double quotes in JSON?
+        result += "\"" + *it + "\"";
+    }
+
+    if (!result.isEmpty())
+        result += " ] }";
+    else
+        result = "{ }";
+
+    return result;
+}
+
+QMap<QString,QString> GetConfigFileSettingValues()
+{
+    QMap<QString,QString> map;
+    DatabaseParams params;
+    bool ok = MythDB::LoadDatabaseParamsFromDisk(params, true);
+    if (!ok)
+        return map;
+
+    map["dbHostName"]           = params.dbHostName;
+    map["dbPort"]               = QString::number(params.dbPort);
+    map["dbPing"]               = QString::number(params.dbHostPing);
+    map["dbName"]               = params.dbName;
+    map["dbUserName"]           = params.dbUserName;
+    map["dbPassword"]           = params.dbPassword;
+    map["dbHostID"]             = params.localHostName;
+    map["dbWOLEnabled"]         =
+        QString::number(params.wolEnabled);
+    map["dbWOLReconnectCount"]  =
+        QString::number(params.wolReconnect);
+    map["dbWOLRetryCount"]      =
+        QString::number(params.wolRetry);
+    map["dbWOLCommand"]         = params.wolCommand;
+
+    return map;
 }
 
 bool parse_dom(MythSettingList &settings, const QDomElement &element,
@@ -497,26 +670,9 @@ bool load_settings(MythSettingList &settings, const QString &hostname)
     QString list = extract_query_list(settings, MythSetting::kFile);
     if (!list.isEmpty())
     {
-        DatabaseParams params;
-        bool ok = MythDB::LoadDatabaseParamsFromDisk(params, true);
-        if (!ok)
+        QMap<QString,QString> map = GetConfigFileSettingValues();
+        if (map.isEmpty())
             return false;
-
-        QMap<QString,QString> map;
-        map["host"]                = params.dbHostName;
-        map["port"] = QString::number(params.dbPort);
-        map["ping"] = QString::number(params.dbHostPing);
-        map["database"]            = params.dbName;
-        map["user"]                = params.dbUserName;
-        map["password"]            = params.dbPassword;
-        map["uniqueid"]            = params.localHostName;
-        map["wol_enabled"]         =
-            QString::number(params.wolEnabled);
-        map["wol_reconnect_count"] =
-            QString::number(params.wolReconnect);
-        map["wol_retry_count "]    =
-            QString::number(params.wolRetry);
-        map["wol_command"]         = params.wolCommand;
 
         MythSettingList::const_iterator it = settings.begin();
         for (; it != settings.end(); ++it)
