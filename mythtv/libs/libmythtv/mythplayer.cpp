@@ -136,7 +136,7 @@ MythPlayer::MythPlayer(bool muted)
       bufferPaused(false),  videoPaused(false),
       allpaused(false),     playing(false),
       m_double_framerate(false),    m_double_process(false),
-      m_can_double(false),          m_deint_possible(true),
+      m_deint_possible(true),
       livetv(false),
       watchingrecording(false),     using_null_videoout(false),
       transcoding(false),
@@ -201,7 +201,7 @@ MythPlayer::MythPlayer(bool muted)
       avsync_predictor(0),          avsync_predictor_enabled(false),
       refreshrate(0),
       lastsync(false),              repeat_delay(0),
-      disp_timecode(0),
+      disp_timecode(0),             avsync_audiopaused(false),
       // Time Code stuff
       prevtc(0),                    prevrp(0),
       // LiveTVChain stuff
@@ -812,8 +812,7 @@ void MythPlayer::SetScanType(FrameScanType scan)
         if (videoOutput->NeedsDoubleFramerate())
         {
             m_double_framerate = true;
-            m_can_double = (frame_interval / 2 > videosync->getRefreshInterval() * 0.995);
-            if (!m_can_double)
+            if (!CanSupportDoubleRate())
             {
                 VERBOSE(VB_IMPORTANT, LOC + "Video sync method can't support "
                         "double framerate (refresh rate too low for 2x deint)");
@@ -1749,12 +1748,23 @@ void MythPlayer::AVSync(VideoFrame *buffer, bool limit_delay)
             .arg(-diverge);
     }
 
+    if (!dropframe && avsync_audiopaused)
+    {
+        avsync_audiopaused = false;
+        audio.Pause(false);
+    }
+
     if (dropframe)
     {
         // Reset A/V Sync
         lastsync = true;
         currentaudiotime = AVSyncGetAudiotime();
         VERBOSE(VB_PLAYBACK, LOC + dbg + "dropping frame to catch up.");
+        if (!audio.IsPaused())
+        {
+            audio.Pause(true);
+            avsync_audiopaused = true;
+        }
     }
     else if (!using_null_videoout)
     {
@@ -2071,6 +2081,13 @@ void MythPlayer::PreProcessNormalFrame(void)
 #endif // USING_MHEG
 }
 
+bool MythPlayer::CanSupportDoubleRate(void)
+{
+    if (!videosync)
+        return false;
+    return (frame_interval / 2 > videosync->getRefreshInterval() * 0.995);
+}
+
 void MythPlayer::VideoStart(void)
 {
     if (!using_null_videoout && !player_ctx->IsPIP())
@@ -2125,7 +2142,6 @@ void MythPlayer::VideoStart(void)
     m_scan             = kScan_Interlaced;
     m_scan_locked      = false;
     m_double_framerate = false;
-    m_can_double       = false;
     m_scan_tracker     = 2;
 
     if (using_null_videoout)
@@ -2147,8 +2163,7 @@ void MythPlayer::VideoStart(void)
         // Make sure video sync can do it
         if (videosync != NULL && m_double_framerate)
         {
-            m_can_double = (frame_interval / 2 > videosync->getRefreshInterval() * 0.995);
-            if (!m_can_double)
+            if (!CanSupportDoubleRate())
             {
                 VERBOSE(VB_IMPORTANT, LOC + "Video sync method can't support "
                         "double framerate (refresh rate too low for 2x deint)");
@@ -3243,7 +3258,7 @@ void MythPlayer::ChangeSpeed(void)
         videofiltersLock.lock();
         if (m_double_framerate && !play_1)
             videoOutput->FallbackDeint();
-        else if (!m_double_framerate && m_can_double && play_1 && inter)
+        else if (!m_double_framerate && CanSupportDoubleRate() && play_1 && inter)
             videoOutput->BestDeint();
         videofiltersLock.unlock();
 
@@ -3880,6 +3895,13 @@ bool MythPlayer::IsEmbedding(void)
 {
     if (videoOutput)
         return videoOutput->IsEmbedding();
+    return false;
+}
+
+bool MythPlayer::GetScreenShot(int width, int height)
+{
+    if (videoOutput)
+        return videoOutput->GetScreenShot(width, height);
     return false;
 }
 
