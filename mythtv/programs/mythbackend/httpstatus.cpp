@@ -1150,7 +1150,6 @@ int HttpStatus::PrintMachineInfo( QTextStream &os, QDomElement info )
     os << "      Disk Usage Details:<br />\r\n";
     os << "      <ul>\r\n";
 
-
     while (!node.isNull())
     {
         QDomElement g = node.toElement();
