@@ -3,7 +3,7 @@
     html, body {
         font-size:        14px;
         font-family:      sans-serif;
-        color:            black;
+        color:            white;
         background-color: #88a1bb;
         border:           0px;
         margin:           0px;
@@ -18,6 +18,61 @@
     }
     .bold {
         font-weight:        bold;
+    }
+
+    table
+    {
+        width:100%;
+    }
+
+    table td
+    {
+        font-weight: normal !important;
+        padding: .2em;
+        border: 10px #FFFFFF;
+    }
+
+    table th
+    {
+        border: 10px #FFFFFF;
+        text-align: center;
+        padding: .2em .2em;
+    }
+
+    table tr.alt td
+    {
+        border: 10px #FFFFFF;
+        background-color:#2D2D2D;
+    }
+
+    table td.invisible
+    {
+        display:none;
+    }
+
+    table th.invisible
+    {
+        display:none;
+    }
+
+    #header_status {
+        position:           fixed;
+        bottom:             30px;
+        left:               100px;
+        right:              100px;
+        height:             38px;
+        z-index:            2000;
+        padding:            6px 200px 0 200px;
+    }
+
+    #header_error {
+        position:           fixed;
+        bottom:             80px;
+        left:               100px;
+        right:              100px;
+        height:             38px;
+        z-index:            2000;
+        padding:            6px 200px 0 200px;
     }
 
     #header {
@@ -59,34 +114,12 @@
         height:             36px;
     }
 
-    #header_status {
-        position:           fixed;
-        font-size:          18px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-        color:              blue;
-        text-align:         center;
-        top:                0px;
-        left:               0px;
+    #content {
+        position:           absolute;
+        top:                40px;
         right:              0px;
-        height:             38px;
-        z-index:            98;
-        padding:            6px 200px 0 200px;
-    }
-
-    #header_error {
-        position:           fixed;
-        font-size:          18px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-        color:              red;
-        text-align:         center;
-        top:                0px;
-        left:               0px;
-        right:              0px;
-        height:             38px;
-        z-index:            98;
-        padding:            6px 200px 0 200px;
+        left:               200px;
+        padding:            10px;
     }
 
     #hostname {
@@ -110,7 +143,7 @@
     }
 
     #menu-title {
-        font-size:          16px;
+        font-size:          14px;
         font-family:        sans-serif;
         font-weight:        bold;
         color:              #E4D6CD;
@@ -164,97 +197,8 @@
         padding: 8px 0 0 10px;
     }
 
-    #content {
-        position:           absolute;
-        top:                40px;
-        right:              0px;
-        left:               200px;
-        padding:            10px;
-    }
-    #content a[name] {
-        padding-top: 6em;
-    }
-
-    div.tablewrapper {
-        position:           relative;
-        padding:            10px;
-    }
-
-    table
-    {
-        width:100%;
-        border-collapse:collapse;
-    }
-
-    table td, table th
-    {
-        font-size:1.2em;
-        border:1px solid #E4D6CD;
-        padding:7px 7px 2px 7px;
-    }
-
-    table th
-    {
-
-        font-size:          14px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-
-        text-align:center;
-        padding-top:5px;
-        padding-bottom:4px;
-        background-color:#004570;
-        color:#fff;
-    }
-
-    table tr td
-    {
-        font-size:          14px;
-        font-family:        sans-serif;
-        color:#000;
-    }
-
-    table tr.alt td
-    {
-        font-size:          14px;
-        font-family:        sans-serif;
-        color:#000;
-        background-color:#EFEFFF;
-    }
-
-    table td.invisible
-    {
-        display:none;
-    }
-
-    table th.invisible
-    {
-        display:none;
-    }
-
-    div.statusMessage {
-        font-size:          18px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-        width:              100%;
-        color:              blue;
-        text-align:         center;
-    }
-
-    div.errorMessage {
-        font-size:          18px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-        width:              100%;
-        color:              red;
-        text-align:         center;
-    }
-
-    div.form_error {
-        font-size:          14px;
-        font-family:        sans-serif;
-        font-weight:        bold;
-        color:              red;
+    div.setting {
+        padding: 5px 5px;
     }
 
     div.Title {
@@ -262,19 +206,31 @@
         font-family:        sans-serif;
         font-weight:        bold;
         width:              100%;
-        color:              black;
+        color:              white;
         text-align:         center;
     }
 
-    div.SaveButton {
-        position: absolute;
-        top: 5px;
-        left: 5px;
+    .config {
+        display: none;
     }
 
-    div.CloseButton {
-        position: absolute;
-        top: 5px;
-        right: 5px;
+    .expert {
+        display: none;
     }
 
+    .activeField
+    {
+        background-image: none;
+        background-color: #FFFFFF;
+        border: solid 1px #33677F;
+    }
+
+    .idle
+    {
+        border: solid 1px #85b1de;
+        filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#888888', endColorstr='#FFFFFF'); /* for IE */
+        background: -webkit-gradient(linear, left top, left bottom, from(#888), to(#FFF)); /* for webkit browsers */
+        background: -moz-linear-gradient(top,  #888,  #FFF); /* for firefox 3.6+ */ 
+        background-repeat: repeat-x;
+        background-position: top;
+    }
