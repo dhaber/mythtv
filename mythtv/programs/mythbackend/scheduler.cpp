@@ -3410,7 +3410,7 @@ void Scheduler::AddNewRecords(void)
         "SELECT "
         "    c.chanid,         c.sourceid,           p.starttime,       "// 0-2
         "    p.endtime,        p.title,              p.subtitle,        "// 3-5
-        "    left(p.description,16000),c.channum,    c.callsign,        "// 6-8
+        "    left(p.description,256),c.channum,    c.callsign,        "// 6-8
 //        "    p.description,    c.channum,            c.callsign,        "// 6-8
         "    c.name,           oldrecduplicate,      p.category,        "// 9-11
         "    RECTABLE.recpriority, RECTABLE.dupin,   recduplicate,      "//12-14
