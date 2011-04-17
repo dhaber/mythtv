@@ -766,8 +766,8 @@ int run_backend(const MythCommandLineParser &cmdline)
     if (pHS)
     {
         VERBOSE(VB_IMPORTANT, "Main::Registering HttpStatus Extension");
-        httpStatus = new HttpStatus( &tvList, sched,expirer, ismaster );
-        pHS->RegisterExtension( httpStatus);
+        httpStatus = new HttpStatus( &tvList, sched, expirer, ismaster );
+        pHS->RegisterExtension( httpStatus );
     }
 
     VERBOSE(VB_IMPORTANT, QString("Enabled verbose msgs: %1")
