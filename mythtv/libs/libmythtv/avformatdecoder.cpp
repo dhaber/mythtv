@@ -1689,6 +1689,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
     bitrate       = 0;
     fps           = 0;
 
+    tracks[kTrackTypeAttachment].clear();
     tracks[kTrackTypeAudio].clear();
     tracks[kTrackTypeSubtitle].clear();
     tracks[kTrackTypeTeletextCaptions].clear();
@@ -1912,6 +1913,16 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                         .arg(ff_codec_type_string(enc->codec_type)));
                 break;
             }
+            case CODEC_TYPE_ATTACHMENT:
+            {
+                if (enc->codec_id == CODEC_ID_TTF)
+                   tracks[kTrackTypeAttachment].push_back(
+                       StreamInfo(i, 0, 0, ic->streams[i]->id, 0));
+                bitrate += enc->bit_rate;
+                VERBOSE(VB_PLAYBACK, LOC + QString("Attachment codec (%1)")
+                        .arg(ff_codec_type_string(enc->codec_type)));
+                break;
+            }
             default:
             {
                 bitrate += enc->bit_rate;
@@ -1926,11 +1937,10 @@ int AvFormatDecoder::ScanStreams(bool novideo)
             enc->codec_type != CODEC_TYPE_SUBTITLE)
             continue;
 
-        // skip DVB teletext, text and SSA subs, there is no libavcodec decoder
+        // skip DVB teletext and text subs, there is no libavcodec decoder
         if (enc->codec_type == CODEC_TYPE_SUBTITLE &&
            (enc->codec_id   == CODEC_ID_DVB_TELETEXT ||
-            enc->codec_id   == CODEC_ID_TEXT ||
-            enc->codec_id   == CODEC_ID_SSA))
+            enc->codec_id   == CODEC_ID_TEXT))
             continue;
 
         VERBOSE(VB_PLAYBACK, LOC + QString("Looking for decoder for %1")
@@ -3365,6 +3375,32 @@ QString AvFormatDecoder::GetXDS(const QString &key) const
     return ccd608->GetXDS(key);
 }
 
+QByteArray AvFormatDecoder::GetSubHeader(uint trackNo) const
+{
+    if (trackNo >= tracks[kTrackTypeSubtitle].size())
+        return QByteArray();
+
+    int index = tracks[kTrackTypeSubtitle][trackNo].av_stream_index;
+    if (!ic->streams[index]->codec)
+        return QByteArray();
+
+    return QByteArray((char *)ic->streams[index]->codec->subtitle_header,
+                      ic->streams[index]->codec->subtitle_header_size);
+}
+
+void AvFormatDecoder::GetAttachmentData(uint trackNo, QByteArray &filename,
+                                        QByteArray &data)
+{
+    if (trackNo >= tracks[kTrackTypeAttachment].size())
+        return;
+
+    int index = tracks[kTrackTypeAttachment][trackNo].av_stream_index;
+    // TODO deprecated - use AVMetaData
+    filename  = QByteArray(ic->streams[index]->filename);
+    data      = QByteArray((char *)ic->streams[index]->codec->extradata,
+                           ic->streams[index]->codec->extradata_size);
+}
+
 bool AvFormatDecoder::SetAudioByComponentTag(int tag)
 {
     for (uint i = 0; i < tracks[kTrackTypeAudio].size(); i++)
@@ -4334,10 +4370,11 @@ void AvFormatDecoder::SetDisablePassThrough(bool disable)
 
 inline bool AvFormatDecoder::DecoderWillDownmix(const AVCodecContext *ctx)
 {
-        // Until ffmpeg properly implements dialnorm
-        // use Myth internal downmixer if machines has FPU/SSE
-    if (AudioOutputUtil::has_hardware_fpu())
-        return false;
+    // Until ffmpeg properly implements dialnorm
+    // use Myth internal downmixer if machines has FPU/SSE
+    if (!m_audio->CanDownmix() || !AudioOutputUtil::has_hardware_fpu())
+        return true;
+
     switch (ctx->codec_id)
     {
         case CODEC_ID_AC3:

@@ -1686,6 +1686,43 @@ static void _process_psr_event(void *handle, BD_PSR_EVENT *ev)
 {
     BLURAY *bd = (BLURAY*)handle;
 
+    /* PSR restore events are handled internally */
+
+    if (ev->ev_type == BD_PSR_RESTORE) {
+
+        BD_DEBUG(DBG_BLURAY, "PSR RESTORE event %d %d (%p)\n", ev->psr_idx, ev->new_val, bd);
+
+        /* Restore stored playback position */
+
+        switch (ev->psr_idx) {
+            case PSR_ANGLE_NUMBER:
+                /* can't set angle before playlist is opened */
+                return;
+            case PSR_TITLE_NUMBER:
+                /* pass to the application */
+                break;
+            case PSR_CHAPTER:
+                /* will be selected automatically */
+                return;
+            case PSR_PLAYLIST:
+                bd_select_playlist(bd, ev->new_val);
+                nav_set_angle(bd->title, bd->st0.clip, bd_psr_read(bd->regs, PSR_ANGLE_NUMBER) - 1);
+                return;
+            case PSR_PLAYITEM:
+                bd_seek_playitem(bd, ev->new_val);
+                return;
+            case PSR_TIME:
+                bd_seek_time(bd, ((int64_t)ev->new_val) << 1);
+                return;
+            case PSR_SELECTED_BUTTON_ID:
+            case PSR_MENU_PAGE_ID:
+                /* TODO: need to inform graphics controller ? */
+            default:
+                /* others: ignore */
+                return;
+        }
+    }
+
     BD_DEBUG(DBG_BLURAY, "PSR event %d %d (%p)\n", ev->psr_idx, ev->new_val, bd);
 
     switch (ev->psr_idx) {
@@ -1782,7 +1819,7 @@ static int _play_hdmv(BLURAY *bd, unsigned id_ref)
 #endif
 
     if (!bd->hdmv_vm) {
-        bd->hdmv_vm = hdmv_vm_init(bd->device_path, bd->regs);
+        bd->hdmv_vm = hdmv_vm_init(bd->device_path, bd->regs, bd->index);
     }
 
     if (hdmv_vm_select_object(bd->hdmv_vm, id_ref)) {
@@ -1794,7 +1831,7 @@ static int _play_hdmv(BLURAY *bd, unsigned id_ref)
     return 1;
 }
 
-int bd_play_title(BLURAY *bd, unsigned title)
+static int _play_title(BLURAY *bd, unsigned title)
 {
     /* first play object ? */
     if (title == BLURAY_TITLE_FIRST_PLAY) {
@@ -1877,7 +1914,24 @@ int bd_play(BLURAY *bd)
     bd_psr_register_cb(bd->regs, _process_psr_event, bd);
     _queue_initial_psr_events(bd);
 
-    return bd_play_title(bd, BLURAY_TITLE_FIRST_PLAY);
+    return _play_title(bd, BLURAY_TITLE_FIRST_PLAY);
+}
+
+int bd_play_title(BLURAY *bd, unsigned title)
+{
+    if (bd->title_type == title_undef && title != BLURAY_TITLE_FIRST_PLAY) {
+        BD_DEBUG(DBG_BLURAY|DBG_CRIT, "bd_play_title(): bd_play() not called\n");
+        return 0;
+    }
+
+    if (bd->title_type == title_hdmv) {
+        if (hdmv_vm_get_uo_mask(bd->hdmv_vm) & HDMV_TITLE_SEARCH_MASK) {
+            BD_DEBUG(DBG_BLURAY|DBG_CRIT, "title search masked by movie object\n");
+            return 0;
+        }
+    }
+
+    return _play_title(bd, title);
 }
 
 int bd_menu_call(BLURAY *bd, int64_t pts)
@@ -1887,11 +1941,22 @@ int bd_menu_call(BLURAY *bd, int64_t pts)
     }
 
     if (bd->title_type == title_undef) {
-        // bd_play not called
+        BD_DEBUG(DBG_BLURAY|DBG_CRIT, "bd_menu_call(): bd_play() not called\n");
         return 0;
     }
 
-    return bd_play_title(bd, BLURAY_TITLE_TOP_MENU);
+    if (bd->title_type == title_hdmv) {
+        if (hdmv_vm_get_uo_mask(bd->hdmv_vm) & HDMV_MENU_CALL_MASK) {
+            BD_DEBUG(DBG_BLURAY|DBG_CRIT, "menu call masked by movie object\n");
+            return 0;
+        }
+
+        if (hdmv_vm_suspend_pl(bd->hdmv_vm) < 0) {
+            BD_DEBUG(DBG_BLURAY|DBG_CRIT, "bd_menu_call(): error storing playback location\n");
+        }
+    }
+
+    return _play_title(bd, BLURAY_TITLE_TOP_MENU);
 }
 
 static void _run_gc(BLURAY *bd, gc_ctrl_e msg, uint32_t param)
@@ -1914,7 +1979,7 @@ static void _process_hdmv_vm_event(BLURAY *bd, HDMV_EVENT *hev)
 
     switch (hev->event) {
         case HDMV_EVENT_TITLE:
-            bd_play_title(bd, hev->param);
+            _play_title(bd, hev->param);
             break;
 
         case HDMV_EVENT_PLAY_PL:
