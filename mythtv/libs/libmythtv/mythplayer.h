@@ -279,7 +279,6 @@ class MTV_PUBLIC MythPlayer
     virtual QString GetAngleName(int title) const { return QString(); }
 
     // DVD public stuff
-    virtual void ChangeDVDTrack(bool ffw)       { (void) ffw;       }
     virtual bool GoToMenu(QString str)          { return false;     }
     virtual void GoToDVDProgram(bool direction) { (void) direction; }
 
@@ -504,7 +503,7 @@ class MTV_PUBLIC MythPlayer
     void ClearAfterSeek(bool clearvideobuffers = true);
 
     // Private chapter stuff
-    bool DoJumpChapter(int chapter);
+    virtual bool DoJumpChapter(int chapter);
     virtual int64_t GetChapter(int chapter);
 
     // Private edit stuff

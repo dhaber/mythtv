@@ -32,12 +32,11 @@
 
 // Qt includes
 #include <QString>
+#include <QThread>
 #include <QList>
 #include <QPair>
 #include <QMap>
 #include <QSet>
-#include <QObject>
-#include <QThread>
 
 // MythTV includes
 #include "frequencytables.h"
@@ -70,6 +69,7 @@ class AnalogSignalHandler : public SignalMonitorListener
   public:
     AnalogSignalHandler(ChannelScanSM *_siscan) : siscan(_siscan) { }
 
+  public:
     virtual inline void AllGood(void);
     virtual void StatusSignalLock(const SignalMonitorValue&) { }
     virtual void StatusChannelTuned(const SignalMonitorValue&) { }
@@ -83,8 +83,8 @@ class ScannerThread : public QThread
 {
     Q_OBJECT
   public:
-    ScannerThread() : m_parent(NULL) {}
-    void SetParent(ChannelScanSM *parent) { m_parent = parent; }
+    ScannerThread(ChannelScanSM *parent) : m_parent(parent) {}
+    ~ScannerThread() { wait(); m_parent = NULL; }
     void run(void);
   private:
     ChannelScanSM *m_parent;
@@ -116,6 +116,7 @@ class ChannelScanSM : public MPEGStreamListener,
     bool ScanTransportsStartingOn(
         int sourceid, const QMap<QString,QString> &valueMap);
     bool ScanTransport(uint mplexid, bool follow_nit);
+    bool ScanCurrentTransport(const QString &sistandard);
     bool ScanForChannels(
         uint sourceid, const QString &std, const QString &cardtype,
         const DTVChannelList&);
@@ -229,7 +230,7 @@ class ChannelScanSM : public MPEGStreamListener,
 
     // State
     bool              scanning;
-    bool              threadExit;
+    volatile bool     threadExit;
     bool              waitingForTables;
     QTime             timer;
 
@@ -253,7 +254,8 @@ class ChannelScanSM : public MPEGStreamListener,
     // Analog Info
     AnalogSignalHandler *analogSignalHandler;
 
-    ScannerThread    scannerThread;
+    /// Scanner thread, runs ChannelScanSM::StartScanner()
+    ScannerThread       *scannerThread;
 };
 
 inline void ChannelScanSM::UpdateScanPercentCompleted(void)

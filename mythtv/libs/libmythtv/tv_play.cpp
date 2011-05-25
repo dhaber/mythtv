@@ -4,6 +4,7 @@
 #include <cmath>
 #include <unistd.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #include <algorithm>
 using namespace std;
@@ -15,7 +16,6 @@ using namespace std;
 #include <QDir>
 #include <QKeyEvent>
 #include <QEvent>
-#include <QThread>
 
 #include "mythdb.h"
 #include "tv_play.h"
@@ -297,32 +297,7 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
 
         // Process Events
         VERBOSE(VB_GENERAL, LOC + "Entering main playback loop.");
-
-        while (true)
-        {
-            qApp->processEvents();
-
-            TVState state = tv->GetState(0);
-            if ((kState_Error == state) || (kState_None == state))
-                break;
-
-            if (kState_ChangingState == state)
-                continue;
-
-            const PlayerContext *mctx = tv->GetPlayerReadLock(0, __FILE__, __LINE__);
-            if (mctx)
-            {
-                mctx->LockDeletePlayer(__FILE__, __LINE__);
-                if (mctx->player && !mctx->player->IsErrored())
-                {
-                    mctx->player->EventLoop();
-                    mctx->player->VideoLoop();
-                }
-                mctx->UnlockDeletePlayer(__FILE__, __LINE__);
-            }
-            tv->ReturnPlayerLock(mctx);
-        }
-
+        tv->PlaybackLoop();
         VERBOSE(VB_GENERAL, LOC + "Exiting main playback loop.");
 
         if (tv->getJumpToProgram())
@@ -836,7 +811,7 @@ TV::TV(void)
       // Channel Editing
       chanEditMapLock(QMutex::Recursive),
       ddMapSourceId(0), ddMapLoaderRunning(false),
-      ddMapLoader(NULL),
+      ddMapLoader(0),
       // Sleep Timer
       sleep_index(0), sleepTimerId(0), sleepDialogTimerId(0),
       // Idle Timer
@@ -1087,6 +1062,7 @@ bool TV::Init(bool createWindow)
 
                     // resize possibly avoids a bug on some systems
                     GetMythMainWindow()->setGeometry(player_bounds);
+                    GetMythMainWindow()->ResizePainterWindow(player_bounds.size());
                 }
             }
         }
@@ -1173,6 +1149,7 @@ TV::~TV(void)
     MythMainWindow* mwnd = GetMythMainWindow();
     mwnd->setGeometry(saved_gui_bounds);
     mwnd->setFixedSize(saved_gui_bounds.size());
+    mwnd->ResizePainterWindow(saved_gui_bounds.size());
     mwnd->show();
     if (!db_use_gui_size_for_tv)
         mwnd->move(saved_gui_bounds.topLeft());
@@ -1187,17 +1164,17 @@ TV::~TV(void)
         lcd->switchToTime();
     }
 
-    if (ddMapLoader && ddMapLoader->isRunning())
+    if (ddMapLoaderRunning)
     {
-        ddMapLoader->wait();
-        delete ddMapLoader;
+        pthread_join(ddMapLoader, NULL);
+        ddMapLoaderRunning = false;
 
         if (ddMapSourceId)
         {
-            ddMapLoader = new TVDDMapThread;
-            ddMapLoader->SetParent(NULL);
-            ddMapLoader->SetSourceId(ddMapSourceId);
-            ddMapLoader->start();
+            int *src = new int;
+            *src = ddMapSourceId;
+            pthread_create(&ddMapLoader, NULL, load_dd_map_post_thunk, src);
+            pthread_detach(ddMapLoader);
         }
     }
 
@@ -1216,6 +1193,41 @@ TV::~TV(void)
     ReturnPlayerLock(mctx);
 
     VERBOSE(VB_PLAYBACK, "TV::~TV() -- end");
+}
+
+/**
+ * \brief The main playback loop
+ */
+void TV::PlaybackLoop(void)
+{
+    while (true)
+    {
+        qApp->processEvents();
+
+        TVState state = GetState(0);
+        if ((kState_Error == state) || (kState_None == state))
+            return;
+
+        if (kState_ChangingState == state)
+            continue;
+
+        int count = player.size();
+        for (int i = 0; i < count; i++)
+        {
+            const PlayerContext *mctx = GetPlayerReadLock(i, __FILE__, __LINE__);
+            if (mctx)
+            {
+                mctx->LockDeletePlayer(__FILE__, __LINE__);
+                if (mctx->player && !mctx->player->IsErrored())
+                {
+                    mctx->player->EventLoop();
+                    mctx->player->VideoLoop();
+                }
+                mctx->UnlockDeletePlayer(__FILE__, __LINE__);
+            }
+            ReturnPlayerLock(mctx);
+        }
+    }
 }
 
 /**
@@ -1929,16 +1941,7 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
              TRANSITION(kState_None, kState_WatchingRecording))
     {
         ctx->LockPlayingInfo(__FILE__, __LINE__);
-        QString playbackURL;
-        if (ctx->playingInfo->IsRecording())
-        {
-            playbackURL = ctx->playingInfo->GetPlaybackURL(true);
-        }
-        else
-        {
-            playbackURL = ctx->playingInfo->GetPathname();
-            playbackURL.detach();
-        }
+        QString playbackURL = ctx->playingInfo->GetPlaybackURL(true);
         ctx->UnlockPlayingInfo(__FILE__, __LINE__);
 
         ctx->SetRingBuffer(RingBuffer::Create(playbackURL, false));
@@ -2106,6 +2109,7 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
             (db_use_fixed_size) ? player_bounds.size() :
             QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
         mainWindow->setGeometry(player_bounds);
+        mainWindow->ResizePainterWindow(player_bounds.size());
         if (!weDisabledGUI)
         {
             weDisabledGUI = true;
@@ -3760,23 +3764,9 @@ bool TV::ActiveHandleAction(PlayerContext *ctx,
         }
     }
     else if (has_action(ACTION_JUMPRWND, actions))
-    {
-        if (isDVD)
-            DVDJumpBack(ctx);
-        else if (GetNumChapters(ctx) > 0)
-            DoJumpChapter(ctx, -1);
-        else
-            DoSeek(ctx, -ctx->jumptime * 60, tr("Jump Back"));
-    }
+        DoJumpRWND(ctx);
     else if (has_action(ACTION_JUMPFFWD, actions))
-    {
-        if (isDVD)
-            DVDJumpForward(ctx);
-        else if (GetNumChapters(ctx) > 0)
-            DoJumpChapter(ctx, 9999);
-        else
-            DoSeek(ctx, ctx->jumptime * 60, tr("Jump Ahead"));
-    }
+        DoJumpFFWD(ctx);
     else if (has_action(ACTION_JUMPBKMRK, actions))
     {
         ctx->LockDeletePlayer(__FILE__, __LINE__);
@@ -4166,12 +4156,8 @@ bool TV::ActivePostQHandleAction(PlayerContext *ctx, const QStringList &actions)
             else
                 ChangeChannel(ctx, CHANNEL_DIRECTION_UP);
         }
-        else if (isdvd)
-            DVDJumpBack(ctx);
-        else if (GetNumChapters(ctx) > 0)
-            DoJumpChapter(ctx, -1);
         else
-            DoSeek(ctx, -ctx->jumptime * 60, tr("Jump Back"));
+            DoJumpRWND(ctx);
     }
     else if (has_action(ACTION_CHANNELDOWN, actions))
     {
@@ -4182,12 +4168,8 @@ bool TV::ActivePostQHandleAction(PlayerContext *ctx, const QStringList &actions)
             else
                 ChangeChannel(ctx, CHANNEL_DIRECTION_DOWN);
         }
-        else if (isdvd)
-            DVDJumpForward(ctx);
-        else if (GetNumChapters(ctx) > 0)
-            DoJumpChapter(ctx, 9999);
         else
-            DoSeek(ctx, ctx->jumptime * 60, tr("Jump Ahead"));
+            DoJumpFFWD(ctx);
     }
     else if (has_action("DELETE", actions) && !islivetv)
     {
@@ -6507,16 +6489,20 @@ bool TV::CommitQueuedInput(PlayerContext *ctx)
         QString chaninput = GetQueuedInput();
         if (browsehelper->IsBrowsing())
         {
+            uint sourceid = 0;
+            ctx->LockPlayingInfo(__FILE__, __LINE__);
+            if (ctx->playingInfo)
+                sourceid = ctx->playingInfo->GetSourceID();
+            ctx->UnlockPlayingInfo(__FILE__, __LINE__);
+
             commited = true;
             if (channum.isEmpty())
                 channum = browsehelper->GetBrowsedInfo().m_channum;
-
-            if ((ctx->recorder && ctx->recorder->CheckChannel(channum)) ||
-                (db_browse_all_tuners &&
-                 browsehelper->BrowseAllGetChanId(channum)))
-            {
+            uint chanid = browsehelper->GetChanId(
+                channum, ctx->GetCardID(), sourceid);
+            if (chanid)
                 browsehelper->BrowseChannel(ctx, channum);
-            }
+
             HideOSDWindow(ctx, "osd_input");
         }
         else if (GetQueuedChanID() || !channum.isEmpty())
@@ -6548,8 +6534,7 @@ void TV::ChangeChannel(PlayerContext *ctx, int direction)
                 return;
             }
             // Collect channel info
-            const ProgramInfo pginfo(*ctx->playingInfo);
-            old_chanid = pginfo.GetChanID();
+            old_chanid = ctx->playingInfo->GetChanID();
             ctx->UnlockPlayingInfo(__FILE__, __LINE__);
         }
 
@@ -8960,12 +8945,28 @@ static void insert_map(InfoMap &infoMap, const InfoMap &newMap)
         infoMap.insert(it.key(), *it);
 }
 
-void TVDDMapThread::run(void)
+class load_dd_map
 {
-    if (m_parent)
-        m_parent->RunLoadDDMap(m_sourceid);
-    else
-        SourceUtil::UpdateChannelsFromListings(m_sourceid);
+  public:
+    load_dd_map(TV *t, uint s) : tv(t), sourceid(s) {}
+    TV   *tv;
+    uint  sourceid;
+};
+
+void *TV::load_dd_map_thunk(void *param)
+{
+    load_dd_map *x = (load_dd_map*) param;
+    x->tv->RunLoadDDMap(x->sourceid);
+    delete x;
+    return NULL;
+}
+
+void *TV::load_dd_map_post_thunk(void *param)
+{
+    uint *sourceid = (uint*) param;
+    SourceUtil::UpdateChannelsFromListings(*sourceid);
+    delete sourceid;
+    return NULL;
 }
 
 /** \fn TV::StartChannelEditMode(PlayerContext*)
@@ -8982,10 +8983,10 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
     ReturnOSDLock(ctx, osd);
 
     QMutexLocker locker(&chanEditMapLock);
-    if (ddMapLoader && ddMapLoader->isRunning())
+    if (ddMapLoaderRunning)
     {
-        ddMapLoader->wait();
-        delete ddMapLoader;
+        pthread_join(ddMapLoader, NULL);
+        ddMapLoaderRunning = false;
     }
 
     // Get the info available from the backend
@@ -9010,10 +9011,12 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
 
     if (sourceid && (sourceid != ddMapSourceId))
     {
-        ddMapLoader = new TVDDMapThread;
-        ddMapLoader->SetParent(this);
-        ddMapLoader->SetSourceId(sourceid);
-        ddMapLoader->start();
+        ddMapLoaderRunning = true;
+        if (!pthread_create(&ddMapLoader, NULL, load_dd_map_thunk,
+                            new load_dd_map(this, sourceid)))
+        {
+            ddMapLoaderRunning = false;
+        }
     }
 }
 
@@ -9422,6 +9425,10 @@ void TV::OSDDialogEvent(int result, QString text, QString action)
         PrepareToExitPlayer(actx, __LINE__, false);
         SetExitPlayer(true, true);
     }
+    else if (action == ACTION_JUMPFFWD)
+        DoJumpFFWD(actx);
+    else if (action == ACTION_JUMPRWND)
+        DoJumpRWND(actx);
     else if (action.startsWith("DEINTERLACER"))
         HandleDeinterlacer(actx, action);
     else if (action == "TOGGLEMANUALZOOM")
@@ -10158,7 +10165,9 @@ void TV::FillOSDMenuNavigate(const PlayerContext *ctx, OSD *osd,
     }
 
     bool show = isdvd || num_chapters || num_titles || previouschan ||
-                isrecording || num_angles;
+                isrecording || num_angles ||
+                (!(num_chapters || isdvd || isbd));
+
     if (category == "MAIN")
     {
         if (show)
@@ -10171,6 +10180,11 @@ void TV::FillOSDMenuNavigate(const PlayerContext *ctx, OSD *osd,
     {
         backaction = "MAIN";
         currenttext = tr("Navigate");
+        if (!num_chapters && !isdvd && !isbd)
+        {
+            osd->DialogAddButton(tr("Jump Ahead"), ACTION_JUMPFFWD, false, false);
+            osd->DialogAddButton(tr("Jump Back"), ACTION_JUMPRWND, false, false);
+        }
         if (isrecording)
         {
             osd->DialogAddButton(tr("Commercial Auto-Skip"),
@@ -11184,6 +11198,26 @@ void TV::ITVRestart(PlayerContext *ctx, bool isLive)
     ctx->UnlockDeletePlayer(__FILE__, __LINE__);
 }
 
+void TV::DoJumpFFWD(PlayerContext *ctx)
+{
+    if (GetState(ctx) == kState_WatchingDVD)
+        DVDJumpForward(ctx);
+    else if (GetNumChapters(ctx) > 0)
+        DoJumpChapter(ctx, 9999);
+    else
+        DoSeek(ctx, ctx->jumptime * 60, tr("Jump Ahead"));
+}
+
+void TV::DoJumpRWND(PlayerContext *ctx)
+{
+    if (GetState(ctx) == kState_WatchingDVD)
+        DVDJumpBack(ctx);
+    else if (GetNumChapters(ctx) > 0)
+        DoJumpChapter(ctx, -1);
+    else
+        DoSeek(ctx, -ctx->jumptime * 60, tr("Jump Back"));
+}
+
 /*  \fn TV::DVDJumpBack(PlayerContext*)
     \brief jump to the previous dvd title or chapter
 */
@@ -11199,11 +11233,7 @@ void TV::DVDJumpBack(PlayerContext *ctx)
     }
     else if (!dvdrb->StartOfTitle())
     {
-        ctx->LockDeletePlayer(__FILE__, __LINE__);
-        if (ctx->player)
-            ctx->player->ChangeDVDTrack(0);
-        ctx->UnlockDeletePlayer(__FILE__, __LINE__);
-        UpdateOSDSeekMessage(ctx, tr("Previous Chapter"), kOSDTimeout_Med);
+        DoJumpChapter(ctx, -1);
     }
     else
     {
@@ -11243,12 +11273,7 @@ void TV::DVDJumpForward(PlayerContext *ctx)
     }
     else if (!dvdrb->EndOfTitle() && !in_still && !in_menu)
     {
-        ctx->LockDeletePlayer(__FILE__, __LINE__);
-        if (ctx->player)
-            ctx->player->ChangeDVDTrack(1);
-        ctx->UnlockDeletePlayer(__FILE__, __LINE__);
-
-        UpdateOSDSeekMessage(ctx, tr("Next Chapter"), kOSDTimeout_Med);
+        DoJumpChapter(ctx, 9999);
     }
     else if (!in_still && !in_menu)
     {
