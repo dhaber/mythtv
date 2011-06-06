@@ -44,7 +44,6 @@ using namespace std;
 #include "fifowriter.h"
 #include "filtermanager.h"
 #include "util.h"
-#include "decodeencode.h"
 #include "livetvchain.h"
 #include "decoderbase.h"
 #include "nuppeldecoder.h"
@@ -208,7 +207,7 @@ MythPlayer::MythPlayer(bool muted)
       // LiveTVChain stuff
       m_tv(NULL),                   isDummy(false),
       // Debugging variables
-      output_jmeter(NULL)
+      output_jmeter(new Jitterometer(LOC))
 {
     memset(&tc_lastval, 0, sizeof(tc_lastval));
     memset(&tc_wrap,    0, sizeof(tc_wrap));
@@ -1813,14 +1812,11 @@ void MythPlayer::AVSync(VideoFrame *buffer, bool limit_delay)
         currentaudiotime = AVSyncGetAudiotime();
     }
 
-    if (output_jmeter)
+    if (output_jmeter && output_jmeter->RecordCycleTime())
     {
-        if (output_jmeter->RecordCycleTime())
-        {
-            VERBOSE(VB_PLAYBACK+VB_TIMESTAMP, LOC + QString("A/V avsync_delay: %1, "
-                    "avsync_avg: %2")
-                    .arg(avsync_delay / 1000).arg(avsync_avg / 1000));
-        }
+        VERBOSE(VB_PLAYBACK+VB_TIMESTAMP, LOC + QString("A/V avsync_delay: %1, "
+                "avsync_avg: %2")
+                .arg(avsync_delay / 1000).arg(avsync_avg / 1000));
     }
 
     avsync_adjustment = 0;
@@ -2083,6 +2079,15 @@ bool MythPlayer::CanSupportDoubleRate(void)
     return (frame_interval / 2 > videosync->getRefreshInterval() * 0.995);
 }
 
+void MythPlayer::EnableFrameRateMonitor(bool enable)
+{
+    if (!output_jmeter)
+        return;
+    int rate = enable ? (video_frame_rate / 4) :
+                 VERBOSE_LEVEL_CHECK(VB_PLAYBACK) ? (video_frame_rate * 4) : 0;
+    output_jmeter->SetNumCycles(rate);
+}
+
 void MythPlayer::VideoStart(void)
 {
     if (!using_null_videoout && !player_ctx->IsPIP())
@@ -2119,11 +2124,7 @@ void MythPlayer::VideoStart(void)
     refreshrate = 0;
     lastsync = false;
 
-    if (VERBOSE_LEVEL_CHECK(VB_PLAYBACK))
-        output_jmeter = new Jitterometer("video_output", 100);
-    else
-        output_jmeter = NULL;
-
+    EnableFrameRateMonitor();
     refreshrate = frame_interval;
 
     float temp_speed = (play_speed == 0.0) ? audio.GetStretchFactor() : play_speed;
@@ -4345,6 +4346,29 @@ int MythPlayer::GetStatusbarPos(void) const
     }
 
     return((int)spos);
+}
+
+void MythPlayer::GetPlaybackData(InfoMap &infoMap)
+{
+    QString samplerate = RingBuffer::BitrateToString(audio.GetSampleRate());
+    infoMap.insert("samplerate",  samplerate);
+    infoMap.insert("filename",    player_ctx->buffer->GetSafeFilename());
+    infoMap.insert("decoderrate", player_ctx->buffer->GetDecoderRate());
+    infoMap.insert("storagerate", player_ctx->buffer->GetStorageRate());
+    infoMap.insert("bufferavail", player_ctx->buffer->GetAvailableBuffer());
+    infoMap.insert("avsync",
+            QString::number((float)avsync_avg / (float)frame_interval, 'f', 2));
+    if (videoOutput)
+    {
+        QString frames = QString("%1/%2").arg(videoOutput->ValidVideoFrames())
+                                         .arg(videoOutput->FreeVideoFrames());
+        infoMap.insert("videoframes", frames);
+    }
+    if (decoder)
+        infoMap["videodecoder"] = decoder->GetCodecDecoderName();
+    if (output_jmeter)
+        infoMap["framerate"] = QString::number(output_jmeter->GetLastFPS(), 'f', 2);
+    GetCodecDescription(infoMap);
 }
 
 int MythPlayer::GetSecondsBehind(void) const

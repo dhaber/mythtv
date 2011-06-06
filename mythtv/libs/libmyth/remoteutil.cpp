@@ -3,14 +3,15 @@
 #include <QFileInfo>
 #include <QFile>
 #include <QDir>
+#include <QList>
 
 #include "compat.h"
 #include "remoteutil.h"
 #include "programinfo.h"
 #include "mythcorecontext.h"
-#include "decodeencode.h"
 #include "storagegroup.h"
 #include "mythevent.h"
+#include "filesysteminfo.h"
 
 vector<ProgramInfo *> *RemoteGetRecordedList(int sort)
 {
@@ -40,28 +41,8 @@ vector<ProgramInfo *> *RemoteGetRecordedList(int sort)
  */
 vector<FileSystemInfo> RemoteGetFreeSpace(void)
 {
-    FileSystemInfo fsInfo;
-    vector<FileSystemInfo> fsInfos;
-    QStringList strlist(QString("QUERY_FREE_SPACE_LIST"));
-
-    if (gCoreContext->SendReceiveStringList(strlist))
-    {
-        QStringList::const_iterator it = strlist.begin();
-        while (it != strlist.end())
-        {
-            fsInfo.hostname = *(it++);
-            fsInfo.directory = *(it++);
-            fsInfo.isLocal = (*(it++)).toInt();
-            fsInfo.fsID = (*(it++)).toInt();
-            fsInfo.dirID = (*(it++)).toInt();
-            fsInfo.blocksize = (*(it++)).toInt();
-            fsInfo.totalSpaceKB = decodeLongLong(strlist, it);
-            fsInfo.usedSpaceKB = decodeLongLong(strlist, it);
-            fsInfos.push_back(fsInfo);
-        }
-    }
-
-    return fsInfos;
+    QList<FileSystemInfo> fsInfos = FileSystemInfo::RemoteGetInfo();
+    return fsInfos.toVector().toStdVector();
 }
 
 bool RemoteGetLoad(float load[3])

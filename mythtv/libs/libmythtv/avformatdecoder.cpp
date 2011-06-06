@@ -91,6 +91,8 @@ static int cc608_parity(uint8_t byte);
 static int cc608_good_parity(const int *parity_table, uint16_t data);
 static void cc608_build_parity_table(int *parity_table);
 
+static bool silence_ffmpeg_logging = false;
+
 static QSize get_video_dim(const AVCodecContext &ctx)
 {
     return QSize(ctx.width >> ctx.lowres, ctx.height >> ctx.lowres);
@@ -140,6 +142,9 @@ static AVCodec *find_vdpau_decoder(AVCodec *c, enum CodecID id)
 
 static void myth_av_log(void *ptr, int level, const char* fmt, va_list vl)
 {
+    if (silence_ffmpeg_logging)
+        return;
+
     if (VERBOSE_LEVEL_NONE)
         return;
 
@@ -860,7 +865,10 @@ extern "C" void HandleBDStreamChange(void* data)
 int AvFormatDecoder::FindStreamInfo(void)
 {
     QMutexLocker lock(avcodeclock);
-    return av_find_stream_info(ic);
+    silence_ffmpeg_logging = true;
+    int retval = av_find_stream_info(ic);
+    silence_ffmpeg_logging = false;
+    return retval;
 }
 
 /**
@@ -1685,6 +1693,7 @@ void AvFormatDecoder::ScanDSMCCStreams(void)
 
 int AvFormatDecoder::ScanStreams(bool novideo)
 {
+    bool unknownbitrate = false;
     int scanerror = 0;
     bitrate       = 0;
     fps           = 0;
@@ -1736,6 +1745,9 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                 }
 
                 codec_is_mpeg = CODEC_IS_FFMPEG_MPEG(enc->codec_id);
+
+                if (enc->bit_rate == 0)
+                    unknownbitrate = true;
 
                 // HACK -- begin
                 // ffmpeg is unable to compute H.264 bitrates in mpegts?
@@ -2072,6 +2084,13 @@ int AvFormatDecoder::ScanStreams(bool novideo)
         bitrate = (bitrate + 999) / 1000;
         if (ringBuffer)
             ringBuffer->UpdateRawBitrate(bitrate);
+    }
+
+    // update RingBuffer buffer size
+    if (ringBuffer)
+    {
+        ringBuffer->SetBufferSizeFactors(unknownbitrate,
+                            QString(ic->iformat->name).contains("matroska"));
     }
 
     PostProcessTracks();
