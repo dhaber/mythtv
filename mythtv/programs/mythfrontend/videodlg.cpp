@@ -9,42 +9,43 @@
 #include <QDir>
 #include <QUrl>
 
-#include <mythcontext.h>
-#include <compat.h>
-#include <mythdirs.h>
+#include "mythcontext.h"
+#include "compat.h"
+#include "mythdirs.h"
 
-#include <mythuihelper.h>
-#include <mythprogressdialog.h>
-#include <mythuitext.h>
-#include <mythuibutton.h>
-#include <mythuibuttonlist.h>
-#include <mythuibuttontree.h>
-#include <mythuiimage.h>
-#include <mythuistatetype.h>
-#include <mythdialogbox.h>
-#include <mythgenerictree.h>
-#include <mythsystem.h>
-#include <remotefile.h>
-#include <remoteutil.h>
-#include <storagegroup.h>
+#include "mythuihelper.h"
+#include "mythprogressdialog.h"
+#include "mythuitext.h"
+#include "mythuibutton.h"
+#include "mythuibuttonlist.h"
+#include "mythuibuttontree.h"
+#include "mythuiimage.h"
+#include "mythuistatetype.h"
+#include "mythdialogbox.h"
+#include "mythgenerictree.h"
+#include "mythsystem.h"
+#include "remotefile.h"
+#include "remoteutil.h"
+#include "storagegroup.h"
 
-#include <metadata/videoscan.h>
-#include <metadata/globals.h>
-#include <metadata/videometadatalistmanager.h>
-#include <metadata/parentalcontrols.h>
-#include <metadata/videoutils.h>
-#include <metadata/dbaccess.h>
-#include <metadata/dirscan.h>
-
+#include "videoscan.h"
+#include "globals.h"
+#include "videometadatalistmanager.h"
+#include "parentalcontrols.h"
+#include "videoutils.h"
+#include "dbaccess.h"
+#include "dirscan.h"
+#include "metadatadownload.h"
+#include "metadataimagedownload.h"
 #include "videofilter.h"
-#include "editmetadata.h"
+#include "editvideometadata.h"
 #include "videopopups.h"
 #include "videolist.h"
-#include "playercommand.h"
+#include "videoplayercommand.h"
 #include "videodlg.h"
-#include "fileassoc.h"
-#include "playersettings.h"
-#include "metadatasettings.h"
+#include "videofileassoc.h"
+#include "videoplayersettings.h"
+#include "videometadatasettings.h"
 
 namespace
 {
@@ -3393,7 +3394,7 @@ void VideoDialog::handleDownloadedImages(MetadataLookup *lookup)
     for (DownloadMap::iterator i = downloads.begin();
             i != downloads.end(); ++i)
     {
-        ArtworkType type = i.key();
+        VideoArtworkType type = i.key();
         ArtworkInfo info = i.value();
         QString filename;
         if (info.url.startsWith("myth://"))

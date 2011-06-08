@@ -3,11 +3,11 @@
 
 #include <QDir>
 
-#include <mythdirs.h>
-#include <metadata/globals.h>
+#include "mythdirs.h"
+#include "globals.h"
 
 #include "videodlg.h"
-#include "globalsettings.h"
+#include "videoglobalsettings.h"
 
 namespace
 {

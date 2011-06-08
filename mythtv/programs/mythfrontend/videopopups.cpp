@@ -1,12 +1,12 @@
 #include <QStringList>
 
-#include <mythverbose.h>
+#include "mythverbose.h"
 
-#include <mythuibuttonlist.h>
-#include <mythuitext.h>
-#include <mythuibutton.h>
-#include <metadata/videometadata.h>
-#include <metadata/videoutils.h>
+#include "mythuibuttonlist.h"
+#include "mythuitext.h"
+#include "mythuibutton.h"
+#include "videometadata.h"
+#include "videoutils.h"
 
 #include "videopopups.h"
 

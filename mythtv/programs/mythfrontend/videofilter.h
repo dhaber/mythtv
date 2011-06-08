@@ -1,8 +1,8 @@
 #ifndef VIDEOFILTER_H_
 #define VIDEOFILTER_H_
 
-#include <mythscreentype.h>
-#include <metadata/parentalcontrols.h>
+#include "mythscreentype.h"
+#include "parentalcontrols.h"
 
 class MythUIButtonList;
 class MythUIButtonListItem;

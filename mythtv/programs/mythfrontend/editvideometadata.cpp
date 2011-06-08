@@ -6,24 +6,24 @@
 #include <mythcontext.h>
 #include <mythdirs.h>
 
-#include <mythmainwindow.h>
-#include <mythdialogbox.h>
-#include <mythuibuttonlist.h>
-#include <mythuitext.h>
-#include <mythuitextedit.h>
-#include <mythuibutton.h>
-#include <mythuicheckbox.h>
-#include <mythuispinbox.h>
-#include <mythuifilebrowser.h>
-#include <mythuihelper.h>
-#include <mythprogressdialog.h>
-#include <remoteutil.h>
-#include <metadata/globals.h>
-#include <metadata/dbaccess.h>
-#include <metadata/videometadatalistmanager.h>
-#include <metadata/videoutils.h>
+#include "mythmainwindow.h"
+#include "mythdialogbox.h"
+#include "mythuibuttonlist.h"
+#include "mythuitext.h"
+#include "mythuitextedit.h"
+#include "mythuibutton.h"
+#include "mythuicheckbox.h"
+#include "mythuispinbox.h"
+#include "mythuifilebrowser.h"
+#include "mythuihelper.h"
+#include "mythprogressdialog.h"
+#include "remoteutil.h"
+#include "globals.h"
+#include "dbaccess.h"
+#include "videometadatalistmanager.h"
+#include "videoutils.h"
 
-#include "editmetadata.h"
+#include "editvideometadata.h"
 
 EditMetadataDialog::EditMetadataDialog(MythScreenStack *lparent,
         QString lname, VideoMetadata *source_metadata,
@@ -290,7 +290,7 @@ namespace
 
       public:
         ImageSearchResultsDialog(MythScreenStack *lparent,
-                const ArtworkList list, const ArtworkType type) :
+                const ArtworkList list, const VideoArtworkType type) :
             MythScreenType(lparent, "videosearchresultspopup"),
             m_list(list), m_type(type), m_resultsList(0)
         {
@@ -421,11 +421,11 @@ namespace
         }
 
      signals:
-        void haveResult(ArtworkInfo, ArtworkType);
+        void haveResult(ArtworkInfo, VideoArtworkType);
 
       private:
         ArtworkList            m_list;
-        ArtworkType            m_type;
+        VideoArtworkType            m_type;
         MythUIButtonList      *m_resultsList;
         MetadataImageDownload *m_imageDownload;
 
@@ -837,7 +837,7 @@ void EditMetadataDialog::OnArtworkSearchDone(MetadataLookup *lookup)
         m_busyPopup = NULL;
     }
 
-    ArtworkType type = qVariantValue<ArtworkType>(lookup->GetData());
+    VideoArtworkType type = qVariantValue<VideoArtworkType>(lookup->GetData());
     ArtworkList list = lookup->GetArtwork(type);
 
     if (list.count() == 0)
@@ -849,14 +849,14 @@ void EditMetadataDialog::OnArtworkSearchDone(MetadataLookup *lookup)
     ImageSearchResultsDialog *resultsdialog =
           new ImageSearchResultsDialog(m_popupStack, list, type);
 
-    connect(resultsdialog, SIGNAL(haveResult(ArtworkInfo, ArtworkType)),
-            SLOT(OnSearchListSelection(ArtworkInfo, ArtworkType)));
+    connect(resultsdialog, SIGNAL(haveResult(ArtworkInfo, VideoArtworkType)),
+            SLOT(OnSearchListSelection(ArtworkInfo, VideoArtworkType)));
 
     if (resultsdialog->Create())
         m_popupStack->AddScreen(resultsdialog);
 }
 
-void EditMetadataDialog::OnSearchListSelection(ArtworkInfo info, ArtworkType type)
+void EditMetadataDialog::OnSearchListSelection(ArtworkInfo info, VideoArtworkType type)
 {
     QString msg = tr("Downloading selected artwork...");
     createBusyDialog(msg);
@@ -865,7 +865,7 @@ void EditMetadataDialog::OnSearchListSelection(ArtworkInfo info, ArtworkType typ
     lookup->SetType(VID);
     lookup->SetHost(m_workingMetadata->GetHost());
     lookup->SetAutomatic(true);
-    lookup->SetData(qVariantFromValue<ArtworkType>(type));
+    lookup->SetData(qVariantFromValue<VideoArtworkType>(type));
 
     ArtworkMap downloads;
     downloads.insert(type, info);
@@ -891,7 +891,7 @@ void EditMetadataDialog::handleDownloadedImages(MetadataLookup *lookup)
         m_busyPopup = NULL;
     }
 
-    ArtworkType type = qVariantValue<ArtworkType>(lookup->GetData());
+    VideoArtworkType type = qVariantValue<VideoArtworkType>(lookup->GetData());
     ArtworkMap map = lookup->GetDownloads();
 
     if (map.count() >= 1)
@@ -910,7 +910,7 @@ void EditMetadataDialog::handleDownloadedImages(MetadataLookup *lookup)
     }
 }
 
-void EditMetadataDialog::FindNetArt(ArtworkType type)
+void EditMetadataDialog::FindNetArt(VideoArtworkType type)
 {
     QString msg = tr("Searching for available artwork...");
     createBusyDialog(msg);
@@ -919,7 +919,7 @@ void EditMetadataDialog::FindNetArt(ArtworkType type)
     lookup->SetStep(SEARCH);
     lookup->SetType(VID);
     lookup->SetAutomatic(true);
-    lookup->SetData(qVariantFromValue<ArtworkType>(type));
+    lookup->SetData(qVariantFromValue<VideoArtworkType>(type));
 
     lookup->SetTitle(m_workingMetadata->GetTitle());
     lookup->SetSubtitle(m_workingMetadata->GetSubtitle());
@@ -1228,4 +1228,4 @@ void EditMetadataDialog::customEvent(QEvent *levent)
     }
 }
 
-#include "editmetadata.moc"
+#include "editvideometadata.moc"

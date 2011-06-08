@@ -4,12 +4,11 @@
 #include <QPointer>
 #include <QStringList>
 
-#include <mythscreentype.h>
-#include <metadata/metadatadownload.h>
-#include <metadata/metadataimagedownload.h>
-#include <metadata/metadatacommon.h>
-#include <metadata/parentalcontrols.h>
-#include <metadata/quicksp.h>
+#include "mythscreentype.h"
+
+#include "metadatacommon.h"
+#include "parentalcontrols.h"
+#include "quicksp.h"
 
 class MythUIText;
 class MythUIButtonList;
@@ -20,7 +19,8 @@ class MythUIImage;
 class MythUIStateType;
 class MythDialogBox;
 class MythGenericTree;
-
+class MetadataDownload;
+class MetadataImageDownload;
 class VideoMetadata;
 class VideoScanner;
 

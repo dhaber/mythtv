@@ -3,17 +3,17 @@
 #include <iterator>
 #include <map>
 
-#include <mythverbose.h>
-#include <mythmainwindow.h>
-#include <mythdialogbox.h>
-#include <mythuibuttonlist.h>
-#include <mythuitextedit.h>
-#include <mythuicheckbox.h>
-#include <mythuibutton.h>
-#include <metadata/dbaccess.h>
-#include <metadata/videoutils.h>
+#include "mythverbose.h"
+#include "mythmainwindow.h"
+#include "mythdialogbox.h"
+#include "mythuibuttonlist.h"
+#include "mythuitextedit.h"
+#include "mythuicheckbox.h"
+#include "mythuibutton.h"
+#include "dbaccess.h"
+#include "videoutils.h"
 
-#include "fileassoc.h"
+#include "videofileassoc.h"
 
 namespace
 {

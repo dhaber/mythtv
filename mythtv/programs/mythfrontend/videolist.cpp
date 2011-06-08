@@ -6,16 +6,16 @@
 #include <QFileInfo>
 #include <QList>
 
-#include <mythcontext.h>
-#include <mythmediamonitor.h>
+#include "mythcontext.h"
+#include "mythmediamonitor.h"
 
-#include <mythgenerictree.h>
-#include <metadata/videometadatalistmanager.h>
-#include <metadata/dbaccess.h>
-#include <metadata/quicksp.h>
-#include <metadata/dirscan.h>
-#include <metadata/videoutils.h>
-#include <metadata/parentalcontrols.h>
+#include "mythgenerictree.h"
+#include "videometadatalistmanager.h"
+#include "dbaccess.h"
+#include "quicksp.h"
+#include "dirscan.h"
+#include "videoutils.h"
+#include "parentalcontrols.h"
 
 #include "videofilter.h"
 #include "videolist.h"

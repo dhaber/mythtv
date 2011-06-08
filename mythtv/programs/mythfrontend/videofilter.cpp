@@ -1,15 +1,15 @@
 #include <set>
 
-#include <mythcontext.h>
+#include "mythcontext.h"
 
-#include <mythuibuttonlist.h>
-#include <mythuibutton.h>
-#include <mythuitext.h>
-#include <mythuitextedit.h>
-#include <metadata/globals.h>
-#include <metadata/dbaccess.h>
-#include <metadata/videometadatalistmanager.h>
-#include <metadata/videoutils.h>
+#include "mythuibuttonlist.h"
+#include "mythuibutton.h"
+#include "mythuitext.h"
+#include "mythuitextedit.h"
+#include "globals.h"
+#include "dbaccess.h"
+#include "videometadatalistmanager.h"
+#include "videoutils.h"
 
 #include "videolist.h"
 #include "videofilter.h"

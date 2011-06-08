@@ -5,11 +5,11 @@ using namespace std;
 #include <QString>
 
 // MythTV
-#include <mythcontext.h>
-#include <mythdbcon.h>
-#include <mythdirs.h>
+#include "mythcontext.h"
+#include "mythdbcon.h"
+#include "mythdirs.h"
 
-#include "playersettings.h"
+#include "videoplayersettings.h"
 
 // ---------------------------------------------------
 

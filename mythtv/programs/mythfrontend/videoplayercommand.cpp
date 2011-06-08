@@ -1,17 +1,17 @@
 #include <QDir>
 
-#include <mythcontext.h>
+#include "mythcontext.h"
 
-#include <mythmainwindow.h>
-#include <mythsystem.h>
-#include <remoteutil.h>
-#include <lcddevice.h>
-#include <util.h>
-#include <metadata/dbaccess.h>
-#include <metadata/videometadata.h>
-#include <metadata/videoutils.h>
+#include "mythmainwindow.h"
+#include "mythsystem.h"
+#include "remoteutil.h"
+#include "lcddevice.h"
+#include "util.h"
+#include "dbaccess.h"
+#include "videometadata.h"
+#include "videoutils.h"
 
-#include "playercommand.h"
+#include "videoplayercommand.h"
 
 namespace
 {

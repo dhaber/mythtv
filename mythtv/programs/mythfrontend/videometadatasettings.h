@@ -1,13 +1,13 @@
-#ifndef METADATASETTINGS_H
-#define METADATASETTINGS_H
+#ifndef VIDEOMETADATASETTINGS_H
+#define VIDEOMETADATASETTINGS_H
 
 // libmythui
-#include <mythuispinbox.h>
-#include <mythuibutton.h>
-#include <mythuibuttonlist.h>
-#include <mythuicheckbox.h>
-#include <mythscreentype.h>
-#include <mythdialogbox.h>
+#include "mythuispinbox.h"
+#include "mythuibutton.h"
+#include "mythuibuttonlist.h"
+#include "mythuicheckbox.h"
+#include "mythscreentype.h"
+#include "mythdialogbox.h"
 
 class MetadataSettings : public MythScreenType
 {

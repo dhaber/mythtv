@@ -1,10 +1,10 @@
-#ifndef EDITMETADATA_H_
-#define EDITMETADATA_H_
+#ifndef EDITVIDEOMETADATA_H_
+#define EDITVIDEOMETADATA_H_
 
-#include <mythscreentype.h>
-#include <metadata/metadatacommon.h>
-#include <metadata/metadatadownload.h>
-#include <metadata/metadataimagedownload.h>
+#include "mythscreentype.h"
+#include "metadatacommon.h"
+#include "metadatadownload.h"
+#include "metadataimagedownload.h"
 
 class VideoMetadata;
 class VideoMetadataListManager;
@@ -71,13 +71,13 @@ class EditMetadataDialog : public MythScreenType
     void SetFanart(QString file);
     void SetScreenshot(QString file);
     void SetTrailer(QString file);
-    void FindNetArt(ArtworkType type);
+    void FindNetArt(VideoArtworkType type);
     void FindNetCoverArt();
     void FindNetBanner();
     void FindNetFanart();
     void FindNetScreenshot();
     void OnSearchListSelection(ArtworkInfo info,
-                               ArtworkType type);
+                               VideoArtworkType type);
 
   private:
     void OnArtworkSearchDone(MetadataLookup *lookup);

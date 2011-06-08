@@ -1,5 +1,5 @@
-#ifndef PLAYERCOMMAND_H_
-#define PLAYERCOMMAND_H_
+#ifndef VIDEOPLAYERCOMMAND_H_
+#define VIDEOPLAYERCOMMAND_H_
 
 class VideoPlayerCommand
 {

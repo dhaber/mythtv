@@ -4,12 +4,12 @@
 #include <QString>
 
 // myth
-#include <mythcontext.h>
-#include <mythdbcon.h>
-#include <mythdirs.h>
-#include <mythprogressdialog.h>
+#include "mythcontext.h"
+#include "mythdbcon.h"
+#include "mythdirs.h"
+#include "mythprogressdialog.h"
 
-#include "metadatasettings.h"
+#include "videometadatasettings.h"
 
 using namespace std;
 
