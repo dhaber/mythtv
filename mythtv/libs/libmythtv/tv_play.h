@@ -310,7 +310,7 @@ class MTV_PUBLIC TV : public QObject
     void PrepToSwitchToRecordedProgram(PlayerContext*,
                                        const ProgramInfo &);
     void PrepareToExitPlayer(PlayerContext*, int line,
-                             bool bookmark = true) const;
+                             bool bookmark = true);
     void SetExitPlayer(bool set_it, bool wants_to) const;
     void SetUpdateOSDPosition(bool set_it);
 
@@ -427,11 +427,10 @@ class MTV_PUBLIC TV : public QObject
     void DoSwitchAngle(PlayerContext*, int angle);
     void DoJumpChapter(PlayerContext*, int direction);
     void DoSkipCommercials(PlayerContext*, int direction);
-
     void DoQueueTranscode(PlayerContext*, QString profile);
-
     void SetAutoCommercialSkip(const PlayerContext*,
                                CommSkipMode skipMode = kCommSkipOff);
+    void SetBookmark(PlayerContext* ctx, bool clear = false);
 
     // Manual zoom mode
     void SetManualZoom(const PlayerContext *, bool enabled, QString msg);
@@ -499,6 +498,8 @@ class MTV_PUBLIC TV : public QObject
         PictureAdjustType type, PictureAttribute attr, bool up);
     bool PictureAttributeHandleAction(PlayerContext*,
                                       const QStringList &actions);
+    static PictureAttribute NextPictureAdjustType(
+        PictureAdjustType type, MythPlayer *mp, PictureAttribute attr);
 
     // Channel editing support
     void StartChannelEditMode(PlayerContext*);

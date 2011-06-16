@@ -219,13 +219,15 @@ void SSDP::PerformSearch( const QString &sST )
 
     if ( pSocket->writeBlock( sRequest.data(),
                               sRequest.size(), address, SSDP_PORT ) != nSize)
-        cerr << "SSDP::PerformSearch - did not write entire buffer." << endl;
+        VERBOSE(VB_GENERAL, "SSDP::PerformSearch - did not write entire "
+                            "buffer.");
 
     usleep( rand() % 250000 );
 
     if ( pSocket->writeBlock( sRequest.data(),
                               sRequest.size(), address, SSDP_PORT ) != nSize)
-        cerr << "SSDP::PerformSearch - did not write entire buffer." << endl;
+        VERBOSE(VB_GENERAL, "SSDP::PerformSearch - did not write entire "
+                            "buffer.");
 
 }
 
@@ -261,7 +263,8 @@ void SSDP::run()
 #if 0
                 if (m_Sockets[ nIdx ]->bytesAvailable() > 0)
                 {
-	            cout << "Found Extra data before select: " << nIdx << endl;
+	            VERBOSE(VB_IMPORTANT, QString("Found Extra data before "
+                            "select: %1").arg(nIdx));
                     ProcessData( m_Sockets[ nIdx ] );
                 }
 #endif
@@ -280,7 +283,10 @@ void SSDP::run()
                 {
                     if (FD_ISSET( m_Sockets[ nIdx ]->socket(), &read_set ))
                     {
-                        // cout << "FD_ISSET( " << nIdx << " ) " << endl;
+#if 0
+                        VERBOSE(VB_IMPORTANT, QString("FD_ISSET( %1 )")
+                            .arg(nIdx));
+#endif
 
                         ProcessData( m_Sockets[ nIdx ] );
                     }

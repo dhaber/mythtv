@@ -102,17 +102,18 @@ RingBuffer *RingBuffer::Create(
     bool usereadahead, int timeout_ms, bool stream_only)
 {
     QString lfilename = xfilename;
+    QString lower = lfilename.toLower();
 
     if (write)
         return new FileRingBuffer(lfilename, write, usereadahead, timeout_ms);
 
     bool dvddir  = false;
     bool bddir   = false;
-    bool httpurl = lfilename.startsWith("http://");
-    bool mythurl = lfilename.startsWith("myth://");
-    bool bdurl   = lfilename.startsWith("bd:");
-    bool dvdurl  = lfilename.startsWith("dvd:");
-    bool dvdext  = lfilename.endsWith(".img") || lfilename.endsWith(".iso");
+    bool httpurl = lower.startsWith("http://");
+    bool mythurl = lower.startsWith("myth://");
+    bool bdurl   = lower.startsWith("bd:");
+    bool dvdurl  = lower.startsWith("dvd:");
+    bool dvdext  = lower.endsWith(".img") || lower.endsWith(".iso");
 
     if (httpurl)
         return new StreamingRingBuffer(lfilename);
@@ -734,8 +735,7 @@ void RingBuffer::run(void)
 
         // These are conditions where we don't want to go through
         // the loop if they are true.
-        if (((totfree < readblocksize) && readsallowed) ||
-            (ignorereadpos >= 0) || commserror || stopreads)
+        if ((ignorereadpos >= 0) || commserror || stopreads)
         {
             ignore_for_read_timing |=
                 (ignorereadpos >= 0) || commserror || stopreads;
@@ -752,12 +752,16 @@ void RingBuffer::run(void)
             totfree = ReadBufFree();
         }
 
+        const uint KB32 = 32*1024;
         int read_return = -1;
-        if (totfree >= readblocksize && !commserror &&
+        if (totfree >= KB32 && !commserror &&
             !ateof && !setswitchtonext)
         {
             // limit the read size
-            totfree = readblocksize;
+            if (readblocksize > totfree)
+                totfree = (int)(totfree / KB32) * KB32; // must be multiple of 32KB
+            else
+                totfree = readblocksize;
 
             // adapt blocksize
             gettimeofday(&now, NULL);
@@ -792,7 +796,7 @@ void RingBuffer::run(void)
                     readtimeavg = 225;
                 }
             }
-            ignore_for_read_timing = false;
+            ignore_for_read_timing = (totfree < readblocksize) ? true : false;
             lastread = now;
 
             rbwlock.lockForRead();

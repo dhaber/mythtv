@@ -24,12 +24,35 @@ using namespace std;
 #include "mythversion.h"
 #include "util.h"
 
-int kEnd     = 0,
-    kEmpty   = 1,
-    kOptOnly = 2,
-    kOptVal  = 3,
-    kArg     = 4,
-    kInvalid = 5;
+const int kEnd          = 0,
+          kEmpty        = 1,
+          kOptOnly      = 2,
+          kOptVal       = 3,
+          kArg          = 4,
+          kPassthrough  = 5,
+          kInvalid      = 6;
+
+const char* NamedOptType(int type);
+
+const char* NamedOptType(int type)
+{
+    if (type == kEnd)
+        return "kEnd";
+    else if (type == kEmpty)
+        return "kEmpty";
+    else if (type == kOptOnly)
+        return "kOptOnly";
+    else if (type == kOptVal)
+        return "kOptVal";
+    else if (type == kArg)
+        return "kArg";
+    else if (type == kPassthrough)
+        return "kPassthrough";
+    else if (type == kInvalid)
+        return "kInvalid";
+
+    return "kUnknown";
+}
 
 typedef struct helptmp {
     QString left;
@@ -39,8 +62,8 @@ typedef struct helptmp {
 } HelpTmp;
 
 MythCommandLineParser::MythCommandLineParser(QString appname) :
-    m_appname(appname), m_allowExtras(false), m_overridesImported(false),
-    m_verbose(false)
+    m_appname(appname), m_allowExtras(false), m_allowPassthrough(false), 
+    m_passthroughActive(false), m_overridesImported(false), m_verbose(false)
 {
     char *verbose = getenv("VERBOSE_PARSER");
     if (verbose != NULL)
@@ -110,6 +133,10 @@ QString MythCommandLineParser::GetHelpString(bool with_header) const
         QString versionStr = QString("%1 version: %2 [%3] www.mythtv.org")
             .arg(m_appname).arg(MYTH_SOURCE_PATH).arg(MYTH_SOURCE_VERSION);
         msg << versionStr << endl;
+
+        QString descr = GetHelpHeader();
+        if (descr.size() > 0)
+            msg << endl << descr << endl << endl;
     }
 
     if (toString("showhelp").isEmpty())
@@ -240,8 +267,22 @@ int MythCommandLineParser::getOpt(int argc, const char * const * argv,
         // string is empty, return and loop
         return kEmpty;
 
+    if (m_passthroughActive)
+    {
+        // pass through has been activated
+        val = tmp;
+        return kArg;
+    }
+
     if (tmp.startsWith("-") && tmp.size() > 1)
     {
+        if (tmp == "--")
+        {
+            // all options beyond this will be passed as a single string
+            m_passthroughActive = true;
+            return kPassthrough;
+        }
+
         if (tmp.contains("="))
         {
             // option contains '=', split
@@ -305,6 +346,17 @@ bool MythCommandLineParser::Parse(int argc, const char * const * argv)
 
         res = getOpt(argc, argv, argpos, opt, val);
 
+        if (m_verbose)
+            cerr << "res: " << NamedOptType(res) << endl
+                 << "opt: " << opt.toLocal8Bit().constData() << endl
+                 << "val: " << val.toLocal8Bit().constData() << endl << endl;
+
+        if (res == kPassthrough && !m_allowPassthrough)
+        {
+            cerr << "Received '--' but passthrough has not been enabled" << endl;
+            return false;
+        }
+
         if (res == kEnd)
             break;
         else if (res == kEmpty)
@@ -315,9 +367,14 @@ bool MythCommandLineParser::Parse(int argc, const char * const * argv)
                  << opt.toLocal8Bit().constData();
             return false;
         }
+        else if (m_passthroughActive)
+        {
+            m_passthrough << val;
+            continue;
+        }
         else if (res == kArg)
         {
-            m_remainingArgs << opt;
+            m_remainingArgs << val;
             continue;
         }
 
@@ -330,7 +387,7 @@ bool MythCommandLineParser::Parse(int argc, const char * const * argv)
         }
 
 #ifdef Q_WS_MACX
-        if (opts.startsWith("-psn_"))
+        if (opt.startsWith("-psn_"))
         {
             cerr << "Ignoring Process Serial Number from command line"
                  << endl;
@@ -447,6 +504,77 @@ bool MythCommandLineParser::Parse(int argc, const char * const * argv)
             else
                 m_parsed[argdef.name] = QVariant(val);
         }
+    }
+
+    if (m_verbose)
+    {
+        cerr << "Processed option list:" << endl;
+        QMap<QString, QVariant>::const_iterator it = m_parsed.begin();
+        for (; it != m_parsed.end(); it++)
+        {
+            cerr << "  " << it.key().leftJustified(30)
+                              .toLocal8Bit().constData();
+            if ((*it).type() == QVariant::Bool)
+                cerr << ((*it).toBool() ? "True" : "False");
+            else if ((*it).type() == QVariant::Int)
+                cerr << (*it).toInt();
+            else if ((*it).type() == QVariant::UInt)
+                cerr << (*it).toUInt();
+            else if ((*it).type() == QVariant::LongLong)
+                cerr << (*it).toLongLong();
+            else if ((*it).type() == QVariant::Double)
+                cerr << (*it).toDouble();
+            else if ((*it).type() == QVariant::Size)
+            {
+                QSize tmpsize = (*it).toSize();
+                cerr <<  "x=" << tmpsize.width()
+                     << " y=" << tmpsize.height();
+            }
+            else if ((*it).type() == QVariant::String)
+                cerr << '"' << (*it).toString().toLocal8Bit()
+                                    .constData()
+                     << '"';
+            else if ((*it).type() == QVariant::StringList)
+                cerr << '"' << (*it).toStringList().join("\", \"")
+                                    .toLocal8Bit().constData()
+                     << '"';
+            else if ((*it).type() == QVariant::Map)
+            {
+                QMap<QString, QVariant> tmpmap = (*it).toMap();
+                bool first = true;
+                QMap<QString, QVariant>::const_iterator it2 = tmpmap.begin();
+                for (; it2 != tmpmap.end(); it2++)
+                {
+                    if (first)
+                        first = false;
+                    else
+                        cerr << QString("").leftJustified(32)
+                                           .toLocal8Bit().constData();
+                    cerr << it2.key().toLocal8Bit().constData()
+                         << '='
+                         << (*it2).toString().toLocal8Bit().constData()
+                         << endl;
+                }
+                continue;
+            }
+            else if ((*it).type() == QVariant::DateTime)
+                cerr << (*it).toDateTime().toString(Qt::ISODate)
+                             .toLocal8Bit().constData();
+            cerr << endl;
+        }
+
+        cerr << endl << "Extra argument list:" << endl;
+        QStringList::const_iterator it3 = m_remainingArgs.begin();
+        for (; it3 != m_remainingArgs.end(); it3++)
+            cerr << "  " << (*it3).toLocal8Bit().constData() << endl;
+
+        if (m_allowPassthrough)
+        {
+            cerr << endl << "Passthrough string:" << endl;
+            cerr << "  " << GetPassthrough().toLocal8Bit().constData() << endl;
+        }
+
+        cerr << endl;
     }
 
     return true;
@@ -750,7 +878,7 @@ void MythCommandLineParser::addWindowed(bool def)
 
 void MythCommandLineParser::addDaemon(void)
 {
-    add(QStringList( QStringList() << "-d" << "--daemon" ), "daemonize",
+    add(QStringList( QStringList() << "-d" << "--daemon" ), "daemon",
             "Fork application into background after startup.",
             "Fork application into background, detatching from "
             "the local terminal.\nOften used with: "
@@ -918,6 +1046,15 @@ void MythBackendCommandLineParser::LoadArguments(void)
             "Drop permissions to username after starting.", "");
 }
 
+QString MythBackendCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythBackend is the primary server application for MythTV. It is \n"
+           "used for recording and remote streaming access of media. Only one \n"
+           "instance of this application is allowed to run on one host at a \n"
+           "time, and one must be configured to operate as a master, performing \n"
+           "additional scheduler and housekeeper tasks.";
+}
+
 MythFrontendCommandLineParser::MythFrontendCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHFRONTEND)
 { LoadArguments(); }
@@ -940,6 +1077,13 @@ void MythFrontendCommandLineParser::LoadArguments(void)
         "Always prompt for backend selection.", "");
     add(QStringList( QStringList() << "-d" << "--disable-autodiscovery" ),
         "noautodiscovery", "Prevent frontend from using UPnP autodiscovery.", "");
+}
+
+QString MythFrontendCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythFrontend is the primary playback application for MythTV. It \n"
+           "is used for playback of scheduled and live recordings, and management \n"
+           "of recording rules.";
 }
 
 MythPreviewGeneratorCommandLineParser::MythPreviewGeneratorCommandLineParser() :
@@ -965,6 +1109,12 @@ MythWelcomeCommandLineParser::MythWelcomeCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHWELCOME)
 { LoadArguments(); }
 
+QString MythWelcomeCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythWelcome is a graphical launcher application to allow MythFrontend \n"
+           "to disconnect from the backend, and allow automatic shutdown to occur.";
+}
+
 void MythWelcomeCommandLineParser::LoadArguments(void)
 {
     addHelp();
@@ -980,6 +1130,12 @@ void MythWelcomeCommandLineParser::LoadArguments(void)
 MythAVTestCommandLineParser::MythAVTestCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHAVTEST)
 { LoadArguments(); }
+
+QString MythAVTestCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythAVTest is a testing application that allows direct access \n"
+           "to the MythTV internal video player.";
+}
 
 void MythAVTestCommandLineParser::LoadArguments(void)
 {
@@ -1036,6 +1192,12 @@ void MythCommFlagCommandLineParser::LoadArguments(void)
 MythJobQueueCommandLineParser::MythJobQueueCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHJOBQUEUE)
 { LoadArguments(); }
+
+QString MythJobQueueCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythJobqueue is daemon implementing the job queue. It is intended \n"
+           "for use as additional processing power without requiring a full backend.";
+}
 
 void MythJobQueueCommandLineParser::LoadArguments(void)
 {
@@ -1294,6 +1456,14 @@ MythTVSetupCommandLineParser::MythTVSetupCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHTV_SETUP)
 { LoadArguments(); }
 
+QString MythTVSetupCommandLineParser::GetHelpHeader(void) const
+{
+    return "Mythtv-setup is the setup application for the backend server. It is \n"
+           "used to configure the backend, and manage tuner cards and storage. \n"
+           "Most settings will require a restart of the backend before they take \n"
+           "effect.";
+}
+
 void MythTVSetupCommandLineParser::LoadArguments(void)
 {
     addHelp();
@@ -1383,6 +1553,13 @@ void MythTranscodeCommandLineParser::LoadArguments(void)
 MythMediaServerCommandLineParser::MythMediaServerCommandLineParser() :
     MythCommandLineParser(MYTH_APPNAME_MYTHMEDIASERVER)
 { LoadArguments(); }
+
+QString MythMediaServerCommandLineParser::GetHelpHeader(void) const
+{
+    return "MythMediaServer is daemon implementing the backend file server. \n"
+           "It is intended to allow access to remote file storage on machines \n"
+           "that do not have tuners, and as such cannot run a backend.";
+}
 
 void MythMediaServerCommandLineParser::LoadArguments(void)
 {

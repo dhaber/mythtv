@@ -19,9 +19,8 @@ class VideoOutputD3D : public VideoOutput
     VideoOutputD3D();
    ~VideoOutputD3D();
 
-    bool Init(int width, int height, float aspect, WId winid,
-              int winx, int winy, int winw, int winh,
-              MythCodecID codec_id, WId embedid = 0);
+    bool Init(int width, int height, float aspect,
+              WId winid, const QRect &win_rect, MythCodecID codec_id);
     void PrepareFrame(VideoFrame *buffer, FrameScanType, OSD *osd);
     void ProcessFrame(VideoFrame *frame, OSD *osd,
                       FilterChain *filterList,
@@ -38,7 +37,7 @@ class VideoOutputD3D : public VideoOutput
     void UpdatePauseFrame(void);
     void DrawUnusedRects(bool) {;}
     void Zoom(ZoomDirection direction);
-    void EmbedInWidget(int x, int y, int w, int h);
+    void EmbedInWidget(const QRect &rect);
     void StopEmbedding(void);
     bool hasFullScreenOSD(void) const { return true; }
     static QStringList GetAllowedRenderers(MythCodecID myth_codec_id,
@@ -56,7 +55,7 @@ class VideoOutputD3D : public VideoOutput
     virtual MythPainter *GetOSDPainter(void) { return (MythPainter*)m_osd_painter; }
     bool hasHWAcceleration(void) const { return !codec_is_std(video_codec_id); }
     virtual bool ApproveDeintFilter(const QString& filtername) const;
-    void* GetDXVA2Decoder(void);
+    virtual void* GetDecoderContext(void);
 
     virtual bool CanVisualise(AudioPlayer *audio, MythRender *render)
         { return VideoOutput::CanVisualise(audio, (MythRender*)m_render); }
