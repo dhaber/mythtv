@@ -98,6 +98,7 @@ linux {
 freebsd {
     SOURCES += mythcdrom-freebsd.cpp
     HEADERS += mythcdrom-freebsd.h
+    LIBS += -lthr -lc
 }
 
 use_hidesyms {

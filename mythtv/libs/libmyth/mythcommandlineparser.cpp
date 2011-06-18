@@ -950,9 +950,9 @@ void MythCommandLineParser::addLogging(void)
             "file (currently disabled).", "");
     add(QStringList( QStringList() << "-q" << "--quiet"), "quiet", 0,
             "Don't log to the console (-q).  Don't log anywhere (-q -q)", "");
-    add("--syslog", "syslog", "local7", 
+    add("--syslog", "syslog", "none", 
             "Set the syslog logging facility.\nSet to \"none\" to disable, "
-            "defaults to local7", "");
+            "defaults to none", "");
     add("--nodblog", "nodblog", "Disable database logging.", "");
 }
 
@@ -1181,7 +1181,7 @@ void MythCommFlagCommandLineParser::LoadArguments(void)
     add("--skipdb", "skipdb", "", "Intended for external 3rd party use.");
     add("--queue", "queue", "Insert flagging job into the JobQueue, rather than "
                             "running flagging in the foreground.", "");
-    add("--nopercentage", "nopercent", "Don't print percentage done.", "");
+    add("--noprogress", "noprogress", "Don't print progress on stdout.", "");
     add("--rebuild", "rebuild", "Do not flag commercials, just rebuild the seektable.", "");
     add("--force", "force", "Force operation, even if program appears to be in use.", "");
     add("--dontwritetodb", "dontwritedb", "", "Intended for external 3rd party use.");
