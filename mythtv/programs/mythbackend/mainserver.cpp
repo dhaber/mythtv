@@ -41,7 +41,6 @@ using namespace std;
 #include "previewgeneratorqueue.h"
 #include "exitcodes.h"
 #include "mythcontext.h"
-#include "mythverbose.h"
 #include "mythversion.h"
 #include "mythdb.h"
 #include "mainserver.h"
@@ -5021,12 +5020,13 @@ void MainServer::HandleSetVerbose(QStringList &slist, PlaybackSock *pbs)
     QStringList retlist;
 
     QString newverbose = slist[1];
-    int len=newverbose.length();
+    int len = newverbose.length();
     if (len > 12)
     {
-        parse_verbose_arg(newverbose.right(len-12));
+        verboseArgParse(newverbose.right(len-12));
+        logPropagateCalc();
 
-        VERBOSE(VB_IMPORTANT, QString("Verbose level changed, new level is: %1")
+        VERBOSE(VB_IMPORTANT, QString("Verbose mask changed, new mask is: %1")
                                       .arg(verboseString));
 
         retlist << "OK";

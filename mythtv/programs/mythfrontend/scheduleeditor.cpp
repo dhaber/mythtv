@@ -36,12 +36,12 @@
 
 // Define the strings inserted into the recordfilter table in the
 // database.  This should make them available to the translators.
-static QString fs0(QObject::tr("New episode"));
-static QString fs1(QObject::tr("Identifiable episode"));
-static QString fs2(QObject::tr("First showing"));
-static QString fs3(QObject::tr("Primetime"));
-static QString fs4(QObject::tr("Commercial free"));
-static QString fs5(QObject::tr("High definition"));
+static QString fs0(QT_TRANSLATE_NOOP("SchedFilterEditor", "New episode"));
+static QString fs1(QT_TRANSLATE_NOOP("SchedFilterEditor", "Identifiable episode"));
+static QString fs2(QT_TRANSLATE_NOOP("SchedFilterEditor", "First showing"));
+static QString fs3(QT_TRANSLATE_NOOP("SchedFilterEditor", "Primetime"));
+static QString fs4(QT_TRANSLATE_NOOP("SchedFilterEditor", "Commercial free"));
+static QString fs5(QT_TRANSLATE_NOOP("SchedFilterEditor", "High definition"));
 
 void *ScheduleEditor::RunScheduleEditor(ProgramInfo *proginfo, void *player)
 {
@@ -510,12 +510,13 @@ bool SchedOptEditor::Create()
     if (!UIUtilW::Assign(this, m_backButton, "back"))
         connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
 
-    if ((m_recordingRule->m_type == kSingleRecord) ||
-        (m_recordingRule->m_type ==kOverrideRecord))
+    if (m_recordingRule->m_type == kOverrideRecord)
+        m_filtersButton->SetEnabled(false);
+    if (m_recordingRule->m_type == kSingleRecord ||
+        m_recordingRule->m_type == kOverrideRecord)
     {
         m_dupmethodList->SetEnabled(false);
         m_dupscopeList->SetEnabled(false);
-        m_filtersButton->SetEnabled(false);
     }
 
     connect(m_dupmethodList, SIGNAL(itemSelected(MythUIButtonListItem *)),

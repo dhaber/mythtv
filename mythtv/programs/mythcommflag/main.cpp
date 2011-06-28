@@ -26,7 +26,6 @@ using namespace std;
 #include "exitcodes.h"
 #include "mythcontext.h"
 #include "mythdb.h"
-#include "mythverbose.h"
 #include "mythversion.h"
 #include "mythcommflagplayer.h"
 #include "programinfo.h"
@@ -959,7 +958,7 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHCOMMFLAG);
 
-    print_verbose_messages = VB_IMPORTANT;
+    verboseMask = VB_IMPORTANT;
     verboseString = "important";
 
     MythCommFlagCommandLineParser cmdline;
@@ -982,7 +981,7 @@ int main(int argc, char *argv[])
     }
 
     if (cmdline.toBool("verbose"))
-        if (parse_verbose_arg(cmdline.toString("verbose")) ==
+        if (verboseArgParse(cmdline.toString("verbose")) ==
                         GENERIC_EXIT_INVALID_CMDLINE)
             return GENERIC_EXIT_INVALID_CMDLINE;
 
@@ -1063,19 +1062,19 @@ int main(int argc, char *argv[])
         dontSubmitCommbreakListToDB = true;
         force = true;
     }
-    if (parse_verbose_arg(cmdline.toString("verbose")) ==
+    if (verboseArgParse(cmdline.toString("verbose")) ==
                         GENERIC_EXIT_INVALID_CMDLINE)
         return GENERIC_EXIT_INVALID_CMDLINE;
     if (cmdline.toBool("verboseint"))
-        print_verbose_messages = cmdline.toUInt("verboseint");
+        verboseMask = cmdline.toUInt("verboseint");
 
     if (cmdline.toBool("quiet"))
     {
         quiet = cmdline.toUInt("quiet");
         if (quiet > 1)
         {
-            print_verbose_messages = VB_NONE;
-            parse_verbose_arg("none");
+            verboseMask = VB_NONE;
+            verboseArgParse("none");
         }
     }
 
@@ -1085,6 +1084,9 @@ int main(int argc, char *argv[])
 
     int facility = cmdline.GetSyslogFacility();
     bool dblog = !cmdline.toBool("nodblog");
+    LogLevel_t level = cmdline.GetLogLevel();
+    if (level == LOG_UNKNOWN)
+        return GENERIC_EXIT_INVALID_CMDLINE;
 
     if (cmdline.toBool("queue"))
         queueJobInstead = true;
@@ -1108,7 +1110,8 @@ int main(int argc, char *argv[])
     CleanupGuard callCleanup(cleanup);
 
     QString logfile = cmdline.GetLogFilePath();
-    logStart(logfile, quiet, facility, dblog);
+    bool propagate = cmdline.toBool("islogpath");
+    logStart(logfile, quiet, facility, level, dblog, propagate);
 
     gContext = new MythContext(MYTH_BINARY_VERSION);
     if (!gContext->Init(

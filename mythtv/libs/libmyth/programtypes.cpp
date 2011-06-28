@@ -70,8 +70,8 @@ QString toUIState(RecStatusType recstatus)
     return "warning";
 }
 
-/// \brief Converts "recstatus" into a human readable character.
-QChar toQChar(RecStatusType recstatus, uint cardid)
+/// \brief Converts "recstatus" into a human readable string.
+QString toString(RecStatusType recstatus, uint cardid)
 {
     QString ret = "-";
     switch (recstatus)
@@ -83,10 +83,7 @@ QChar toQChar(RecStatusType recstatus, uint cardid)
             ret = QObject::tr("R", "RecStatusChar rsRecorded");
             break;
         case rsRecording:
-            if (0 < cardid && cardid < 10)
-                ret = QString::number(cardid);
-            else
-                ret = QObject::tr("R", "RecStatusChar rsCurrentRecording");
+            ret = QString::number(cardid);
             break;
         case rsTuning:
             ret = QObject::tr("t", "RecStatusChar rsTuning");
@@ -153,7 +150,7 @@ QChar toQChar(RecStatusType recstatus, uint cardid)
             break;
     }
 
-    return (ret.isEmpty()) ? QChar('-') : ret[0];
+    return (ret.isEmpty()) ? QString("-") : ret;
 }
 
 /// \brief Converts "recstatus" into a short human readable description.

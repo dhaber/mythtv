@@ -26,7 +26,7 @@ void VideoOutputOpenGLVAAPI::GetRenderOptions(render_opts &opts)
 }
 
 VideoOutputOpenGLVAAPI::VideoOutputOpenGLVAAPI()
-  : VideoOutputOpenGL(), m_ctx(NULL)
+  : VideoOutputOpenGL(), m_ctx(NULL), m_pauseBuffer(NULL)
 {
 }
 
@@ -229,6 +229,27 @@ int VideoOutputOpenGLVAAPI::SetPictureAttribute(PictureAttribute attribute,
     return VideoOutput::SetPictureAttribute(attribute, val);
 }
 
+void VideoOutputOpenGLVAAPI::UpdatePauseFrame(void)
+{
+    if (codec_is_std(video_codec_id))
+    {
+        VideoOutputOpenGLVAAPI::UpdatePauseFrame();
+        return;
+    }
+
+    vbuffers.begin_lock(kVideoBuffer_used);
+    if (vbuffers.size(kVideoBuffer_used))
+    {
+        VideoFrame *frame = vbuffers.head(kVideoBuffer_used);
+        m_pauseBuffer = frame->buf;
+    }
+    else
+        VERBOSE(VB_PLAYBACK, LOC +
+            QString("WARNING: Could not update pause frame - no used frames."));
+
+    vbuffers.end_lock();
+}
+
 void VideoOutputOpenGLVAAPI::ProcessFrame(VideoFrame *frame, OSD *osd,
                                           FilterChain *filterList,
                                           const PIPMap &pipPlayers,
@@ -237,10 +258,10 @@ void VideoOutputOpenGLVAAPI::ProcessFrame(VideoFrame *frame, OSD *osd,
     QMutexLocker locker(&gl_context_lock);
     VideoOutputOpenGL::ProcessFrame(frame, osd, filterList, pipPlayers, scan);
 
-    if (codec_is_vaapi(video_codec_id) && m_ctx && gl_videochain && frame)
+    if (codec_is_vaapi(video_codec_id) && m_ctx && gl_videochain)
     {
         gl_context->makeCurrent();
-        m_ctx->CopySurfaceToTexture(frame->buf,
+        m_ctx->CopySurfaceToTexture(frame ? frame->buf : m_pauseBuffer,
                                     gl_videochain->GetInputTexture(),
                                     gl_videochain->GetTextureType(), scan);
         gl_videochain->SetInputUpdated();
@@ -272,14 +293,14 @@ MythCodecID VideoOutputOpenGLVAAPI::GetBestSupportedCodec(
     vdp.SetInput(size);
     QString dec = vdp.GetDecoder();
 
-   PixelFormat fmt = PIX_FMT_YUV420P;
+    PixelFormat fmt = PIX_FMT_YUV420P;
     MythCodecID test_cid = (MythCodecID)(kCodec_MPEG1_VAAPI + (stream_type - 1));
-    if (codec_is_vaapi(test_cid))
+    if (codec_is_vaapi(test_cid) && dec == "vaapi" && !getenv("NO_VAAPI"))
         use_cpu |= !VAAPIContext::IsFormatAccelerated(size, test_cid, fmt);
     else
         use_cpu = true;
 
-    if ((dec != "vaapi") || getenv("NO_VAAPI") || use_cpu)
+    if (use_cpu)
         return (MythCodecID)(kCodec_MPEG1 + (stream_type - 1));
 
     pix_fmt = fmt;
