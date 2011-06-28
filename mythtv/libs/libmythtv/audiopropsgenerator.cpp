@@ -4,7 +4,7 @@
 #include "audiopropsgenerator.h"
 #include "tv_rec.h"
 #include "playercontext.h"
-#include "mythverbose.h"
+#include "mythlogging.h"
 #include "programtypes.h"
 
 #define LOC QString("Audio Props: ")
