@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QEvent>
 #include <QDir>
+#include <QUrl>
 
 // myth
 #include "mythcorecontext.h"
@@ -10,6 +11,7 @@
 #include "mythsystem.h"
 #include "metadatadownload.h"
 #include "util.h"
+#include "remotefile.h"
 #include "mythlogging.h"
 
 QEvent::Type MetadataLookupEvent::kEventType =
@@ -66,12 +68,15 @@ void MetadataDownload::run()
     {
         MetadataLookupList list;
         // Go go gadget Metadata Lookup
-        if (lookup->GetType() == VID)
+        if (lookup->GetType() == VID || lookup->GetType() == RECDNG)
         {
             if (lookup->GetSeason() > 0 || lookup->GetEpisode() > 0)
                 list = handleTelevision(lookup);
-            else if (!lookup->GetSubtitle().isEmpty())
+            else if (!lookup->GetSubtitle().isEmpty() &&
+                     lookup->GetType() == VID)
                 list = handleVideoUndetermined(lookup);
+            else if (lookup->GetType() == RECDNG)
+                list = handleRecordingUndetermined(lookup);
             else
                 list = handleMovie(lookup);
         }
@@ -104,7 +109,8 @@ void MetadataDownload::run()
                 continue;
             }
 
-            VERBOSE(VB_GENERAL, QString("Returning Metadata Results: %1 %2 %3")
+            LOG(VB_GENERAL, LOG_INFO,
+                QString("Returning Metadata Results: %1 %2 %3")
                     .arg(lookup->GetTitle()).arg(lookup->GetSeason())
                     .arg(lookup->GetEpisode()));
             QCoreApplication::postEvent(m_parent,
@@ -148,13 +154,14 @@ bool MetadataDownload::findBestMatch(MetadataLookupList list,
     // If no "best" was chosen, give up.
     if (bestTitle.isEmpty())
     {
-        VERBOSE(VB_GENERAL, QString("No adequate match or multiple "
+        LOG(VB_GENERAL, LOG_ERR,
+            QString("No adequate match or multiple "
                     "matches found for %1.  Update manually.")
                     .arg(originaltitle));
         return false;
     }
 
-    VERBOSE(VB_GENERAL, QString("Best Title Match For %1: %2")
+    LOG(VB_GENERAL, LOG_INFO, QString("Best Title Match For %1: %2")
                     .arg(originaltitle).arg(bestTitle));
 
     // Grab the one item that matches the besttitle (IMPERFECT)
@@ -165,6 +172,17 @@ bool MetadataDownload::findBestMatch(MetadataLookupList list,
         {
             MetadataLookup *newlookup = (*i);
             newlookup->SetStep(GETDATA);
+
+            // If searching for TV without a subtitle, but we've found
+            // a series match, arbitrarily set season/episode to "1" to
+            // avoid looping forever trying to figure it out.
+
+            if (newlookup->GetType() == RECDNG)
+            {
+                newlookup->SetSeason(1);
+                newlookup->SetEpisode(1);
+            }
+
             prependLookup(newlookup);
             return true;
         }
@@ -180,7 +198,7 @@ MetadataLookupList MetadataDownload::runGrabber(QString cmd, QStringList args,
     MythSystem grabber(cmd, args, kMSRunShell | kMSStdOut | kMSBuffered);
     MetadataLookupList list;
 
-    VERBOSE(VB_GENERAL, QString("Running Grabber: %1 %2")
+    LOG(VB_GENERAL, LOG_INFO, QString("Running Grabber: %1 %2")
         .arg(cmd).arg(args.join(" ")));
 
     grabber.Run();
@@ -201,6 +219,135 @@ MetadataLookupList MetadataDownload::runGrabber(QString cmd, QStringList args,
             item = item.nextSiblingElement("item");
         }
     }
+    return list;
+}
+
+MetadataLookupList MetadataDownload::readMXML(QString MXMLpath,
+                                             MetadataLookup* lookup,
+                                             bool passseas)
+{
+    MetadataLookupList list;
+
+    LOG(VB_GENERAL, LOG_INFO,
+        QString("Matching MXML file found. Parsing %1 for metadata...")
+               .arg(MXMLpath));
+
+    if (lookup->GetType() == VID)
+    {
+        QByteArray mxmlraw;
+        QDomElement item;
+        if (MXMLpath.startsWith("myth://"))
+        {
+            RemoteFile *rf = new RemoteFile(MXMLpath);
+            if (rf && rf->Open())
+            {
+                bool loaded = rf->SaveAs(mxmlraw);
+                if (loaded)
+                {
+                    QDomDocument doc;
+                    if (doc.setContent(mxmlraw, true))
+                    {
+                        lookup->SetStep(GETDATA);
+                        QDomElement root = doc.documentElement();
+                        item = root.firstChildElement("item");
+                    }
+                    else
+                        LOG(VB_GENERAL, LOG_ERR,
+                            QString("Corrupt or invalid MXML file."));
+                }
+                rf->Close();
+            }
+
+            delete rf;
+            rf = NULL;
+        }
+        else
+        {
+            QFile file(MXMLpath);
+            if (file.open(QIODevice::ReadOnly))
+            {
+                mxmlraw = file.readAll();
+                QDomDocument doc;
+                if (doc.setContent(mxmlraw, true))
+                {
+                    lookup->SetStep(GETDATA);
+                    QDomElement root = doc.documentElement();
+                    item = root.firstChildElement("item");
+                }
+                else
+                    LOG(VB_GENERAL, LOG_ERR,
+                        QString("Corrupt or invalid MXML file."));
+                file.close();
+            }
+        }
+
+        MetadataLookup *tmp = ParseMetadataItem(item, lookup, passseas);
+        list.append(tmp);
+    }
+
+    return list;
+}
+
+MetadataLookupList MetadataDownload::readNFO(QString NFOpath,
+                                             MetadataLookup* lookup)
+{
+    MetadataLookupList list;
+
+    LOG(VB_GENERAL, LOG_INFO,
+        QString("Matching NFO file found. Parsing %1 for metadata...")
+               .arg(NFOpath));
+
+    if (lookup->GetType() == VID)
+    {
+        QByteArray nforaw;
+        QDomElement item;
+        if (NFOpath.startsWith("myth://"))
+        {
+            RemoteFile *rf = new RemoteFile(NFOpath);
+            if (rf && rf->Open())
+            {
+                bool loaded = rf->SaveAs(nforaw);
+                if (loaded)
+                {
+                    QDomDocument doc;
+                    if (doc.setContent(nforaw, true))
+                    {
+                        lookup->SetStep(GETDATA);
+                        item = doc.documentElement();
+                    }
+                    else
+                        LOG(VB_GENERAL, LOG_ERR,
+                            QString("PIRATE ERROR: Invalid NFO file found."));
+                }
+                rf->Close();
+            }
+
+            delete rf;
+            rf = NULL;
+        }
+        else
+        {
+            QFile file(NFOpath);
+            if (file.open(QIODevice::ReadOnly))
+            {
+                nforaw = file.readAll();
+                QDomDocument doc;
+                if (doc.setContent(nforaw, true))
+                {
+                    lookup->SetStep(GETDATA);
+                    item = doc.documentElement();
+                }
+                else
+                    LOG(VB_GENERAL, LOG_ERR,
+                        QString("PIRATE ERROR: Invalid NFO file found."));
+                file.close();
+            }
+        }
+
+        MetadataLookup *tmp = ParseMetadataMovieNFO(item, lookup);
+        list.append(tmp);
+    }
+
     return list;
 }
 
@@ -245,35 +392,45 @@ MetadataLookupList MetadataDownload::handleMovie(MetadataLookup* lookup)
 {
     MetadataLookupList list;
 
-    QString def_cmd = QDir::cleanPath(QString("%1/%2")
-        .arg(GetShareDir())
-        .arg("metadata/Movie/tmdb.py"));
+    QString mxml = getMXMLPath(lookup->GetFilename());
+    QString nfo = getNFOPath(lookup->GetFilename());
 
-    QString cmd = gCoreContext->GetSetting("MovieGrabber", def_cmd);
-
-    QStringList args;
-    args.append(QString("-l")); // Language Flag
-    args.append(gCoreContext->GetLanguage()); // UI Language
-
-    // If the inetref is populated, even in search mode,
-    // become a getdata grab and use that.
-    if (lookup->GetStep() == SEARCH &&
-        (!lookup->GetInetref().isEmpty() &&
-         lookup->GetInetref() != "00000000"))
-        lookup->SetStep(GETDATA);
-
-    if (lookup->GetStep() == SEARCH)
+    if (mxml.isEmpty() && nfo.isEmpty())
     {
-        args.append(QString("-M"));
-        QString title = lookup->GetTitle();
-        args.append(ShellEscape(title));
+        QString def_cmd = QDir::cleanPath(QString("%1/%2")
+            .arg(GetShareDir())
+            .arg("metadata/Movie/tmdb.py"));
+
+        QString cmd = gCoreContext->GetSetting("MovieGrabber", def_cmd);
+
+        QStringList args;
+        args.append(QString("-l")); // Language Flag
+        args.append(gCoreContext->GetLanguage()); // UI Language
+
+        // If the inetref is populated, even in search mode,
+        // become a getdata grab and use that.
+        if (lookup->GetStep() == SEARCH &&
+            (!lookup->GetInetref().isEmpty() &&
+             lookup->GetInetref() != "00000000"))
+            lookup->SetStep(GETDATA);
+
+        if (lookup->GetStep() == SEARCH)
+        {
+            args.append(QString("-M"));
+            QString title = lookup->GetTitle();
+            args.append(ShellEscape(title));
+        }
+        else if (lookup->GetStep() == GETDATA)
+        {
+            args.append(QString("-D"));
+            args.append(lookup->GetInetref());
+        }
+        list = runGrabber(cmd, args, lookup);
     }
-    else if (lookup->GetStep() == GETDATA)
-    {
-        args.append(QString("-D"));
-        args.append(lookup->GetInetref());
-    }
-    list = runGrabber(cmd, args, lookup);
+    else if (!mxml.isEmpty())
+        list = readMXML(mxml, lookup);
+    else if (!nfo.isEmpty())
+        list = readNFO(nfo, lookup);
 
     return list;
 }
@@ -351,3 +508,109 @@ MetadataLookupList MetadataDownload::handleVideoUndetermined(
     return list;
 }
 
+MetadataLookupList MetadataDownload::handleRecordingUndetermined(
+                                                    MetadataLookup* lookup)
+{
+    MetadataLookupList list;
+
+    QString def_cmd = QDir::cleanPath(QString("%1/%2")
+        .arg(GetShareDir())
+        .arg("metadata/Television/ttvdb.py"));
+
+    QString cmd = gCoreContext->GetSetting("TelevisionGrabber", def_cmd);
+
+    QStringList args;
+    args.append(QString("-l")); // Language Flag
+    args.append(gCoreContext->GetLanguage()); // UI Language
+    if (!lookup->GetSubtitle().isEmpty())
+        args.append(QString("-N"));
+    else
+    {
+        // The input lookup doesn't have Subtitle, Season or Episode information.
+        // We're going to "artificially" set Seas/Ep to 1 since the input
+        // isn't enough information to get conclusive metadata anyway.
+        // This is needed in case of a multi-result, so that on the second
+        // pass through, we definitely get the TV grabber and at least get
+        // an inetref.
+        lookup->SetSeason(1);
+        lookup->SetEpisode(1);
+        args.append(QString("-M"));
+    }
+
+    if (!lookup->GetInetref().isEmpty())
+    {
+        QString inetref = lookup->GetInetref();
+        args.append(ShellEscape(inetref));
+    }
+    else
+    {
+        QString title = lookup->GetTitle();
+        args.append(ShellEscape(title));
+    }
+
+    if (!lookup->GetSubtitle().isEmpty())
+    {
+        QString subtitle = lookup->GetSubtitle();
+        args.append(ShellEscape(subtitle));
+        list = runGrabber(cmd, args, lookup, false);
+    }
+    else
+        list = runGrabber(cmd, args, lookup, true);
+
+    // If there were no results for that, fall back to a movie lookup.
+    if (!list.size())
+    {
+        lookup->SetSeason(0);
+        lookup->SetEpisode(0);
+        list = handleMovie(lookup);
+    }
+
+    if (list.count() == 1)
+        list.at(0)->SetStep(GETDATA);
+
+    return list;
+}
+
+QString MetadataDownload::getMXMLPath(QString filename)
+{
+    QString ret;
+    QString xmlname;
+    QUrl qurl(filename);
+    QString ext = QFileInfo(qurl.path()).suffix();
+    xmlname = filename.left(filename.size() - ext.size()) + "mxml";
+
+    if (xmlname.startsWith("myth://"))
+    {
+        if (RemoteFile::Exists(xmlname))
+            ret = xmlname;
+    }
+    else
+    {
+        if (QFile::exists(xmlname))
+            ret = xmlname;
+    }
+
+    return ret;
+}
+
+QString MetadataDownload::getNFOPath(QString filename)
+{
+    QString ret;
+    QString nfoname;
+    QUrl qurl(filename);
+    QString ext = QFileInfo(qurl.path()).suffix();
+    nfoname = filename.left(filename.size() - ext.size()) + "nfo";
+
+    if (nfoname.startsWith("myth://"))
+    {
+        if (RemoteFile::Exists(nfoname))
+            ret = nfoname;
+    }
+    else
+    {
+        if (QFile::exists(nfoname))
+            ret = nfoname;
+    }
+
+    return ret;
+}

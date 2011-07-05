@@ -101,7 +101,7 @@ extern "C" {
 #endif
 
 /* Define the external prototype */
-MBASE_PUBLIC void LogPrintLine( uint32_t mask, LogLevel_t level, 
+MBASE_PUBLIC void LogPrintLine( uint64_t mask, LogLevel_t level, 
                                 const char *file, int line, 
                                 const char *function, const char *format, ... );
 
@@ -260,7 +260,8 @@ MBASE_PUBLIC int verboseArgParse(QString arg);
 /// a thread safe version of strerror to produce the
 /// string representation of errno and puts it on the
 /// next line in the verbose output.
-#define ENO QString("\n\t\t\teno: ") + logStrerror(errno)
+#define ENO (QString("\n\t\t\teno: ") + logStrerror(errno))
+#define ENO_STR ENO.toLocal8Bit().constData()
 #endif // __cplusplus
 
 #endif

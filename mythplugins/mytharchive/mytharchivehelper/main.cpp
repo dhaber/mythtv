@@ -2467,19 +2467,18 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
 {
     addHelp();
     addVersion();
-    addVerbose();
     addLogging();
 
     add(QStringList( QStringList() << "-t" << "--createthumbnail" ),
-            "createthumbnail", 
+            "createthumbnail", false,
 	    "Create one or more thumbnails\n"
             "Requires: --infile, --thumblist, --outfile\n"
             "Optional: --framecount", "");
-    add("--infile", "infile", ""
+    add("--infile", "infile", "",
             "Input file name\n"
             "Used with: --createthumbnail, --getfileinfo, --isremote, "
             "--sup2dast, --importarchive", "");
-    add("--outfile", "outfile", ""
+    add("--outfile", "outfile", "",
             "Output file name\n"
             "Used with: --createthumbnail, --getfileinfo, --getdbparameters, "
             "--nativearchive\n"
@@ -2494,7 +2493,8 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
             "Used with: --createthumbnail", "");
 
     add(QStringList( QStringList() << "-i" << "--getfileinfo" ),
-            "getfileinfo", "Write file info about infile to outfile\n"
+            "getfileinfo", false, 
+            "Write file info about infile to outfile\n"
             "Requires: --infile, --outfile, --method", "");
     add("--method", "method", 0, 
             "Method of file duration calculation\n" 
@@ -2506,17 +2506,17 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
             "recordings)", "");
 
     add(QStringList( QStringList() << "-p" << "--getdbparameters" ),
-            "getdbparameters", 
+            "getdbparameters", false,
             "Write the mysql database parameters to outfile\n"
             "Requires: --outfile", "");
 
     add(QStringList( QStringList() << "-n" << "--nativearchive" ),
-            "nativearchive", 
+            "nativearchive", false,
             "Archive files to a native archive format\n"
             "Requires: --outfile", "");
 
     add(QStringList( QStringList() << "-f" << "--importarchive" ),
-            "importarchive", 
+            "importarchive", false,
             "Import an archived file\n"
             "Requires: --infile, --chanid", "");
     add("--chanid", "chanid", -1, 
@@ -2524,14 +2524,16 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
             "Used with: --importarchive", "");
 
     add(QStringList( QStringList() << "-r" << "--isremote" ),
-            "isremote", "Check if infile is on a remote filesystem\n"
+            "isremote", false,
+            "Check if infile is on a remote filesystem\n"
             "Requires: --infile\n"
             "Returns:   0 on error or file not found\n"
             "         - 1 file is on a local filesystem\n"
             "         - 2 file is on a remote filesystem", "");
 
     add(QStringList( QStringList() << "-b" << "--burndvd" ),
-            "burndvd", "Burn a created DVD to a blank disc\n"
+            "burndvd", false,
+            "Burn a created DVD to a blank disc\n"
             "Optional: --mediatype, --erasedvdrw, --nativeformat", "");
     add("--mediatype", "mediatype", 0, 
             "Type of media to burn\n" 
@@ -2539,18 +2541,18 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
             "  0 = single layer DVD (default)\n"
             "  1 = dual layer DVD\n"
             "  2 = rewritable DVD", "");
-    add("--erasedvdrw", "erasedvdrw",  
+    add("--erasedvdrw", "erasedvdrw", false,
             "Force an erase of DVD-R/W Media\n" 
             "Used with: --burndvd (optional)", "");
-    add("--nativeformat", "nativeformat", 
+    add("--nativeformat", "nativeformat", false,
             "Archive is a native archive format\n" 
             "Used with: --burndvd (optional)", "");
 
     add(QStringList( QStringList() << "-s" << "--sup2dast" ),
-            "sup2dast", 
+            "sup2dast", false,
             "Convert projectX subtitles to DVD subtitles\n"
             "Requires: --infile, --ifofile, --delay", "");
-    add("--ifofile", "ifofile", ""
+    add("--ifofile", "ifofile", "",
             "Filename of ifo file\n"
             "Used with: --sup2dast", "");
     add("--delay", "delay", 0, 
@@ -2562,22 +2564,11 @@ void MythArchiveHelperCommandLineParser::LoadArguments(void)
 
 int main(int argc, char **argv)
 {
-    int quiet = 0;
-
-    // by default we only output our messages
-    verboseMask = VB_JOBQUEUE | VB_IMPORTANT;
-
     MythArchiveHelperCommandLineParser cmdline;
     if (!cmdline.Parse(argc, argv))
     {
         cmdline.PrintHelp();
         return GENERIC_EXIT_INVALID_CMDLINE;
-    }
-
-    if (cmdline.toBool("showversion"))
-    {
-        cmdline.PrintVersion();
-        return GENERIC_EXIT_OK;
     }
 
     if (cmdline.toBool("showhelp"))
@@ -2586,42 +2577,24 @@ int main(int argc, char **argv)
         return GENERIC_EXIT_OK;
     }
 
-    QCoreApplication a(argc, argv);
-
-    QCoreApplication::setApplicationName("mytharchivehelper");
-
-    if (cmdline.toBool("verbose"))
-        if (verboseArgParse(cmdline.toString("verbose")) ==
-                    GENERIC_EXIT_INVALID_CMDLINE)
-            return GENERIC_EXIT_INVALID_CMDLINE;
-
-    if (cmdline.toBool("quiet"))
+    if (cmdline.toBool("showversion"))
     {
-        quiet = cmdline.toUInt("quiet");
-        if (quiet > 1)
-        {
-            verboseMask = VB_NONE;
-            verboseArgParse("none");
-        }
+        cmdline.PrintVersion();
+        return GENERIC_EXIT_OK;
     }
 
-    int facility = cmdline.GetSyslogFacility();
-    bool dblog = !cmdline.toBool("nodblog");
-    LogLevel_t level = cmdline.GetLogLevel();
-    if (level == LOG_UNKNOWN)
-        return GENERIC_EXIT_INVALID_CMDLINE;
+    QCoreApplication a(argc, argv);
+    QCoreApplication::setApplicationName("mytharchivehelper");
+    
+    // by default we only output our messages
+    int retval;
+    QString mask("important jobqueue");
+    if ((retval = cmdline.ConfigureLogging(mask)) != GENERIC_EXIT_OK)
+        return retval;
 
     ///////////////////////////////////////////////////////////////////////
     // Don't listen to console input
     close(0);
-
-    VERBOSE(VB_IMPORTANT, QString("%1 version: %2 [%3] www.mythtv.org")
-            .arg("mytharchivehelper").arg(MYTH_SOURCE_PATH)
-            .arg(MYTH_SOURCE_VERSION));
-
-    QString logfile = cmdline.GetLogFilePath();
-    bool propagate = cmdline.toBool("islogpath");
-    logStart(logfile, quiet, facility, level, dblog, propagate);
 
     gContext = new MythContext(MYTH_BINARY_VERSION);
     if (!gContext->Init(false))
@@ -2633,7 +2606,7 @@ int main(int argc, char **argv)
 
     int res = 0;
     bool bGrabThumbnail   = cmdline.toBool("createthumbnail");
-    bool bGetDBParameters = cmdline.toBool("grabdbparameters");
+    bool bGetDBParameters = cmdline.toBool("getdbparameters");
     bool bNativeArchive   = cmdline.toBool("nativearchive");
     bool bImportArchive   = cmdline.toBool("importarchive");
     bool bGetFileInfo     = cmdline.toBool("getfileinfo");
