@@ -22,7 +22,6 @@
 #include "asistreamhandler.h"
 
 #define LOC QString("ASISM(%1): ").arg(channel->GetDevice())
-#define LOC_ERR QString("ASISM(%1), Error: ").arg(channel->GetDevice())
 
 /**
  *  \brief Initializes signal lock and signal values.
@@ -43,7 +42,7 @@ ASISignalMonitor::ASISignalMonitor(
     DTVSignalMonitor(db_cardnum, _channel, _flags),
     streamHandlerStarted(false), streamHandler(NULL)
 {
-    LOG(VB_CHANNEL, LOG_INFO, "ctor");
+    LOG(VB_CHANNEL, LOG_INFO, LOC + "ctor");
     streamHandler = ASIStreamHandler::Get(_channel->GetDevice());
 }
 
@@ -52,7 +51,7 @@ ASISignalMonitor::ASISignalMonitor(
  */
 ASISignalMonitor::~ASISignalMonitor()
 {
-    LOG(VB_CHANNEL, LOG_INFO, "dtor");
+    LOG(VB_CHANNEL, LOG_INFO, LOC + "dtor");
     Stop();
     ASIStreamHandler::Return(streamHandler);
 }
@@ -62,13 +61,13 @@ ASISignalMonitor::~ASISignalMonitor()
  */
 void ASISignalMonitor::Stop(void)
 {
-    LOG(VB_CHANNEL, LOG_INFO, "Stop() -- begin");
+    LOG(VB_CHANNEL, LOG_INFO, LOC + "Stop() -- begin");
     SignalMonitor::Stop();
     if (GetStreamData())
         streamHandler->RemoveListener(GetStreamData());
     streamHandlerStarted = false;
 
-    LOG(VB_CHANNEL, LOG_INFO, "Stop() -- end");
+    LOG(VB_CHANNEL, LOG_INFO, LOC + "Stop() -- end");
 }
 
 ASIChannel *ASISignalMonitor::GetASIChannel(void)

@@ -71,8 +71,9 @@ typedef struct helptmp {
 } HelpTmp;
 
 MythCommandLineParser::MythCommandLineParser(QString appname) :
-    m_appname(appname), m_allowExtras(false), m_allowPassthrough(false), 
-    m_passthroughActive(false), m_overridesImported(false), m_verbose(false)
+    m_appname(appname), m_allowExtras(false), m_allowArgs(false),
+    m_allowPassthrough(false), m_passthroughActive(false),
+    m_overridesImported(false), m_verbose(false)
 {
     char *verbose = getenv("VERBOSE_PARSER");
     if (verbose != NULL)
@@ -383,6 +384,15 @@ bool MythCommandLineParser::Parse(int argc, const char * const * argv)
         }
         else if (res == kArg)
         {
+            if (!m_allowArgs)
+            {
+                cerr << "Received '"
+                     << val.toAscii().constData()
+                     << "' but unassociated arguments have not been enabled"
+                     << endl;
+                return false;        
+            }
+
             m_remainingArgs << val;
             continue;
         }
@@ -939,7 +949,7 @@ void MythCommandLineParser::addUPnP(void)
 void MythCommandLineParser::addLogging(void)
 {
     add(QStringList( QStringList() << "-v" << "--verbose" ), "verbose",
-            "important,general",
+            "general",
             "Specify log filtering. Use '-v help' for level info.", "");
     add("-V", "verboseint", 0U, "",
             "This option is intended for internal use only.\n"
@@ -1106,8 +1116,9 @@ void MythCommandLineParser::ApplySettingsOverride(void)
         QMap<QString, QString>::iterator it;
         for (it = override.begin(); it != override.end(); ++it)
         {
-            VERBOSE(VB_IMPORTANT, QString("Setting '%1' being forced to '%2'")
-                        .arg(it.key()).arg(*it));
+            LOG(VB_GENERAL, LOG_NOTICE,
+                 QString("Setting '%1' being forced to '%2'")
+                     .arg(it.key()).arg(*it));
             gCoreContext->OverrideSettingForSession(it.key(), *it);
         }
     }

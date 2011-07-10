@@ -78,8 +78,6 @@ using namespace std;
 #define GESTURE_TIMEOUT 1000
 
 #define LOC      QString("MythMainWindow: ")
-#define LOC_WARN QString("MythMainWindow, Warning: ")
-#define LOC_ERR  QString("MythMainWindow, Error: ")
 
 class KeyContext
 {
@@ -977,11 +975,11 @@ void MythMainWindow::Init(void)
                                          "Check your OpenGL installation.");
                 teardown = true;
             }
-            else if (painter == "auto" && !qgl->format().directRendering())
+            else if (painter == "auto" && gl && !gl->IsRecommendedRenderer())
             {
                 LOG(VB_GENERAL, LOG_WARNING,
-                    "OpenGL is using software rendering. "
-                    "Falling back to Qt painter.");
+                    "OpenGL painter not recommended with this system's "
+                    "hardware/drivers. Falling back to Qt painter.");
                 teardown = true;
             }
             if (teardown)

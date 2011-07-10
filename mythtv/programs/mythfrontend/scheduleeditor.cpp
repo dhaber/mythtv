@@ -131,8 +131,8 @@ bool ScheduleEditor::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "ScheduleEditor, theme is missing "
-                              "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "ScheduleEditor, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -161,8 +161,8 @@ bool ScheduleEditor::Create()
 
         if (!m_recordingRule->IsLoaded())
         {
-            VERBOSE(VB_IMPORTANT, "ScheduleEditor::Create() - Failed to load "
-                                  "recording rule");
+            LOG(VB_GENERAL, LOG_ERR,
+                "ScheduleEditor::Create() - Failed to load recording rule");
             return false;
         }
     }
@@ -523,8 +523,8 @@ bool SchedOptEditor::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "SchedOptEditor, theme is missing "
-                              "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "SchedOptEditor, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -752,8 +752,8 @@ bool SchedFilterEditor::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "SchedFilterEditor, theme is missing "
-                "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "SchedFilterEditor, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -881,8 +881,8 @@ bool StoreOptEditor::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "StoreOptEditor, theme is missing "
-                              "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "StoreOptEditor, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -1185,8 +1185,8 @@ bool PostProcEditor::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "PostProcEditor, theme is missing "
-                              "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "PostProcEditor, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -1375,8 +1375,8 @@ bool MetadataOptions::Create()
 
     if (err)
     {
-        VERBOSE(VB_IMPORTANT, "MetadataOptions, theme is missing "
-                              "required elements");
+        LOG(VB_GENERAL, LOG_ERR, "MetadataOptions, theme is missing "
+                                 "required elements");
         return false;
     }
 
@@ -1786,6 +1786,12 @@ void MetadataOptions::customEvent(QEvent *levent)
     }
     else if (levent->type() == ImageDLEvent::kEventType)
     {
+        if (m_busyPopup)
+        {
+            m_busyPopup->Close();
+            m_busyPopup = NULL;
+        }
+
         ImageDLEvent *ide = (ImageDLEvent *)levent;
 
         MetadataLookup *lookup = ide->item;

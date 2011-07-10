@@ -22,6 +22,7 @@
 #include "mythsystemevent.h"
 #include "commandlineparser.h"
 
+#include "controlrequesthandler.h"
 #include "requesthandler/basehandler.h"
 #include "requesthandler/fileserverhandler.h"
 
@@ -96,7 +97,7 @@ int main(int argc, char *argv[])
         return retval;
 
     bool daemonize = cmdline.toBool("daemon");
-    QString mask("important general");
+    QString mask("general");
     if ((retval = cmdline.ConfigureLogging(mask, daemonize)) != GENERIC_EXIT_OK)
         return retval;
 
@@ -105,15 +106,16 @@ int main(int argc, char *argv[])
     gContext = new MythContext(MYTH_BINARY_VERSION);
     if (!gContext->Init(false))
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR + "Failed to init MythContext, exiting.");
+        LOG(VB_GENERAL, LOG_ERR, LOC + "Failed to init MythContext, exiting.");
         return GENERIC_EXIT_NO_MYTHCONTEXT;
     }
 
     cmdline.ApplySettingsOverride();
 
+    gCoreContext->SetBackend(false);
     if (!gCoreContext->ConnectToMasterServer())
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR + "Failed to connect to master server");
+        LOG(VB_GENERAL, LOG_ERR, LOC + "Failed to connect to master server");
         return GENERIC_EXIT_CONNECT_ERROR;
     }
 
@@ -130,13 +132,18 @@ int main(int argc, char *argv[])
     MythSocketManager *sockmanager = new MythSocketManager();
     if (!sockmanager->Listen(port))
     {
-        VERBOSE(VB_IMPORTANT, "Mediaserver exiting, failed to bind to listen port.");
+        LOG(VB_GENERAL, LOG_ERR,
+            "Mediaserver exiting, failed to bind to listen port.");
         delete sockmanager;
         return GENERIC_EXIT_SOCKET_ERROR;
     }
 
     sockmanager->RegisterHandler(new BaseRequestHandler());
     sockmanager->RegisterHandler(new FileServerHandler());
+
+    ControlRequestHandler *controlRequestHandler = new ControlRequestHandler();
+    sockmanager->RegisterHandler(controlRequestHandler);
+    controlRequestHandler->ConnectToMaster();
 
     MythSystemEventHandler *sysEventHandler = new MythSystemEventHandler();
 

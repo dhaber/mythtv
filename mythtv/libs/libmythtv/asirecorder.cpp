@@ -29,10 +29,6 @@
 #include "tv_rec.h"
 
 #define LOC QString("ASIRec(%1): ").arg(tvrec->GetCaptureCardNum())
-#define LOC_WARN QString("ASIRec(%1), Warning: ") \
-                     .arg(tvrec->GetCaptureCardNum())
-#define LOC_ERR QString("ASIRec(%1), Error: ") \
-                    .arg(tvrec->GetCaptureCardNum())
 
 ASIRecorder::ASIRecorder(TVRec *rec, ASIChannel *channel) :
     DTVRecorder(rec), m_channel(channel), m_stream_handler(NULL)
@@ -70,14 +66,14 @@ void ASIRecorder::StartRecording(void)
     if (!Open())
     {
         _error = "Failed to open device";
-        LOG(VB_GENERAL, LOG_ERR, _error);
+        LOG(VB_GENERAL, LOG_ERR, LOC + _error);
         return;
     }
 
     if (!_stream_data)
     {
         _error = "MPEGStreamData pointer has not been set";
-        LOG(VB_GENERAL, LOG_ERR, _error);
+        LOG(VB_GENERAL, LOG_ERR, LOC + _error);
         Close();
         return;        
     }
@@ -132,7 +128,7 @@ void ASIRecorder::StartRecording(void)
 
         if (!_input_pmt)
         {
-            LOG(VB_GENERAL, LOG_WARNING,
+            LOG(VB_GENERAL, LOG_WARNING, LOC +
                 "Recording will not commence until a PMT is set.");
             usleep(5000);
             continue;
@@ -141,7 +137,7 @@ void ASIRecorder::StartRecording(void)
         if (!m_stream_handler->IsRunning())
         {
             _error = "Stream handler died unexpectedly.";
-            LOG(VB_GENERAL, LOG_ERR, _error);
+            LOG(VB_GENERAL, LOG_ERR, LOC + _error);
         }
     }
 
@@ -162,7 +158,7 @@ bool ASIRecorder::Open(void)
 {
     if (IsOpen())
     {
-        LOG(VB_GENERAL, LOG_WARNING, "Card already open");
+        LOG(VB_GENERAL, LOG_WARNING, LOC + "Card already open");
         return true;
     }
 
@@ -173,7 +169,7 @@ bool ASIRecorder::Open(void)
 
     m_stream_handler = ASIStreamHandler::Get(m_channel->GetDevice());
 
-    LOG(VB_RECORD, LOG_INFO, "Opened successfully");
+    LOG(VB_RECORD, LOG_INFO, LOC + "Opened successfully");
 
     return true;
 }
@@ -185,10 +181,10 @@ bool ASIRecorder::IsOpen(void) const
 
 void ASIRecorder::Close(void)
 {
-    LOG(VB_RECORD, LOG_INFO, "Close() -- begin");
+    LOG(VB_RECORD, LOG_INFO, LOC + "Close() -- begin");
 
     if (IsOpen())
         ASIStreamHandler::Return(m_stream_handler);
 
-    LOG(VB_RECORD, LOG_INFO, "Close() -- end");
+    LOG(VB_RECORD, LOG_INFO, LOC + "Close() -- end");
 }

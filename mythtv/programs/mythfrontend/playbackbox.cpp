@@ -17,6 +17,7 @@
 #include "mythuistatetype.h"
 #include "mythuicheckbox.h"
 #include "mythuitextedit.h"
+#include "mythuispinbox.h"
 #include "mythdialogbox.h"
 #include "recordinginfo.h"
 #include "mythuihelper.h"
@@ -30,6 +31,7 @@
 #include "remoteutil.h"
 #include "mythdbcon.h"
 #include "playgroup.h"
+#include "netutils.h"
 #include "mythdirs.h"
 #include "mythdb.h"
 #include "util.h"
@@ -317,7 +319,7 @@ static bool extract_one_del(
     list.pop_front();
 
     if (!chanid || !recstartts.isValid())
-        VERBOSE(VB_IMPORTANT, LOC_ERR + "extract_one_del() invalid entry");
+        LOG(VB_GENERAL, LOG_ERR, LOC + "extract_one_del() invalid entry");
 
     return chanid && recstartts.isValid();
 }
@@ -474,7 +476,8 @@ bool PlaybackBox::Create()
 {
     if (m_type == kDeleteBox &&
             LoadWindowFromXML("recordings-ui.xml", "deleterecordings", this))
-        VERBOSE(VB_EXTRA, "Found a customized delete recording screen");
+        LOG(VB_GENERAL, LOG_DEBUG,
+            "Found a customized delete recording screen");
     else
         if (!LoadWindowFromXML("recordings-ui.xml", "watchrecordings", this))
             return false;
@@ -492,8 +495,8 @@ bool PlaybackBox::Create()
 
     if (!m_recordingList || !m_groupList)
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR +
-                "Theme is missing critical theme elements.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Theme is missing critical theme elements.");
         return false;
     }
 
@@ -719,9 +722,9 @@ void PlaybackBox::UpdateUIListItem(
     }
     else
     {
-        VERBOSE(VB_GENERAL|VB_EXTRA, LOC +
-                QString("UpdateUIListItem called with a title unknown "
-                        "to us in m_recordingList\n\t\t\t%1")
+        LOG(VB_GENERAL, LOG_DEBUG, LOC +
+            QString("UpdateUIListItem called with a title unknown "
+                    "to us in m_recordingList\n\t\t\t%1")
                 .arg(pginfo->toString(ProgramInfo::kTitleSubtitle)));
     }
 }
@@ -906,10 +909,10 @@ void PlaybackBox::HandlePreviewEvent(const QStringList &list)
 {
     if (list.size() < 5)
     {
-        VERBOSE(VB_IMPORTANT, "HandlePreviewEvent() -- too few args");
+        LOG(VB_GENERAL, LOG_ERR, "HandlePreviewEvent() -- too few args");
         for (uint i = 0; i < (uint) list.size(); i++)
         {
-            VERBOSE(VB_IMPORTANT, QString("%1: %2")
+            LOG(VB_GENERAL, LOG_INFO, QString("%1: %2")
                     .arg(i).arg(list[i]));
         }
         return;
@@ -936,15 +939,15 @@ void PlaybackBox::HandlePreviewEvent(const QStringList &list)
         QString tokens("\n\t\t\ttokens: ");
         for (uint i = 4; i < (uint) list.size(); i++)
             tokens += list[i] + ", ";
-        VERBOSE(VB_GENERAL|VB_EXTRA, LOC +
-                "Ignoring PREVIEW_SUCCESS, no matcing token" + tokens);
+        LOG(VB_GENERAL, LOG_DEBUG, LOC +
+            "Ignoring PREVIEW_SUCCESS, no matcing token" + tokens);
         return;
     }
 
     if (previewFile.isEmpty())
     {
-        VERBOSE(VB_IMPORTANT|VB_EXTRA, LOC_ERR +
-                "Ignoring PREVIEW_SUCCESS, no preview file.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Ignoring PREVIEW_SUCCESS, no preview file.");
         return;
     }
 
@@ -956,14 +959,13 @@ void PlaybackBox::HandlePreviewEvent(const QStringList &list)
 
     if (!item)
     {
-        VERBOSE(VB_GENERAL|VB_EXTRA, LOC +
-                "Ignoring PREVIEW_SUCCESS, item no longer on screen.");
+        LOG(VB_GENERAL, LOG_DEBUG, LOC +
+            "Ignoring PREVIEW_SUCCESS, item no longer on screen.");
     }
 
     if (item)
     {
-        VERBOSE(VB_GUI, LOC +
-                QString("Loading preview %1,\n\t\t\tmsg %2")
+        LOG(VB_GUI, LOG_INFO, LOC + QString("Loading preview %1,\n\t\t\tmsg %2")
                 .arg(previewFile).arg(message));
 
         item->SetImage(previewFile, "preview", true);
@@ -1466,14 +1468,18 @@ static void restore_position(
 
     if (sel >= 0)
     {
-        //VERBOSE(VB_IMPORTANT, QString("Reselect success (%1,%2)")
-        //        .arg(sel).arg(top));
+#if 0
+        LOG(VB_GENERAL, LOG_DEBUG, QString("Reselect success (%1,%2)")
+                .arg(sel).arg(top));
+#endif
         recordingList->SetItemCurrent(sel, top);
     }
     else
     {
-        //VERBOSE(VB_GENERAL, QString("Reselect failure (%1,%2)")
-        //        .arg(sel).arg(top));
+#if 0
+        LOG(VB_GENERAL, LOG_DEBUG, QString("Reselect failure (%1,%2)")
+                .arg(sel).arg(top));
+#endif
     }
 }
 
@@ -1658,13 +1664,14 @@ bool PlaybackBox::UpdateUILists(void)
                     if (m_watchListAutoExpire && !p->IsAutoExpirable())
                     {
                         p->SetRecordingPriority2(wlExpireOff);
-                        VERBOSE(VB_FILE, QString("Auto-expire off:  %1")
+                        LOG(VB_FILE, LOG_INFO, QString("Auto-expire off:  %1")
                                 .arg(p->GetTitle()));
                     }
                     else if (p->IsWatched())
                     {
                         p->SetRecordingPriority2(wlWatched);
-                        VERBOSE(VB_FILE, QString("Marked as 'watched':  %1")
+                        LOG(VB_FILE, LOG_INFO,
+                            QString("Marked as 'watched':  %1")
                                 .arg(p->GetTitle()));
                     }
                     else
@@ -1680,7 +1687,8 @@ bool PlaybackBox::UpdateUILists(void)
                         else
                         {
                             p->SetRecordingPriority2(wlEarlier);
-                            VERBOSE(VB_FILE, QString("Not the earliest:  %1")
+                            LOG(VB_FILE, LOG_INFO,
+                                QString("Not the earliest:  %1")
                                     .arg(p->GetTitle()));
                         }
                     }
@@ -1691,7 +1699,7 @@ bool PlaybackBox::UpdateUILists(void)
 
     if (sortedList.empty())
     {
-        VERBOSE(VB_IMPORTANT, LOC_WARN + "SortedList is Empty");
+        LOG(VB_GENERAL, LOG_WARNING, LOC + "SortedList is Empty");
         m_progLists[""];
         m_titleList << "";
         m_playList.clear();
@@ -1848,14 +1856,15 @@ bool PlaybackBox::UpdateUILists(void)
                 if (delHours[recid] < m_watchListBlackOut * 4)
                 {
                     (*pit)->SetRecordingPriority2(wlDeleted);
-                    VERBOSE(VB_FILE, QString("Recently deleted daily:  %1")
+                    LOG(VB_FILE, LOG_INFO,
+                        QString("Recently deleted daily:  %1")
                             .arg((*pit)->GetTitle()));
                     pit = m_progLists[m_watchGroupLabel].erase(pit);
                     continue;
                 }
                 else
                 {
-                    VERBOSE(VB_FILE, QString("Daily interval:  %1")
+                    LOG(VB_FILE, LOG_INFO, QString("Daily interval:  %1")
                             .arg((*pit)->GetTitle()));
 
                     if (maxEpisodes[recid] > 0)
@@ -1881,14 +1890,15 @@ bool PlaybackBox::UpdateUILists(void)
                 if (delHours[recid] < (m_watchListBlackOut * 24) - 4)
                 {
                     (*pit)->SetRecordingPriority2(wlDeleted);
-                    VERBOSE(VB_FILE, QString("Recently deleted weekly:  %1")
+                    LOG(VB_FILE, LOG_INFO,
+                        QString("Recently deleted weekly:  %1")
                             .arg((*pit)->GetTitle()));
                     pit = m_progLists[m_watchGroupLabel].erase(pit);
                     continue;
                 }
                 else
                 {
-                    VERBOSE(VB_FILE, QString("Weekly interval: %1")
+                    LOG(VB_FILE, LOG_INFO, QString("Weekly interval: %1")
                             .arg((*pit)->GetTitle()));
 
                     if (maxEpisodes[recid] > 0)
@@ -1969,7 +1979,7 @@ bool PlaybackBox::UpdateUILists(void)
                     (*pit)->GetRecordingPriority2() * 100 / delaypct);
             }
 
-            VERBOSE(VB_FILE, QString(" %1  %2  %3")
+            LOG(VB_FILE, LOG_INFO, QString(" %1  %2  %3")
                     .arg((*pit)->GetScheduledStartTime()
                          .toString(m_formatShortDate))
                     .arg((*pit)->GetRecordingPriority2())
@@ -2145,9 +2155,9 @@ void PlaybackBox::deleteSelected(MythUIButtonListItem *item)
     }
     else if (pginfo->GetAvailableStatus() == asPendingDelete)
     {
-        VERBOSE(VB_IMPORTANT, QString("deleteSelected(%1) -- failed ")
+        LOG(VB_GENERAL, LOG_ERR, QString("deleteSelected(%1) -- failed ")
                 .arg(pginfo->toString(ProgramInfo::kTitleSubtitle)) +
-                QString("availability status: %1 ")
+            QString("availability status: %1 ")
                 .arg(pginfo->GetAvailableStatus()));
 
         ShowOkPopup(tr("Cannot delete\n") +
@@ -2158,9 +2168,9 @@ void PlaybackBox::deleteSelected(MythUIButtonListItem *item)
         QString byWho;
         pginfo->QueryIsInUse(byWho);
 
-        VERBOSE(VB_IMPORTANT, QString("deleteSelected(%1) -- failed ")
+        LOG(VB_GENERAL, LOG_ERR, QString("deleteSelected(%1) -- failed ")
                 .arg(pginfo->toString(ProgramInfo::kTitleSubtitle)) +
-                QString("delete candidate: %1 in use by %2")
+            QString("delete candidate: %1 in use by %2")
                 .arg(pginfo->QueryIsDeleteCandidate()).arg(byWho));
 
         if (byWho.isEmpty())
@@ -3406,9 +3416,8 @@ ProgramInfo *PlaybackBox::FindProgramInUILists(const QString &key)
     if (ProgramInfo::ExtractKey(key, chanid, recstartts))
         return FindProgramInUILists(chanid, recstartts);
 
-    VERBOSE(VB_IMPORTANT, LOC_ERR +
-            QString("FindProgramInUILists(%1) "
-                    "called with invalid key").arg(key));
+    LOG(VB_GENERAL, LOG_ERR, LOC +
+        QString("FindProgramInUILists(%1) called with invalid key").arg(key));
 
     return NULL;
 }
@@ -3624,14 +3633,14 @@ void PlaybackBox::processNetworkControlCommand(const QString &command)
         {
             int clientID = tokens[5].toInt();
 
-            VERBOSE(VB_IMPORTANT, LOC +
-                    QString("NetworkControl: Trying to %1 program '%2' @ '%3'")
-                            .arg(tokens[1]).arg(tokens[3]).arg(tokens[4]));
+            LOG(VB_GENERAL, LOG_INFO, LOC +
+                QString("NetworkControl: Trying to %1 program '%2' @ '%3'")
+                    .arg(tokens[1]).arg(tokens[3]).arg(tokens[4]));
 
             if (m_playingSomething)
             {
-                VERBOSE(VB_IMPORTANT, LOC_ERR +
-                        "NetworkControl: Already playing");
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    "NetworkControl: Already playing");
 
                 QString msg = QString(
                     "NETWORK_CONTROL RESPONSE %1 ERROR: Unable to play, "
@@ -3998,9 +4007,9 @@ void PlaybackBox::customEvent(QEvent *event)
                 }
                 else
                 {
-                    VERBOSE(VB_IMPORTANT, LOC_WARN +
-                            "Delete failures not handled due to "
-                            "pre-existing popup.");
+                    LOG(VB_GENERAL, LOG_WARNING, LOC +
+                        "Delete failures not handled due to "
+                        "pre-existing popup.");
                 }
             }
 
@@ -4147,8 +4156,8 @@ void PlaybackBox::HandleRecordingRemoveEvent(
 {
     if (!m_programInfoCache.Remove(chanid, recstartts))
     {
-        VERBOSE(VB_IMPORTANT, LOC_WARN +
-                QString("Failed to remove %1:%2, reloading list")
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            QString("Failed to remove %1:%2, reloading list")
                 .arg(chanid).arg(recstartts.toString(Qt::ISODate)));
         m_programInfoCache.ScheduleLoad();
         return;
@@ -4646,8 +4655,9 @@ void PlaybackBox::showMetadataEditor()
     if (editMetadata->Create())
     {
         connect(editMetadata, SIGNAL(result(const QString &, const QString &,
-                const QString &)), SLOT(saveRecMetadata(const QString &,
-                const QString &, const QString &)));
+                const QString &, const QString &, uint, uint)), SLOT(
+                saveRecMetadata(const QString &, const QString &,
+                const QString &, const QString &, uint, uint)));
         mainStack->AddScreen(editMetadata);
     }
     else
@@ -4656,7 +4666,10 @@ void PlaybackBox::showMetadataEditor()
 
 void PlaybackBox::saveRecMetadata(const QString &newTitle,
                                   const QString &newSubtitle,
-                                  const QString &newDescription)
+                                  const QString &newDescription,
+                                  const QString &newInetref,
+                                  uint newSeason,
+                                  uint newEpisode)
 {
     MythUIButtonListItem *item = m_recordingList->GetItemCurrent();
 
@@ -4681,13 +4694,27 @@ void PlaybackBox::saveRecMetadata(const QString &newTitle,
         if (!newSubtitle.trimmed().isEmpty())
             tempSubTitle = QString("%1 - \"%2\"")
                             .arg(tempSubTitle).arg(newSubtitle);
+        QString seasone = QString("s%1e%2").arg(GetDisplaySeasonEpisode
+                                             (newSeason, 2))
+                        .arg(GetDisplaySeasonEpisode(newEpisode, 2));
+        QString seasonx = QString("%1x%2").arg(GetDisplaySeasonEpisode
+                                             (newSeason, 1))
+                        .arg(GetDisplaySeasonEpisode(newEpisode, 2));
 
         item->SetText(tempSubTitle, "titlesubtitle");
         item->SetText(newTitle, "title");
         item->SetText(newSubtitle, "subtitle");
+        item->SetText(newInetref, "inetref");
+        item->SetText(QString::number(newSeason), "season");
+        item->SetText(QString::number(newEpisode), "episode");
+        item->SetText(seasonx, "00x00");
+        item->SetText(seasone, "s00e00");
         if (newDescription != NULL)
             item->SetText(newDescription, "description");
     }
+
+    pginfo->SaveInetRef(newInetref);
+    pginfo->SaveSeasonEpisode(newSeason, newEpisode);
 
     RecordingInfo ri(*pginfo);
     ri.ApplyRecordRecTitleChange(newTitle, newSubtitle, newDescription);
@@ -4872,8 +4899,8 @@ bool GroupSelector::Create()
 
     if (!groupList)
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR +
-                "Theme is missing 'groups' button list.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Theme is missing 'groups' button list.");
         return false;
     }
 
@@ -5031,8 +5058,8 @@ bool PasswordChange::Create()
 
     if (!m_oldPasswordEdit || !m_newPasswordEdit || !m_okButton)
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR +
-                "Window 'passwordchanger' is missing required elements.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Window 'passwordchanger' is missing required elements.");
         return false;
     }
 
@@ -5070,7 +5097,8 @@ RecMetadataEdit::RecMetadataEdit(MythScreenStack *lparent, ProgramInfo *pginfo)
                 : MythScreenType(lparent, "recmetadataedit"),
                     m_progInfo(pginfo)
 {
-    m_titleEdit = m_subtitleEdit = m_descriptionEdit = NULL;
+    m_titleEdit = m_subtitleEdit = m_descriptionEdit = m_inetrefEdit = NULL;
+    m_seasonSpin = m_episodeSpin = NULL;
 }
 
 bool RecMetadataEdit::Create()
@@ -5081,12 +5109,16 @@ bool RecMetadataEdit::Create()
     m_titleEdit = dynamic_cast<MythUITextEdit*>(GetChild("title"));
     m_subtitleEdit = dynamic_cast<MythUITextEdit*>(GetChild("subtitle"));
     m_descriptionEdit = dynamic_cast<MythUITextEdit*>(GetChild("description"));
+    m_inetrefEdit = dynamic_cast<MythUITextEdit*>(GetChild("inetref"));
+    m_seasonSpin = dynamic_cast<MythUISpinBox*>(GetChild("season"));
+    m_episodeSpin = dynamic_cast<MythUISpinBox*>(GetChild("episode"));
     MythUIButton *okButton = dynamic_cast<MythUIButton*>(GetChild("ok"));
 
-    if (!m_titleEdit || !m_subtitleEdit || !okButton)
+    if (!m_titleEdit || !m_subtitleEdit || !m_inetrefEdit || !m_seasonSpin ||
+        !m_episodeSpin || !okButton)
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR +
-                "Window 'editmetadata' is missing required elements.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Window 'editmetadata' is missing required elements.");
         return false;
     }
 
@@ -5099,6 +5131,12 @@ bool RecMetadataEdit::Create()
         m_descriptionEdit->SetText(m_progInfo->GetDescription());
         m_descriptionEdit->SetMaxLength(255);
     }
+    m_inetrefEdit->SetText(m_progInfo->GetInetRef());
+    m_inetrefEdit->SetMaxLength(255);
+    m_seasonSpin->SetRange(0,100,1,1);
+    m_seasonSpin->SetValue(m_progInfo->GetSeason());
+    m_episodeSpin->SetRange(0,999,1,1);
+    m_episodeSpin->SetValue(m_progInfo->GetEpisode());
 
     connect(okButton, SIGNAL(Clicked()), SLOT(SaveChanges()));
 
@@ -5112,13 +5150,19 @@ void RecMetadataEdit::SaveChanges()
     QString newRecTitle = m_titleEdit->GetText();
     QString newRecSubtitle = m_subtitleEdit->GetText();
     QString newRecDescription = NULL;
+    QString newRecInetref = NULL;
+    uint newRecSeason = 0, newRecEpisode = 0;
     if (m_descriptionEdit)
-       newRecDescription = m_descriptionEdit->GetText();
+        newRecDescription = m_descriptionEdit->GetText();
+    newRecInetref = m_inetrefEdit->GetText();
+    newRecSeason = m_seasonSpin->GetIntValue();
+    newRecEpisode = m_episodeSpin->GetIntValue();
 
     if (newRecTitle.isEmpty())
         return;
 
-    emit result(newRecTitle, newRecSubtitle, newRecDescription);
+    emit result(newRecTitle, newRecSubtitle, newRecDescription,
+                newRecInetref, newRecSeason, newRecEpisode);
     Close();
 }
 
@@ -5140,8 +5184,8 @@ bool HelpPopup::Create()
 
     if (!m_iconList)
     {
-        VERBOSE(VB_IMPORTANT, LOC_ERR +
-                "Window 'iconhelp' is missing required elements.");
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Window 'iconhelp' is missing required elements.");
         return false;
     }
 
@@ -5152,8 +5196,10 @@ bool HelpPopup::Create()
     addItem("autoexpire",  tr("The program is able to auto-expire"));
     addItem("processing",  tr("Commercials are being flagged"));
     addItem("bookmark",    tr("A bookmark is set"));
-//    addItem("inuse",       tr("Recording is in use"));
-//    addItem("transcoded",  tr("Recording has been transcoded"));
+#if 0
+    addItem("inuse",       tr("Recording is in use"));
+    addItem("transcoded",  tr("Recording has been transcoded"));
+#endif
 
     addItem("mono",        tr("Recording is in Mono"));
     addItem("stereo",      tr("Recording is in Stereo"));
