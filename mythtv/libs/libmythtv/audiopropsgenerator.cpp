@@ -8,8 +8,6 @@
 #include "programtypes.h"
 
 #define LOC QString("Audio Props: ")
-#define LOC_ERR QString("Audio Props Error: ")
-#define LOC_WARN QString("Audio Props Warning: ")
 
 /** \class AudioPropsGenerator
  *  \brief This class updates the Audio Properties of a recording.
@@ -34,12 +32,12 @@
 AudioPropsGenerator::AudioPropsGenerator(const ProgramInfo *pginfo)
     : programInfo(*pginfo)
 {
-    VERBOSE(VB_AUDIO, LOC + QString("Constructing Audio Props Generator"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Constructing Audio Props Generator"));
 }
 
 AudioPropsGenerator::~AudioPropsGenerator()
 {
-    VERBOSE(VB_AUDIO, LOC + QString("Deconstructing Audio Props Generator"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Deconstructing Audio Props Generator"));
 
     audioPropsLock.lock();
     emit audioPropsThreadDone(&programInfo);
@@ -96,7 +94,7 @@ void *AudioPropsGenerator::AudioPropsRun(void *param)
 {
     // Lower scheduling priority, to avoid problems with recordings.
     if (setpriority(PRIO_PROCESS, 0, 9))
-        VERBOSE(VB_IMPORTANT, LOC + "Setting priority failed." + ENO);
+        LOG(VB_GENERAL, LOG_ERR, "Setting priority failed." + ENO);
     AudioPropsGenerator *gen = (AudioPropsGenerator*) param;
     gen->Run();
     gen->deleteLater();
@@ -106,29 +104,29 @@ void *AudioPropsGenerator::AudioPropsRun(void *param)
 bool AudioPropsGenerator::UpdateAudioProps(void)
 {
 
-    VERBOSE(VB_AUDIO, LOC + QString("Starting Audio Inspection"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Starting Audio Inspection"));
     PlayerContext *ctx = new PlayerContext(kAudioGeneratorInUseID);
 
-    VERBOSE(VB_AUDIO, LOC + QString("Using file: %1").arg(programInfo.GetPathname()));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Using file: %1").arg(programInfo.GetPathname()));
     RingBuffer *rbuf = RingBuffer::Create(programInfo.GetPathname(), false, false, 0);
 
-    VERBOSE(VB_AUDIO, LOC + QString("Setting player"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Setting player"));
     ctx->SetRingBuffer(rbuf);
     ctx->SetPlayingInfo(&programInfo);
     ctx->SetPlayer(new MythPlayer());
     ctx->player->SetPlayerInfo(NULL, NULL, true, ctx);
 
-    VERBOSE(VB_AUDIO, LOC + QString("Getting audio props"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Getting audio props"));
     int audioprops  = ctx->player->GetAudioProperties();
 
-    VERBOSE(VB_AUDIO, LOC + QString("Got audio props"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Got audio props"));
     bool updated = audioprops >= 0;
 
     if (!updated)
-        VERBOSE(VB_IMPORTANT, LOC + QString("NOT Saving audio props for %1").arg(programInfo.GetTitle()));
+        LOG(VB_GENERAL, LOG_DEBUG, QString("NOT Saving audio props for %1").arg(programInfo.GetTitle()));
     else
     {
-        VERBOSE(VB_IMPORTANT, LOC + QString("Saving audio props (%1) for %2").arg(audioprops).arg(programInfo.GetTitle()));
+        LOG(VB_GENERAL, LOG_DEBUG, QString("Saving audio props (%1) for %2").arg(audioprops).arg(programInfo.GetTitle()));
         programInfo.SaveAudioProps(audioprops);
     }
 

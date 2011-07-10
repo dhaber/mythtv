@@ -1356,11 +1356,11 @@ bool NuppelDecoder::GetFrame(DecodeType decodetype)
 
 int NuppelDecoder::GetAudioProperties(void)
 {
-    VERBOSE(VB_AUDIO, LOC + QString("Getting Nuppel Audio Props"));
+    LOG(VB_AUDIO, LOG_INFO, QString("Getting Nuppel Audio Props"));
      
     if (!mpa_audctx)
     {
-        VERBOSE(VB_AUDIO, LOC + QString("No Audio Context, ignoring audio props"));
+        LOG(VB_AUDIO, LOG_INFO, QString("No Audio Context, ignoring audio props"));
         return -1;
     }
 

@@ -991,7 +991,7 @@ int DecoderBase::GetAudioPropertiesFromContext(AVCodecContext *context)
     // mmake sure there's a context
     if (!context)
     {
-        VERBOSE(VB_IMPORTANT, LOC + QString("No context; ignoring audio props"));
+        LOG(VB_GENERAL, LOG_INFO, QString("No context; ignoring audio props"));
         return -1;
     }
 
@@ -999,40 +999,40 @@ int DecoderBase::GetAudioPropertiesFromContext(AVCodecContext *context)
     // we can't use channels because it gets overwritten in AutoSelectAudioTrack
     int channel_layout = context->channel_layout;
 
-    VERBOSE(VB_AUDIO, LOC + QString("Channel Layout: %1").arg(channel_layout));
+    LOG(VB_AUDIO, LOG_INFO, QString("Channel Layout: %1").arg(channel_layout));
 
     // assume DOLBY
     if (    (channel_layout & CH_LAYOUT_5POINT1) == CH_LAYOUT_5POINT1 )
     {
-        VERBOSE(VB_AUDIO, LOC + QString("Found DOLBY"));
+        LOG(VB_AUDIO, LOG_INFO, QString("Found DOLBY"));
         props |= AUD_DOLBY;
     }
 
     // assume SURROUND
     else if ( (channel_layout & CH_LAYOUT_SURROUND) == CH_LAYOUT_SURROUND)
     {
-        VERBOSE(VB_AUDIO, LOC + QString("Found SURROUND"));
+        LOG(VB_AUDIO, LOG_INFO, QString("Found SURROUND"));
         props |= AUD_SURROUND;
     }
 
     // assume stereo
     else if ( (channel_layout & CH_LAYOUT_STEREO) == CH_LAYOUT_STEREO )
     {
-        VERBOSE(VB_AUDIO, LOC + QString("Found STEREO"));
+        LOG(VB_AUDIO, LOG_INFO, QString("Found STEREO"));
         props |= AUD_STEREO;
     }
 
     // assume mono
     else if ((channel_layout & CH_LAYOUT_MONO) == CH_LAYOUT_MONO)
     {
-        VERBOSE(VB_AUDIO, LOC + QString("Found MONO"));
+        LOG(VB_AUDIO, LOG_INFO, QString("Found MONO"));
         props |= AUD_MONO;
     }
     
     // otherwise unknown
     else
     {
-        VERBOSE(VB_AUDIO, LOC + QString("Found UNKNOWN"));
+        LOG(VB_AUDIO, LOG_INFO, QString("Found UNKNOWN"));
         props |= AUD_UNKNOWN;
     }
 

@@ -4726,11 +4726,11 @@ void AvFormatDecoder::av_update_stream_timings_video(AVFormatContext *ic)
 // returns the AudioProperties for the current data
 int AvFormatDecoder::GetAudioProperties(void)
 {
-    VERBOSE(VB_AUDIO, LOC + QString("Getting AFD Audio Props"));
+    LOG(VB_AUDIO, LOG_DEBUG, QString("Getting AFD Audio Props"));
 
     if (!ic)
     {
-        VERBOSE(VB_IMPORTANT, LOC + QString("No FormatContext, ignoring audio props"));
+        LOG(VB_AUDIO, LOG_DEBUG, QString("No FormatContext, ignoring audio props"));
         return -1;
     }
 
@@ -4745,12 +4745,12 @@ int AvFormatDecoder::GetAudioProperties(void)
         AVStream *stream = ic->streams[it->av_stream_index];
        int i = it->av_stream_index;
 
-        VERBOSE(VB_AUDIO, LOC + QString("Inspecting Audio Stream id #%1 ").arg(i));
+        LOG(VB_AUDIO, LOG_INFO, QString("Inspecting Audio Stream id #%1 ").arg(i));
 
         // make sure there's a stream
         if (!stream)
         {
-             VERBOSE(VB_IMPORTANT, LOC + QString("No Stream for Stream id #%1").arg(i));
+             LOG(VB_AUDIO, LOG_INFO, QString("No Stream for Stream id #%1").arg(i));
              continue;
         }
 
@@ -4759,7 +4759,7 @@ int AvFormatDecoder::GetAudioProperties(void)
         // mmake sure there's a codec
         if (!codec)
         {
-             VERBOSE(VB_IMPORTANT, LOC + QString("No Codec for Stream id #%1").arg(i));
+             LOG(VB_AUDIO, LOG_INFO, QString("No Codec for Stream id #%1").arg(i));
              continue;
         }
 
@@ -4777,7 +4777,7 @@ int AvFormatDecoder::GetAudioProperties(void)
          (track_count >= kTrackTypeTextSubtitle     && tracks[kTrackTypeTextSubtitle].size() > 0)
         )
     {
-            VERBOSE(VB_AUDIO, LOC + QString("Found HARDHEARING Track"));
+            LOG(VB_AUDIO, LOG_INFO, QString("Found HARDHEARING Track"));
             props |= AUD_HARDHEAR;
     }
 

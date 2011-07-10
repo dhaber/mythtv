@@ -320,7 +320,7 @@ int MythPlayer::GetAudioProperties(void)
     }
 
 */
-    VERBOSE(VB_IMPORTANT, QString("Found no decoder for audio props"));
+    LOG(VB_GENERAL, LOG_DEBUG, QString("Found no decoder for audio props"));
     return -1;
 }
 
@@ -441,19 +441,12 @@ void MythPlayer::SetPlayingInfo(const ProgramInfo &pginfo)
 
 void MythPlayer::SetPlaying(bool is_playing)
 {
-    VERBOSE(VB_IMPORTANT, "Before Locker");
-
     QMutexLocker locker(&playingLock);
-
-    VERBOSE(VB_IMPORTANT, "After Locker");
 
     playing = is_playing;
 
-    VERBOSE(VB_IMPORTANT, "Before wakeAll");
-
     playingWaitCond.wakeAll();
 
-    VERBOSE(VB_IMPORTANT, "After wakeAll");
 }
 
 bool MythPlayer::IsPlaying(uint wait_in_msec, bool wait_for) const
