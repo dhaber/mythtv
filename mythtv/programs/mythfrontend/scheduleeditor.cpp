@@ -1340,8 +1340,6 @@ MetadataOptions::MetadataOptions(MythScreenStack *parent,
 
 MetadataOptions::~MetadataOptions(void)
 {
-    Save();
-
     if (m_imageLookup)
     {
         m_imageLookup->cancel();
@@ -1419,19 +1417,19 @@ bool MetadataOptions::Create()
 
     if (m_coverart)
     {
-        m_coverart->SetFilename(m_artworkMap.value(COVERART).url);
+        m_coverart->SetFilename(m_artworkMap.value(kArtworkCoverart).url);
         m_coverart->Load();
     }
 
     if (m_fanart)
     {
-        m_fanart->SetFilename(m_artworkMap.value(FANART).url);
+        m_fanart->SetFilename(m_artworkMap.value(kArtworkFanart).url);
         m_fanart->Load();
     }
 
     if (m_banner)
     {
-        m_banner->SetFilename(m_artworkMap.value(BANNER).url);
+        m_banner->SetFilename(m_artworkMap.value(kArtworkBanner).url);
         m_banner->Load();
     }
 
@@ -1479,8 +1477,13 @@ void MetadataOptions::PerformQuery()
     CreateBusyDialog("Trying to manually find this "
                      "recording online...");
 
-    m_lookup->SetStep(SEARCH);
-    m_lookup->SetType(RECDNG);
+    m_lookup->SetStep(kLookupSearch);
+    m_lookup->SetType(kMetadataRecording);
+    if (m_seasonSpin->GetIntValue() > 0 ||
+           m_episodeSpin->GetIntValue() > 0)
+        m_lookup->SetSubtype(kProbableTelevision);
+    else
+        m_lookup->SetSubtype(kProbableMovie);
     m_lookup->SetAutomatic(false);
     m_lookup->SetHandleImages(false);
     m_lookup->SetHost(gCoreContext->GetMasterHostName());
@@ -1510,7 +1513,7 @@ void MetadataOptions::OnImageSearchListSelection(ArtworkInfo info,
     CreateBusyDialog(msg);
 
     m_lookup = new MetadataLookup();
-    m_lookup->SetType(VID);
+    m_lookup->SetType(kMetadataVideo);
     m_lookup->SetHost(gCoreContext->GetMasterHostName());
     m_lookup->SetAutomatic(true);
     m_lookup->SetData(qVariantFromValue<VideoArtworkType>(type));
@@ -1554,17 +1557,23 @@ void MetadataOptions::SelectLocalBanner()
 
 void MetadataOptions::SelectOnlineFanart()
 {
-    FindNetArt(FANART);
+    FindNetArt(kArtworkFanart);
 }
 
 void MetadataOptions::SelectOnlineCoverart()
 {
-    FindNetArt(COVERART);
+    FindNetArt(kArtworkCoverart);
 }
 
 void MetadataOptions::SelectOnlineBanner()
 {
-    FindNetArt(BANNER);
+    FindNetArt(kArtworkBanner);
+}
+
+void MetadataOptions::Close()
+{
+    Save();
+    MythScreenType::Close();
 }
 
 void MetadataOptions::Save()
@@ -1580,8 +1589,6 @@ void MetadataOptions::Save()
     // InetRef
     if (m_inetrefEdit)
         m_recordingRule->m_inetref = m_inetrefEdit->GetText();
-
-    m_recordingRule->Save(true);
 }
 
 void MetadataOptions::QueryComplete(MetadataLookup *lookup)
@@ -1651,10 +1658,15 @@ void MetadataOptions::FindNetArt(VideoArtworkType type)
     QString msg = tr("Searching for available artwork...");
     CreateBusyDialog(msg);
 
-    m_lookup->SetStep(SEARCH);
-    m_lookup->SetType(VID);
+    m_lookup->SetStep(kLookupSearch);
+    m_lookup->SetType(kMetadataVideo);
     m_lookup->SetAutomatic(true);
     m_lookup->SetHandleImages(false);
+    if (m_seasonSpin->GetIntValue() > 0 ||
+           m_episodeSpin->GetIntValue() > 0)
+        m_lookup->SetSubtype(kProbableTelevision);
+    else
+        m_lookup->SetSubtype(kProbableMovie);
     m_lookup->SetData(qVariantFromValue<VideoArtworkType>(type));
     m_lookup->SetHost(gCoreContext->GetMasterHostName());
     m_lookup->SetTitle(m_recordingRule->m_title);
@@ -1708,12 +1720,12 @@ void MetadataOptions::HandleDownloadedImages(MetadataLookup *lookup)
         VideoArtworkType type = i.key();
         ArtworkInfo info = i.value();
 
-        if (type == COVERART)
-            m_artworkMap.replace(COVERART, info);
-        else if (type == FANART)
-            m_artworkMap.replace(FANART, info);
-        else if (type == BANNER)
-            m_artworkMap.replace(BANNER, info);
+        if (type == kArtworkCoverart)
+            m_artworkMap.replace(kArtworkCoverart, info);
+        else if (type == kArtworkFanart)
+            m_artworkMap.replace(kArtworkFanart, info);
+        else if (type == kArtworkBanner)
+            m_artworkMap.replace(kArtworkBanner, info);
     }
 
     SetArtwork(m_inetrefEdit->GetText(), m_seasonSpin->GetIntValue(),
@@ -1729,19 +1741,19 @@ void MetadataOptions::ValuesChanged()
 
     if (m_coverart)
     {
-        m_coverart->SetFilename(m_artworkMap.value(COVERART).url);
+        m_coverart->SetFilename(m_artworkMap.value(kArtworkCoverart).url);
         m_coverart->Load();
     }
 
     if (m_fanart)
     {
-        m_fanart->SetFilename(m_artworkMap.value(FANART).url);
+        m_fanart->SetFilename(m_artworkMap.value(kArtworkFanart).url);
         m_fanart->Load();
     }
 
     if (m_banner)
     {
-        m_banner->SetFilename(m_artworkMap.value(BANNER).url);
+        m_banner->SetFilename(m_artworkMap.value(kArtworkBanner).url);
         m_banner->Load();
     }
 }
@@ -1765,6 +1777,16 @@ void MetadataOptions::customEvent(QEvent *levent)
 
         if (list.count() > 1)
         {
+            for (int p = 0; p != list.size(); ++p)
+            {
+                if (m_recordingRule->m_seriesid == (list[p])->GetTMSref())
+                {
+                    MetadataLookup *lookup = list.takeAt(p);
+                    QueryComplete(lookup);
+                    return;
+                }
+            }
+
             MetadataResultsDialog *resultsdialog =
                   new MetadataResultsDialog(m_popupStack, list);
 
@@ -1913,23 +1935,21 @@ void MetadataOptions::customEvent(QEvent *levent)
     {
         DialogCompletionEvent *dce = (DialogCompletionEvent*)(levent);
 
-        LOG(VB_GENERAL, LOG_ERR, "DCE!");
-
         const QString resultid = dce->GetId();
         ArtworkInfo info;
         info.url = dce->GetResultText();
 
         if (resultid == "coverart")
         {
-            m_artworkMap.replace(COVERART, info);
+            m_artworkMap.replace(kArtworkCoverart, info);
         }
         else if (resultid == "fanart")
         {
-            m_artworkMap.replace(FANART, info);
+            m_artworkMap.replace(kArtworkFanart, info);
         }
         else if (resultid == "banner")
         {
-            m_artworkMap.replace(BANNER, info);
+            m_artworkMap.replace(kArtworkBanner, info);
         }
 
         SetArtwork(m_inetrefEdit->GetText(), m_seasonSpin->GetIntValue(),

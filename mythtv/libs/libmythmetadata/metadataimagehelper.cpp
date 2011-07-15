@@ -44,21 +44,21 @@ ArtworkMap GetArtwork(QString inetref,
         {
             ArtworkInfo coverartinfo;
             coverartinfo.url = generate_file_url("Coverart", host, coverart);
-            map.insert(COVERART, coverartinfo);
+            map.insert(kArtworkCoverart, coverartinfo);
         }
 
         if (!fanart.isEmpty())
         {
             ArtworkInfo fanartinfo;
             fanartinfo.url = generate_file_url("Fanart", host, fanart);
-            map.insert(FANART, fanartinfo);
+            map.insert(kArtworkFanart, fanartinfo);
         }
 
         if (!banner.isEmpty())
         {
             ArtworkInfo bannerinfo;
             bannerinfo.url = generate_file_url("Banners", host, banner);
-            map.insert(BANNER, bannerinfo);
+            map.insert(kArtworkBanner, bannerinfo);
         }
     }
 
@@ -79,21 +79,21 @@ bool SetArtwork(const QString &inetref,
     {
         ArtworkInfo coverartinfo;
         coverartinfo.url = generate_file_url("Coverart", host, coverart);
-        map.insert(COVERART, coverartinfo);
+        map.insert(kArtworkCoverart, coverartinfo);
     }
 
     if (!fanart.isEmpty())
     {
         ArtworkInfo fanartinfo;
         fanartinfo.url = generate_file_url("Fanart", host, fanart);
-        map.insert(FANART, fanartinfo);
+        map.insert(kArtworkFanart, fanartinfo);
     }
 
     if (!banner.isEmpty())
     {
         ArtworkInfo bannerinfo;
         bannerinfo.url = generate_file_url("Banners", host, banner);
-        map.insert(BANNER, bannerinfo);
+        map.insert(kArtworkBanner, bannerinfo);
     }
 
     ret = SetArtwork(inetref, season, host, map);
@@ -108,17 +108,26 @@ bool SetArtwork(const QString &inetref,
 {
     QString coverart, fanart, banner;
 
-    QUrl coverurl(map.value(COVERART).url);
+    QUrl coverurl(map.value(kArtworkCoverart).url);
     if (!coverurl.path().isEmpty())
+    {
         coverart = coverurl.path();
+        coverart = coverart.remove(0,1);
+    }
 
-    QUrl fanarturl(map.value(FANART).url);
+    QUrl fanarturl(map.value(kArtworkFanart).url);
     if (!fanarturl.path().isEmpty())
+    {
         fanart = fanarturl.path();
+        fanart = fanart.remove(0,1);
+    }
 
-    QUrl bannerurl(map.value(BANNER).url);
+    QUrl bannerurl(map.value(kArtworkBanner).url);
     if (!bannerurl.path().isEmpty())
+    {
         banner = bannerurl.path();
+        banner = banner.remove(0,1);
+    }
 
     // Have to delete the old row for this item
 
