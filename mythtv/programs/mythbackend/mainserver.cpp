@@ -590,6 +590,9 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     {
         if ((listline.size() >= 2) && (listline[1].left(11) == "SET_VERBOSE"))
             HandleSetVerbose(listline, pbs);
+        else if ((listline.size() >= 2) &&
+                 (listline[1].left(13) == "SET_LOG_LEVEL"))
+            HandleSetLogLevel(listline, pbs);
         else
             HandleMessage(listline, pbs);
     }
@@ -1016,6 +1019,9 @@ void MainServer::customEvent(QEvent *e)
 
         if (me->Message() == "LOCAL_RECONNECT_TO_MASTER")
             masterServerReconnect->start(kMasterServerReconnectTimeout);
+
+        if (me->Message() == "LOCAL_SLAVE_BACKEND_ENCODERS_OFFLINE")
+            HandleSlaveDisconnectedEvent(*me);
 
         if (me->Message().left(6) == "LOCAL_")
             return;
@@ -5119,6 +5125,39 @@ void MainServer::HandleSetVerbose(QStringList &slist, PlaybackSock *pbs)
     SendResponse(pbssock, retlist);
 }
 
+void MainServer::HandleSetLogLevel(QStringList &slist, PlaybackSock *pbs)
+{
+    MythSocket *pbssock = pbs->getSocket();
+    QStringList retlist;
+    QString newstring = slist[1];
+    LogLevel_t newlevel = LOG_UNKNOWN;
+
+    int len = newstring.length();
+    if (len > 14)
+    {
+        newlevel = logLevelGet(newstring.right(len-14));
+        if (newlevel != LOG_UNKNOWN)
+        {
+            logLevel = newlevel;
+            logPropagateCalc();
+            LOG(VB_GENERAL, LOG_NOTICE,
+                QString("Log level changed, new level is: %1")
+                    .arg(LogLevelNames[logLevel]));
+
+            retlist << "OK";
+        }
+    }
+
+    if (newlevel == LOG_UNKNOWN)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Invalid SET_VERBOSE string: '%1'")
+                                      .arg(newstring));
+        retlist << "Failed";
+    }
+
+    SendResponse(pbssock, retlist);
+}
+
 void MainServer::HandleIsRecording(QStringList &slist, PlaybackSock *pbs)
 {
     (void)slist;
@@ -5544,7 +5583,7 @@ void MainServer::connectionClosed(MythSocket *socket)
         }
         else if (sock == socket)
         {
-            list<uint> disconnectedSlaves;
+            QList<uint> disconnectedSlaves;
             bool needsReschedule = false;
 
             if (ismaster && pbs->isSlaveBackend())
@@ -5623,13 +5662,10 @@ void MainServer::connectionClosed(MythSocket *socket)
                 LOG(VB_GENERAL, LOG_ERR, "Playback sock still exists?");
 
             sockListLock.unlock();
-            for (list<uint>::iterator p = disconnectedSlaves.begin() ;
-                p != disconnectedSlaves.end() ; p++) {
-              if (m_sched) m_sched->SlaveDisconnected(*p);
-            }
 
-            if (m_sched && needsReschedule)
-                m_sched->Reschedule(0);
+            // Since we may already be holding the scheduler lock
+            // delay handling the disconnect until a little later. #9885
+            SendSlaveDisconnectedEvent(disconnectedSlaves, needsReschedule);
 
             pbs->DownRef();
             return;
@@ -6045,6 +6081,34 @@ void MainServer::ShutSlaveBackendsDown(QString &haltcmd)
     }
 
     sockListLock.unlock();
+}
+
+void MainServer::HandleSlaveDisconnectedEvent(const MythEvent &event)
+{
+    if (event.ExtraDataCount() > 0 && m_sched)
+    {
+        bool needsReschedule = event.ExtraData(0).toUInt();
+        for (int i = 1; i < event.ExtraDataCount(); i++)
+            m_sched->SlaveDisconnected(event.ExtraData(i).toUInt());
+
+        if (needsReschedule)
+            m_sched->Reschedule(0);
+    }
+}
+
+void MainServer::SendSlaveDisconnectedEvent(
+    const QList<uint> &cardids, bool needsReschedule)
+{
+    QStringList extraData;
+    extraData.push_back(
+        QString::number(static_cast<uint>(needsReschedule)));
+
+    QList<uint>::const_iterator it;
+    for (it = cardids.begin(); it != cardids.end(); ++it)
+        extraData.push_back(QString::number(*it));
+
+    MythEvent me("LOCAL_SLAVE_BACKEND_ENCODERS_OFFLINE", extraData);
+    gCoreContext->dispatch(me);
 }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

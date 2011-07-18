@@ -2,6 +2,7 @@
 #define MAINSERVER_H_
 
 #include <QReadWriteLock>
+#include <QStringList>
 #include <QThreadPool>
 #include <QRunnable>
 #include <QEvent>
@@ -178,6 +179,7 @@ class MainServer : public QObject, public MythSocketCBs
     void HandleGetRecorderFromNum(QStringList &slist, PlaybackSock *pbs);
     void HandleMessage(QStringList &slist, PlaybackSock *pbs);
     void HandleSetVerbose(QStringList &slist, PlaybackSock *pbs);
+    void HandleSetLogLevel(QStringList &slist, PlaybackSock *pbs);
     void HandleGenPreviewPixmap(QStringList &slist, PlaybackSock *pbs);
     void HandlePixmapLastModified(QStringList &slist, PlaybackSock *pbs);
     void HandlePixmapGetIfModified(const QStringList &slist, PlaybackSock *pbs);
@@ -210,8 +212,11 @@ class MainServer : public QObject, public MythSocketCBs
     void HandleQueryTimeZone(PlaybackSock *pbs);
     void HandleBlockShutdown(bool blockShutdown, PlaybackSock *pbs);
     void HandleDownloadFile(const QStringList &command, PlaybackSock *pbs);
+    void HandleSlaveDisconnectedEvent(const MythEvent &event);
 
     void SendResponse(MythSocket *pbs, QStringList &commands);
+    void SendSlaveDisconnectedEvent(const QList<uint> &offlineEncoderIDs,
+                                    bool needsReschedule);
 
     void getGuideDataThrough(QDateTime &GuideDataThrough);
 
