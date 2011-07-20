@@ -17,6 +17,7 @@ const char *kTranscoderInUseID       = "transcoder";
 const char *kPreviewGeneratorInUseID = "preview_generator";
 const char *kJobQueueInUseID         = "jobqueue";
 const char *kAudioGeneratorInUseID   = "audio_generator";
+const char *kCCExtractorInUseID      = "ccextractor";
 
 QString toString(MarkTypes type)
 {

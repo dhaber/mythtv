@@ -265,6 +265,7 @@ using_frontend {
     # Video playback
     HEADERS += tv_play.h                mythplayer.h
     HEADERS += mythdvdplayer.h          audioplayer.h
+    HEADERS += mythccextractorplayer.h  teletextextractorreader.h
     HEADERS += playercontext.h
     HEADERS += tv_play_win.h            deletemap.h
     HEADERS += mythcommflagplayer.h     commbreakmap.h
@@ -272,6 +273,7 @@ using_frontend {
     HEADERS += mythiowrapper.h          tvbrowsehelper.h
     SOURCES += tv_play.cpp              mythplayer.cpp
     SOURCES += mythdvdplayer.cpp        audioplayer.cpp
+    SOURCES += mythccextractorplayer.cpp teletextextractorreader.cpp
     SOURCES += playercontext.cpp
     SOURCES += tv_play_win.cpp          deletemap.cpp
     SOURCES += mythcommflagplayer.cpp   commbreakmap.cpp

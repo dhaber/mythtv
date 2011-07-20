@@ -32,6 +32,7 @@ MPUBLIC extern const char *kTranscoderInUseID;
 MPUBLIC extern const char *kPreviewGeneratorInUseID;
 MPUBLIC extern const char *kJobQueueInUseID;
 MPUBLIC extern const char *kAudioGeneratorInUseID;
+MPUBLIC extern const char *kCCExtractorInUseID;
 
 typedef QHash<QString,QString> InfoMap;
 
