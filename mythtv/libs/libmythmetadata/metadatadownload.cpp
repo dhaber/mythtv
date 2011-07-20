@@ -90,7 +90,7 @@ void MetadataDownload::run()
             {
                 if (lookup->GetSeason() > 0 || lookup->GetEpisode() > 0)
                     list = handleTelevision(lookup);
-                else if (!lookup->GetSubtitle().isEmpty())
+                else if (!lookup->GetSubtitle().isEmpty() || lookup->GetReleaseDate().isValid())
                     list = handleVideoUndetermined(lookup);
             }
             else if (lookup->GetSubtype() == kProbableMovie)
@@ -502,7 +502,14 @@ MetadataLookupList MetadataDownload::handleVideoUndetermined(
     QStringList args;
     args.append(QString("-l")); // Language Flag
     args.append(gCoreContext->GetLanguage()); // UI Language
-    args.append(QString("-N"));
+
+    if (!lookup->GetSubtitle().isEmpty())
+    	args.append(QString("-N"));
+
+    // If it's not a subtitle search it's a release date search
+    else 
+    	args.append(QString("-R"));
+
     if (!lookup->GetInetref().isEmpty())
     {
         QString inetref = lookup->GetInetref();
@@ -513,10 +520,13 @@ MetadataLookupList MetadataDownload::handleVideoUndetermined(
         QString title = lookup->GetTitle();
         args.append(title);
     }
-    QString subtitle = lookup->GetSubtitle();
-    args.append(subtitle);
 
-    // Try to do a title/subtitle lookup
+    if (!lookup->GetSubtitle().isEmpty())
+    	args.append(lookup->GetSubtitle());
+    else 
+    	args.append(lookup->GetReleaseDate().toString("yyyy-MM-dd"));
+
+    // Try to do a title/subtitle or title/release date lookup
     list = runGrabber(cmd, args, lookup, false);
 
     if (list.count() == 1)

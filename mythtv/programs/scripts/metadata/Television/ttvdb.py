@@ -166,6 +166,7 @@ Options:
   -S, --screenshot      Get Series episode screenshot URL
   -D, --data            Get Series episode data
   -N, --numbers         Get Season and Episode numbers
+  -R, --releasedate     Get Season and Episode numbers by release date
 
 Command examples:
 (Return the banner graphics for a series)
@@ -324,7 +325,8 @@ Banner:http://www.thetvdb.com/banners/graphical/73739-g4.jpg,http://www.thetvdb.
 
 
 # System modules
-import sys, os, re, locale, ConfigParser
+import sys, os, re, locale, ConfigParser, datetime
+from datetime import datetime, timedelta
 from optparse import OptionParser
 from copy import deepcopy
 
@@ -423,6 +425,19 @@ screenshot_request = False
 
 # Cache directory name specific to the user. This avoids permission denied error with a common cache dirs
 cache_dir="/tmp/tvdb_api_%s/" % os.geteuid()
+
+def parse_date(x):
+	return datetime.strptime(x, "%Y-%m-%d")
+
+def _can_date(x):
+    if x is None:
+	return False
+    try:
+       	parse_date(x).date()
+    except ValueError:
+	return False
+    else:
+	return True
 
 def _can_int(x):
     """Takes a string, checks if it is numeric.
@@ -900,6 +915,27 @@ def Getseries_episode_numbers(t, opts, series_season_ep):
 #                    print season_and_episode_num.replace('\\n', '\n') % (int(episode['seasonnumber']), int(episode['episodenumber']))
 # end Getseries_episode_numbers
 
+# Get Series Season and Episode numbers by release date
+def Getseries_episode_numbers_by_releasedate(t, opts, series_season_ep):
+    series_name=''
+    release_date=''
+    if opts.configure != "" and override.has_key(series_season_ep[0].lower()):
+        series_name=override[series_season_ep[0].lower()][0] # Override series name
+    else:
+        series_name=series_season_ep[0] # Leave the series name alone
+    
+    release_date=parse_date(series_season_ep[1]) # parse the release date
+
+    for season in search_for_series(t, series_name).values():
+	for episode in season.values():
+		if not _can_date(episode['firstaired']):
+			continue
+		diff = parse_date(episode['firstaired']) - release_date
+		if diff == timedelta(seconds=0):
+        		displaySeriesXML(t, [series_name, episode['seasonnumber'], episode['episodenumber']])
+    			sys.exit(0)
+# end Getseries_episode_numbers_by_releasedate
+
 # Set up a custom interface to get all series matching a partial series name
 class returnAllSeriesUI(tvdb_ui.BaseUI):
     def __init__(self, config, log):
@@ -1102,6 +1138,8 @@ def main():
                         help=u"Get Series episode data")
     parser.add_option(  "-N", "--numbers", action="store_true", default=False, dest="numbers",
                         help=u"Get Season and Episode numbers")
+    parser.add_option(  "-R", "--releasedate", action="store_true", default=False, dest="releasedate",
+                        help=u"Get Season and Episode numbers by release date")
 
     opts, series_season_ep = parser.parse_args()
 
@@ -1140,7 +1178,15 @@ def main():
     global season_and_episode_num, screenshot_request
     season_and_episode_num='S%02dE%02d' # Format output example "S04E12"
 
-    if opts.numbers == False:
+    if opts.releasedate:
+	if len(series_season_ep) != 2:
+	    	parser.error("! Both a Series Name & Release Date must be specified")
+            	sys.exit(1)
+	if not _can_date(series_season_ep[1]):
+		parser.error("! Release Date must be of the form year-month-day - e.g. 2010-01-01")
+		sys.exit(1)
+
+    elif opts.numbers == False:
         if len(series_season_ep) > 1:
             if not _can_int(series_season_ep[1]):
                 parser.error("! Season is not numeric")
@@ -1275,7 +1321,7 @@ def main():
 
     # Verify that thetvdb.com has the desired series_season_ep.
     # Exit this module if series_season_ep is not found
-    if opts.numbers == False and opts.num_seasons == False:
+    if opts.numbers == False and opts.num_seasons == False and opts.releasedate == False:
         seriesfound=searchseries(t, opts, series_season_ep)
         x=1
     else:
@@ -1328,6 +1374,10 @@ def main():
             xmlFlag = False
         Getseries_episode_numbers(t, opts, series_season_ep)
         sys.exit(0) # The Numbers option (-N) is the only option honoured when used
+
+    if opts.releasedate == True: # Fetch and output season and episode numbers by release date
+        Getseries_episode_numbers_by_releasedate(t, opts, series_season_ep)
+        sys.exit(0) # The ReleaseDate option (-R) is the only option honoured when used
 
     if opts.data or screenshot_request: # Fetch and output episode data
         if opts.mythvideo:

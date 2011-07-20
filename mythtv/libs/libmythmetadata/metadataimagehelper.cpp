@@ -144,6 +144,12 @@ bool SetArtwork(const QString &inetref,
         return false;
     }
 
+     LOG(VB_GENERAL, LOG_INFO,
+                QString("Inserting artwork: %1 %2 %3 %4 %5 %6").
+		arg(inetref).arg(season).arg(host).
+		arg(coverart).arg(fanart).arg(banner));
+
+
     // Now we can insert the new
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("INSERT INTO recordedartwork(inetref,"

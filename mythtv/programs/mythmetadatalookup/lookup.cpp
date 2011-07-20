@@ -166,16 +166,20 @@ void LookerUpper::HandleAllArtwork(bool aggressive)
 
         if ((!aggressive && type == kProbableGenericTelevision) ||
              pginfo->GetRecordingGroup() == "Deleted" ||
-             pginfo->GetRecordingGroup() == "LiveTV")
+             pginfo->GetRecordingGroup() == "LiveTV" ||
+	     (type == kProbableTelevision && pginfo->GetSeason() == 0 && pginfo->GetEpisode() == 0)
+	    )
             dolookup = false;
         if (dolookup)
         {
             ArtworkMap map = GetArtwork(pginfo->GetInetRef(), pginfo->GetSeason(), true);
             if (map.isEmpty() || (aggressive && map.count() < maxartnum))
             {
-               QString msg = QString("Looking up artwork for recording: %1 %2")
+               QString msg = QString("Looking up artwork for recording: %1 %2 %3 %4")
                                            .arg(pginfo->GetTitle())
-                                           .arg(pginfo->GetSubtitle());
+                                           .arg(pginfo->GetSubtitle())
+					   .arg(pginfo->GetSeason())
+					   .arg(pginfo->GetEpisode());
                 LOG(VB_GENERAL, LOG_INFO, msg);
 
                 m_busyRecList.append(pginfo);

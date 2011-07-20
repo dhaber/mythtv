@@ -144,7 +144,7 @@ class META_PUBLIC MetadataLookup : public QObject
         uint tracknum,
         QString system,
         const uint year,
-        const QDate releasedate,
+        QDate releasedate,
         const QDateTime lastupdated,
         const uint runtime,
         const uint runtimesecs,
@@ -194,7 +194,7 @@ class META_PUBLIC MetadataLookup : public QObject
         uint videoproperties,
         uint subtitletype,
         const uint year,
-        const QDate releasedate,
+        QDate releasedate,
         const QDateTime lastupdated,
         const uint runtime,
         const uint runtimesecs);
@@ -221,7 +221,7 @@ class META_PUBLIC MetadataLookup : public QObject
         uint episode,
         const QString certification,
         const uint year,
-        const QDate releasedate,
+        QDate releasedate,
         const uint runtime,
         const uint runtimesecs,
         QString inetref,
@@ -254,6 +254,7 @@ class META_PUBLIC MetadataLookup : public QObject
     // General Sets
     void SetTitle(QString title) { m_title = title; };
     void SetFilename(QString filename) { m_filename = filename; };
+    void SetReleaseDate(QDate releasedate) { m_releasedate = releasedate; };
 
     // General Sets - Video
     void SetSubtitle(QString subtitle) { m_subtitle = subtitle; };
@@ -412,7 +413,7 @@ class META_PUBLIC MetadataLookup : public QObject
 
     // Times
     uint m_year;
-    const QDate m_releasedate;
+    QDate m_releasedate;
     const QDateTime m_lastupdated;
     uint m_runtime;
     uint m_runtimesecs;
