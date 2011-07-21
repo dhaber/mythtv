@@ -320,9 +320,17 @@ void LookerUpper::customEvent(QEvent *levent)
 
         LOG(VB_GENERAL, LOG_DEBUG, "I found the following data:");
         LOG(VB_GENERAL, LOG_DEBUG,
+            QString("        Input Type:  %1").arg(lookup->GetData().typeName()));
+        LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Input Title: %1").arg(pginfo->GetTitle()));
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Input Sub:   %1").arg(pginfo->GetSubtitle()));
+        LOG(VB_GENERAL, LOG_DEBUG,
+            QString("        Input Chanid:%1").arg(pginfo->GetChanID()));
+        LOG(VB_GENERAL, LOG_DEBUG,
+            QString("        Input Start: %1").arg(pginfo->GetRecordingStartTime().toString()));
+        LOG(VB_GENERAL, LOG_DEBUG,
+            QString("        Input End:   %1").arg(pginfo->GetRecordingEndTime().toString()));
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Title:       %1").arg(lookup->GetTitle()));
         LOG(VB_GENERAL, LOG_DEBUG,
@@ -336,9 +344,14 @@ void LookerUpper::customEvent(QEvent *levent)
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        User Rating: %1").arg(lookup->GetUserRating()));
 
-        if (!lookup->GetSubtype() == kProbableGenericTelevision)
-            pginfo->SaveSeasonEpisode(lookup->GetSeason(), lookup->GetEpisode());
-        pginfo->SaveInetRef(lookup->GetInetref());
+        // If the start time == the end time then this is actually a recording rule
+        // and updating it could corrupt data
+        if (pginfo->GetRecordingStartTime() != pginfo->GetRecordingEndTime()) {
+            LOG(VB_GENERAL, LOG_DEBUG, QString("Valid ProgramInfo - updating"));
+            if (!lookup->GetSubtype() == kProbableGenericTelevision)
+                pginfo->SaveSeasonEpisode(lookup->GetSeason(), lookup->GetEpisode());
+            pginfo->SaveInetRef(lookup->GetInetref());
+        }
 
         if (m_updaterules)
         {
