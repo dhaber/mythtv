@@ -166,20 +166,16 @@ void LookerUpper::HandleAllArtwork(bool aggressive)
 
         if ((!aggressive && type == kProbableGenericTelevision) ||
              pginfo->GetRecordingGroup() == "Deleted" ||
-             pginfo->GetRecordingGroup() == "LiveTV" ||
-	     (type == kProbableTelevision && pginfo->GetSeason() == 0 && pginfo->GetEpisode() == 0)
-	    )
+             pginfo->GetRecordingGroup() == "LiveTV")
             dolookup = false;
         if (dolookup || aggressive)
         {
             ArtworkMap map = GetArtwork(pginfo->GetInetRef(), pginfo->GetSeason(), true);
             if (map.isEmpty() || (aggressive && map.count() < maxartnum))
             {
-               QString msg = QString("Looking up artwork for recording: %1 %2 %3 %4")
+               QString msg = QString("Looking up artwork for recording: %1 %2")
                                            .arg(pginfo->GetTitle())
-                                           .arg(pginfo->GetSubtitle())
-					   .arg(pginfo->GetSeason())
-					   .arg(pginfo->GetEpisode());
+                                           .arg(pginfo->GetSubtitle());
                 LOG(VB_GENERAL, LOG_INFO, msg);
 
                 m_busyRecList.append(pginfo);
@@ -320,17 +316,9 @@ void LookerUpper::customEvent(QEvent *levent)
 
         LOG(VB_GENERAL, LOG_DEBUG, "I found the following data:");
         LOG(VB_GENERAL, LOG_DEBUG,
-            QString("        Input Type:  %1").arg(lookup->GetData().typeName()));
-        LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Input Title: %1").arg(pginfo->GetTitle()));
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Input Sub:   %1").arg(pginfo->GetSubtitle()));
-        LOG(VB_GENERAL, LOG_DEBUG,
-            QString("        Input Chanid:%1").arg(pginfo->GetChanID()));
-        LOG(VB_GENERAL, LOG_DEBUG,
-            QString("        Input Start: %1").arg(pginfo->GetRecordingStartTime().toString()));
-        LOG(VB_GENERAL, LOG_DEBUG,
-            QString("        Input End:   %1").arg(pginfo->GetRecordingEndTime().toString()));
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        Title:       %1").arg(lookup->GetTitle()));
         LOG(VB_GENERAL, LOG_DEBUG,
@@ -344,14 +332,9 @@ void LookerUpper::customEvent(QEvent *levent)
         LOG(VB_GENERAL, LOG_DEBUG,
             QString("        User Rating: %1").arg(lookup->GetUserRating()));
 
-        // If the start time == the end time then this is actually a recording rule
-        // and updating it could corrupt data
-        if (pginfo->GetRecordingStartTime() != pginfo->GetRecordingEndTime()) {
-            LOG(VB_GENERAL, LOG_DEBUG, QString("Valid ProgramInfo - updating"));
-            if (!lookup->GetSubtype() == kProbableGenericTelevision)
-                pginfo->SaveSeasonEpisode(lookup->GetSeason(), lookup->GetEpisode());
-            pginfo->SaveInetRef(lookup->GetInetref());
-        }
+        if (!lookup->GetSubtype() == kProbableGenericTelevision)
+            pginfo->SaveSeasonEpisode(lookup->GetSeason(), lookup->GetEpisode());
+        pginfo->SaveInetRef(lookup->GetInetref());
 
         if (m_updaterules)
         {
