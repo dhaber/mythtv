@@ -1286,9 +1286,16 @@ void PlaybackBox::updateRecList(MythUIButtonListItem *sel_item)
         item->SetTextFromMap(infoMap);
 
         QString tempSubTitle  = extract_subtitle(**it, groupname);
+        QString tempShortDate = MythDateTimeToString((*it)->GetRecordingStartTime(),
+                                                     kDateShort);
+        QString tempLongDate  = MythDateTimeToString((*it)->GetRecordingStartTime(),
+                                                     kDateFull | kSimplify);
 
         if (groupname == (*it)->GetTitle().toLower())
             item->SetText(tempSubTitle,       "titlesubtitle");
+
+        item->SetText(tempLongDate,       "longdate");
+        item->SetText(tempShortDate,      "shortdate");
 
         item->DisplayState(state, "status");
 
