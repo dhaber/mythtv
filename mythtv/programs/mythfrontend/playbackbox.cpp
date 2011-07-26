@@ -654,9 +654,13 @@ void PlaybackBox::updateGroupInfo(const QString &groupname,
             ProgramInfo *info = *it;
             if (info)
             {
-                uint64_t filesize = info->QueryFilesize();
+                uint64_t filesize = info->GetFilesize();
+                if (filesize == 0 || info->GetRecordingStatus() == rsRecording)
+                {
+                    filesize = info->QueryFilesize();
+                    info->SetFilesize(filesize);
+                }
                 groupSize += filesize;
-                info->SetFilesize(filesize);
             }
         }
 
@@ -766,15 +770,9 @@ void PlaybackBox::UpdateUIListItem(
             m_groupList->GetItemCurrent()->GetData().toString();
 
         QString tempSubTitle  = extract_subtitle(*pginfo, groupname);
-        QString tempShortDate = MythDateTimeToString(pginfo->GetRecordingStartTime(),
-                                                     kDateShort);
-        QString tempLongDate  = MythDateTimeToString(pginfo->GetRecordingStartTime(),
-                                                     kDateFull | kSimplify);
 
         if (groupname == pginfo->GetTitle().toLower())
             item->SetText(tempSubTitle, "titlesubtitle");
-        item->SetText(tempLongDate, "longdate");
-        item->SetText(tempShortDate, "shortdate");
     }
 
     // Recording and availability status
@@ -1230,12 +1228,12 @@ void PlaybackBox::updateRecList(MythUIButtonListItem *sel_item)
     QString groupname = sel_item->GetData().toString();
     QString grouplabel = sel_item->GetText();
 
-    updateGroupInfo(groupname, grouplabel);
-
     if (((m_currentGroup == groupname) && !m_needUpdate) ||
         m_playingSomething)
         return;
 
+    updateGroupInfo(groupname, grouplabel);
+    
     m_needUpdate = false;
 
     if (!m_isFilling)

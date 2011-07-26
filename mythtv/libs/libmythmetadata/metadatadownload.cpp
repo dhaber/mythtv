@@ -235,6 +235,60 @@ MetadataLookupList MetadataDownload::runGrabber(QString cmd, QStringList args,
     return list;
 }
 
+bool MetadataDownload::runGrabberTest(const QString &grabberpath)
+{
+    QStringList args;
+    args.append("-t");
+
+    MythSystem grabber(grabberpath, args, kMSNoRunShell | kMSStdOut | kMSBuffered);
+
+    grabber.Run();
+    uint exitcode = grabber.Wait();
+
+    if (exitcode != 0)
+        return false;
+
+    return true;
+}
+
+bool MetadataDownload::MovieGrabberWorks()
+{
+    bool ret = false;
+
+    QString def_cmd = QDir::cleanPath(QString("%1/%2")
+        .arg(GetShareDir())
+        .arg("metadata/Movie/tmdb.py"));
+
+    QString cmd = gCoreContext->GetSetting("MovieGrabber", def_cmd);
+
+    ret = runGrabberTest(cmd);
+
+    if (!ret)
+        LOG(VB_GENERAL, LOG_INFO,
+            QString("Movie grabber not functional.  Aborting this run."));
+
+    return ret;
+}
+
+bool MetadataDownload::TelevisionGrabberWorks()
+{
+    bool ret = false;
+
+    QString def_cmd = QDir::cleanPath(QString("%1/%2")
+        .arg(GetShareDir())
+        .arg("metadata/Television/ttvdb.py"));
+
+    QString cmd = gCoreContext->GetSetting("TelevisionGrabber", def_cmd);
+
+    ret = runGrabberTest(cmd);
+
+    if (!ret)
+        LOG(VB_GENERAL, LOG_INFO,
+            QString("Television grabber not functional.  Aborting this run."));
+
+    return ret;
+}
+
 MetadataLookupList MetadataDownload::readMXML(QString MXMLpath,
                                              MetadataLookup* lookup,
                                              bool passseas)
@@ -478,7 +532,8 @@ MetadataLookupList MetadataDownload::handleTelevision(MetadataLookup* lookup)
     if (lookup->GetStep() == kLookupSearch)
     {
         args.append(QString("-M"));
-        if (lookup->GetInetref().isEmpty())
+        if (lookup->GetInetref().isEmpty() ||
+            lookup->GetInetref() == "00000000")
         {
             QString title = lookup->GetTitle();
             args.append(title);

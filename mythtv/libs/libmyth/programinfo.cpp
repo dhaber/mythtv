@@ -764,6 +764,7 @@ ProgramInfo::ProgramInfo(const QString &_pathname,
                          const QString &_subtitle,
                          const QString &_director,
                          int _season, int _episode,
+                         const QString &_inetref,
                          uint _length_in_minutes,
                          uint _year) :
     positionMapDBReplacement(NULL)
@@ -805,7 +806,7 @@ ProgramInfo::ProgramInfo(const QString &_pathname,
 
     season = _season;
     episode = _episode;
-
+    inetref = _inetref;
     title = _title;
 }
 
@@ -1385,9 +1386,11 @@ void ProgramInfo::ToMap(InfoMap &progMap,
     else // if (IsRecording())
     {
         progMap["starttime"] = MythDateTimeToString(startts, kTime);
-        progMap["startdate"] = MythDateTimeToString(startts, kDateShort);
+        progMap["startdate"] = MythDateTimeToString(startts, kDateFull | kSimplify);
+        progMap["shortstartdate"] = MythDateTimeToString(startts, kDateShort);
         progMap["endtime"] = MythDateTimeToString(endts, kTime);
-        progMap["enddate"] = MythDateTimeToString(endts, kDateShort);
+        progMap["enddate"] = MythDateTimeToString(endts, kDateFull | kSimplify);
+        progMap["shortenddate"] = MythDateTimeToString(endts, kDateShort);
         progMap["recstarttime"] = MythDateTimeToString(recstartts, kTime);
         progMap["recstartdate"] = MythDateTimeToString(recstartts, kDateShort);
         progMap["recendtime"] = MythDateTimeToString(recendts, kTime);
