@@ -588,10 +588,12 @@ LookupType GuessLookupType(ProgramInfo *pginfo)
     if (catType.isEmpty())
         catType = pginfo->QueryCategoryType();
 
-    if ((!pginfo->GetSubtitle().isEmpty() || pginfo->GetEpisode() > 0) &&
-       (catType == "series" || catType == "tvshow" ||
-        catType == "show"))
+    if (catType == "tvshow")
         ret = kProbableTelevision;
+
+    else if (catType == "series")
+        ret = pginfo->GetProgramID().endsWith("0000") ? kProbableGenericTelevision : kProbableTelevision;
+
     else if (catType == "movie" || catType == "film")
         ret = kProbableMovie;
     else if (pginfo->GetSeason() > 0 || pginfo->GetEpisode() > 0 ||
