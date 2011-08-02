@@ -520,7 +520,7 @@ class Episode( tvdb_api.Episode ):
             if key is not None and cur_key != key:
                 continue
             distance = levenshtein(cur_value, term)
-            if distance <= 3:
+            if distance <= 4:
                 # handle most matches
                 self.distance = distance
                 return self
@@ -529,7 +529,7 @@ class Episode( tvdb_api.Episode ):
                 match = self._re_strippart.match(cur_value)
                 if match:
                     tmp = match.group(1)
-                    if levenshtein(tmp, term) <= 3:
+                    if levenshtein(tmp, term) <= 4:
                         self.distance = distance
                         return self
         return None
