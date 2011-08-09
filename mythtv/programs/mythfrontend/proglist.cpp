@@ -69,6 +69,7 @@ ProgLister::ProgLister(MythScreenStack *parent, ProgListType pltype,
         case plPowerSearch:   m_searchType = kPowerSearch;   break;
         case plSQLSearch:     m_searchType = kPowerSearch;   break;
         case plStoredSearch:  m_searchType = kPowerSearch;   break;
+        case plNewListings:   m_titleSort = true; 
         default:              m_searchType = kNoSearch;      break;
     }
 }
@@ -1154,7 +1155,14 @@ void ProgLister::FillItemList(bool restorePosition, bool updateDisp)
             "WHERE channel.visible = 1 "
             "  AND program.endtime > :PGILSTART "
             "  AND oldprogram.oldtitle IS NULL "
-            "  AND program.manualid = 0 ";
+            "  AND program.manualid = 0 "
+            "  AND ( "
+            "       SELECT COUNT(genre) "
+            "       FROM programgenres "
+            "       WHERE program.starttime = programgenres.starttime "
+            "         AND program.chanid = programgenres.chanid "
+            "         AND genre IN ('Religious', 'Shopping')"
+            "      ) = 0";
 
         if (qphrase == "premieres")
         {
