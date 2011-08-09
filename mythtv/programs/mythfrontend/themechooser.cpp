@@ -4,12 +4,13 @@
 
 // Qt headers
 #include <QCoreApplication>
-#include <QThreadPool>
+#include <QRunnable>
 #include <QRegExp>
 
 // MythTV headers
 #include "mythcorecontext.h"
 #include "mythcoreutil.h"
+#include "mthreadpool.h"
 #include "remotefile.h"
 #include "mythdownloadmanager.h"
 #include "programtypes.h"
@@ -49,13 +50,11 @@ class ThemeExtractThread : public QRunnable
 
     void run()
     {
-        threadRegister("ThemeExtract");
         extractZIP(m_srcFile, m_destDir);
 
         MythEvent *me =
              new MythEvent("THEME_INSTALLED", QStringList(m_srcFile));
         QCoreApplication::postEvent(m_parent, me);
-        threadDeregister();
     }
 
   private:
@@ -617,7 +616,7 @@ void ThemeChooser::saveAndReload(MythUIButtonListItem *item)
     else
     {
         gCoreContext->SaveSetting("Theme", info->GetDirectoryName());
-        GetMythMainWindow()->JumpTo("Reload Theme", false);
+        GetMythMainWindow()->JumpTo("Reload Theme");
     }
 }
 
@@ -766,7 +765,8 @@ void ThemeChooser::customEvent(QEvent *e)
                         ThemeExtractThread *extractThread =
                             new ThemeExtractThread(this, m_downloadFile,
                                                    GetConfDir() + "/themes");
-                        QThreadPool::globalInstance()->start(extractThread);
+                        MThreadPool::globalInstance()->start(
+                            extractThread, "ThemeExtract");
 
                         if (!remoteFileIsLocal)
                             RemoteFile::DeleteFile(args[0]);
@@ -797,7 +797,7 @@ void ThemeChooser::customEvent(QEvent *e)
             SendMythSystemEvent(event);
 
             gCoreContext->SaveSetting("Theme", m_downloadTheme->GetDirectoryName());
-            GetMythMainWindow()->JumpTo("Reload Theme", false);
+            GetMythMainWindow()->JumpTo("Reload Theme");
         }
     }
 }
@@ -890,7 +890,7 @@ ThemeUpdateChecker::ThemeUpdateChecker() :
                                              "remotethemes/themes.zip",
                                              "Temp");
 
-    gCoreContext->SaveSetting("ThemeUpdateStatus", QString());
+    gCoreContext->SaveSetting("ThemeUpdateStatus", "");
                                  
     connect(m_updateTimer, SIGNAL(timeout()), SLOT(checkForUpdate()));
     m_updateTimer->start(60 * 60 * 1000); // Run once an hour

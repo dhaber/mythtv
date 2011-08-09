@@ -22,13 +22,11 @@ using namespace std;
 #include <QObject>
 #include <QRegExp>
 #include <QString>
-#include <QThread>
 #include <QEvent>
 #include <QMutex>
 #include <QHash>
 #include <QTime>
 #include <QMap>
-#include <QPointer>
 
 // MythTV
 #include "mythdeque.h"
@@ -244,7 +242,7 @@ class MTV_PUBLIC TV : public QObject
 
     // static functions
     static void InitKeys(void);
-    static void ResetKeys(void);
+    static void ReloadKeys(void);
     static bool StartTV(ProgramInfo *tvrec = NULL,
                         uint flags = kStartTVNoFlags);
     static void SetFuncPtr(const char *, void *);

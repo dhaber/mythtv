@@ -83,7 +83,7 @@ TaskQueue* TaskQueue::Instance()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-TaskQueue::TaskQueue() : m_bTermRequested( false )
+TaskQueue::TaskQueue() : MThread("TaskQueue"), m_bTermRequested( false )
 {
     LOG(VB_UPNP, LOG_INFO, "Starting TaskQueue Thread...");
 
@@ -105,15 +105,21 @@ TaskQueue::~TaskQueue()
     Clear();
 }
 
+void TaskQueue::RequestTerminate()
+{
+    m_bTermRequested = true;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 /////////////////////////////////////////////////////////////////////////////
 
 void TaskQueue::run( )
 {
+    RunProlog();
+
     Task *pTask;
 
-    threadRegister("TaskQueue");
     LOG(VB_UPNP, LOG_INFO, "TaskQueue Thread Running.");
 
     while ( !m_bTermRequested )
@@ -142,7 +148,8 @@ void TaskQueue::run( )
 
         msleep( 100 );
     }
-    threadDeregister();
+
+    RunEpilog();
 }
 
 /////////////////////////////////////////////////////////////////////////////

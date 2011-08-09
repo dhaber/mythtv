@@ -13,7 +13,6 @@ using namespace std;
 // libmythtv headers
 #include "recordingrule.h"
 #include "scheduledrecording.h"
-#include "storagegroup.h"
 
 // libmythbase
 #include "mythdb.h"
@@ -390,7 +389,6 @@ ProgramRecPriority::ProgramRecPriority(MythScreenStack *parent,
                      m_programList(NULL), m_schedInfoText(NULL),
                      m_rectypePriorityText(NULL), m_recPriorityText(NULL),
                      m_recPriorityBText(NULL), m_finalPriorityText(NULL),
-                     m_storageGroupText(NULL),
                      m_lastRecordedText(NULL), m_lastRecordedDateText(NULL),
                      m_lastRecordedTimeText(NULL), m_channameText(NULL),
                      m_channumText(NULL), m_callsignText(NULL),
@@ -422,7 +420,6 @@ bool ProgramRecPriority::Create()
     m_recPriorityText = dynamic_cast<MythUIText *> (GetChild("recpriority"));
     m_recPriorityBText = dynamic_cast<MythUIText *> (GetChild("recpriorityB"));
     m_finalPriorityText = dynamic_cast<MythUIText *> (GetChild("finalpriority"));
-    m_storageGroupText = dynamic_cast<MythUIText *> (GetChild("storagegroup"));
     m_lastRecordedText = dynamic_cast<MythUIText *> (GetChild("lastrecorded"));
     m_lastRecordedDateText = dynamic_cast<MythUIText *> (GetChild("lastrecordeddate"));
     m_lastRecordedTimeText = dynamic_cast<MythUIText *> (GetChild("lastrecordedtime"));
@@ -1464,10 +1461,12 @@ void ProgramRecPriority::UpdateList()
         item->SetText(QString::number(finalRecPriority), "finalpriority", state);
 
         QString tempDateTime = MythDateTimeToString(progInfo->last_record,
-                                                    kDateFull | kSimplify);
+                                                    kDateTimeFull | kSimplify |
+                                                    kAddYear);
         item->SetText(tempDateTime, "lastrecorded", state);
         QString tempDate = MythDateTimeToString(progInfo->last_record,
-                                                kDateShort);
+                                                kDateFull | kSimplify |
+                                                kAddYear);
         item->SetText(tempDate, "lastrecordeddate", state);
         QString tempTime = MythDateTimeToString(progInfo->last_record, kTime);
         item->SetText(tempTime, "lastrecordedtime", state);
@@ -1583,25 +1582,19 @@ void ProgramRecPriority::updateInfo(MythUIButtonListItem *item)
     if (m_finalPriorityText)
         m_finalPriorityText->SetText(QString::number(finalRecPriority));
 
-    if (m_storageGroupText)
-    {
-        QString storagegroup = pgRecInfo->storagegroup;
-        if (storagegroup == "Default")
-                storagegroup = tr("Default");
-        else if (StorageGroup::kSpecialGroups.contains(storagegroup))
-            storagegroup = tr(storagegroup.toLatin1().constData());
-        m_storageGroupText->SetText(storagegroup);
-    }
-
     if (m_lastRecordedText)
     {
-        QString tempDateTime = MythDateTimeToString(pgRecInfo->last_record, kDateTimeFull);
+        QString tempDateTime = MythDateTimeToString(pgRecInfo->last_record,
+                                                    kDateTimeFull | kSimplify |
+                                                    kAddYear);
         m_lastRecordedText->SetText(tempDateTime);
     }
 
     if (m_lastRecordedDateText)
     {
-        QString tempDate = MythDateTimeToString(pgRecInfo->last_record, kDateShort);
+        QString tempDate = MythDateTimeToString(pgRecInfo->last_record,
+                                                kDateFull | kSimplify |
+                                                kAddYear);
         m_lastRecordedDateText->SetText(tempDate);
     }
 

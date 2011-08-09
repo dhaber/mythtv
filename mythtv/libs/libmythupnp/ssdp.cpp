@@ -65,6 +65,7 @@ SSDP* SSDP::Instance()
 /////////////////////////////////////////////////////////////////////////////
 
 SSDP::SSDP() :
+    MThread                ("SSDP" ),
     m_procReqLineExp       ("[ \r\n][ \r\n]*"),
     m_nPort                ( SSDP_PORT ),
     m_nSearchPort          ( SSDP_SEARCHPORT ),
@@ -113,7 +114,7 @@ SSDP::SSDP() :
 
 SSDP::~SSDP()
 {
-    LOG(VB_UPNP, LOG_CRIT, "Shutting Down SSDP Thread..." );
+    LOG(VB_UPNP, LOG_NOTICE, "Shutting Down SSDP Thread..." );
 
     DisableNotifications();
 
@@ -136,6 +137,11 @@ SSDP::~SSDP()
 
     LOG(VB_UPNP, LOG_INFO, "SSDP Thread Terminated." );
 
+}
+
+void SSDP::RequestTerminate(void)
+{
+    m_bTermRequested = true;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -250,10 +256,11 @@ void SSDP::PerformSearch(const QString &sST, uint timeout_secs)
 
 void SSDP::run()
 {
+    RunProlog();
+
     fd_set          read_set;
     struct timeval  timeout;
 
-    threadRegister("SSDP");
     LOG(VB_UPNP, LOG_INFO, "SSDP::Run - SSDP Thread Started." );
 
     // ----------------------------------------------------------------------
@@ -303,7 +310,8 @@ void SSDP::run()
             }
         }
     }
-    threadDeregister();
+
+    RunEpilog();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -670,7 +678,7 @@ QStringList SSDPExtension::GetBasePaths()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool SSDPExtension::ProcessRequest( HttpWorkerThread *, HTTPRequest *pRequest )
+bool SSDPExtension::ProcessRequest( HTTPRequest *pRequest )
 {
     if (pRequest)
     {

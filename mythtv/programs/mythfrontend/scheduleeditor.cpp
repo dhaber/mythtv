@@ -126,7 +126,7 @@ bool ScheduleEditor::Create()
     UIUtilE::Assign(this, m_postProcButton, "postprocessing", &err);
     UIUtilE::Assign(this, m_schedInfoButton, "schedinfo", &err);
     UIUtilE::Assign(this, m_previewButton, "preview", &err);
-    UIUtilW::Assign(this, m_metadataButton, "metadata");
+    UIUtilE::Assign(this, m_metadataButton, "metadata", &err);
 
     UIUtilE::Assign(this, m_cancelButton, "cancel", &err);
     UIUtilE::Assign(this, m_saveButton, "save", &err);
@@ -146,8 +146,7 @@ bool ScheduleEditor::Create()
     connect(m_postProcButton, SIGNAL(Clicked()), SLOT(ShowPostProc()));
     connect(m_schedInfoButton, SIGNAL(Clicked()), SLOT(ShowSchedInfo()));
     connect(m_previewButton, SIGNAL(Clicked()), SLOT(ShowPreview()));
-    if (m_metadataButton)
-        connect(m_metadataButton, SIGNAL(Clicked()), SLOT(ShowMetadataOptions()));
+    connect(m_metadataButton, SIGNAL(Clicked()), SLOT(ShowMetadataOptions()));
 
     connect(m_cancelButton, SIGNAL(Clicked()), SLOT(Close()));
     connect(m_saveButton, SIGNAL(Clicked()), SLOT(Save()));
@@ -493,9 +492,6 @@ SchedOptEditor::SchedOptEditor(MythScreenStack *parent,
 {
     if (recInfo)
         m_recInfo = new RecordingInfo(*recInfo);
-#if (ALLOW_MISSING_FILTERS)
-    m_missing_filters = false;
-#endif
 }
 
 SchedOptEditor::~SchedOptEditor(void)
@@ -516,11 +512,9 @@ bool SchedOptEditor::Create()
     UIUtilE::Assign(this, m_dupmethodList, "dupmethod", &err);
     UIUtilE::Assign(this, m_dupscopeList, "dupscope", &err);
 
-#if (ALLOW_MISSING_FILTERS)
-    UIUtilE::Assign(this, m_filtersButton, "filters", &m_missing_filters);
-#else
-    UIUtilE::Assign(this, m_filtersButton, "filters", &err);
-#endif
+    UIUtilW::Assign(this, m_filtersButton, "filters");
+    UIUtilW::Assign(this, m_backButton, "back");
+
     UIUtilE::Assign(this, m_ruleactiveCheck, "ruleactive", &err);
 
     if (err)
@@ -530,10 +524,10 @@ bool SchedOptEditor::Create()
         return false;
     }
 
-    if (!UIUtilW::Assign(this, m_backButton, "back"))
+    if (m_backButton)
         connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
 
-    if (m_recordingRule->m_type == kOverrideRecord)
+    if (m_filtersButton && m_recordingRule->m_type == kOverrideRecord)
         m_filtersButton->SetEnabled(false);
     if (m_recordingRule->m_type == kSingleRecord ||
         m_recordingRule->m_type == kOverrideRecord)
@@ -545,10 +539,8 @@ bool SchedOptEditor::Create()
     connect(m_dupmethodList, SIGNAL(itemSelected(MythUIButtonListItem *)),
             SLOT(dupMatchChanged(MythUIButtonListItem *)));
 
-#if (ALLOW_MISSING_FILTERS)
-    if (!m_missing_filters)
-#endif
-    connect(m_filtersButton, SIGNAL(Clicked()), SLOT(ShowFilters()));
+    if (m_filtersButton)
+        connect(m_filtersButton, SIGNAL(Clicked()), SLOT(ShowFilters()));
 
     BuildFocusList();
 
@@ -628,28 +620,25 @@ void SchedOptEditor::Load()
                              tr("Look for duplicates in previous recordings "
                                 "only"),
                              ENUM_TO_QVARIANT(kDupsInOldRecorded));
-#if (ALLOW_MISSING_FILTERS)
-    if (m_missing_filters)
-    {
-#endif
-    new MythUIButtonListItem(m_dupscopeList,
-                             tr("Exclude unidentified episodes"),
-                             ENUM_TO_QVARIANT(kDupsExGeneric | kDupsInAll));
-    if (gCoreContext->GetNumSetting("HaveRepeats", 0))
+
+    if (!m_filtersButton)
     {
         new MythUIButtonListItem(m_dupscopeList,
-                                 tr("Exclude old episodes"),
-                                 ENUM_TO_QVARIANT(kDupsExRepeats | kDupsInAll));
-        new MythUIButtonListItem(m_dupscopeList,
-                                 tr("Record new episodes only"),
-                                 ENUM_TO_QVARIANT(kDupsNewEpi | kDupsInAll));
-        new MythUIButtonListItem(m_dupscopeList,
-                                 tr("Record new episode first showings"),
-                                 ENUM_TO_QVARIANT(kDupsFirstNew | kDupsInAll));
+                                tr("Exclude unidentified episodes"),
+                                ENUM_TO_QVARIANT(kDupsExGeneric | kDupsInAll));
+        if (gCoreContext->GetNumSetting("HaveRepeats", 0))
+        {
+            new MythUIButtonListItem(m_dupscopeList,
+                                    tr("Exclude old episodes"),
+                                    ENUM_TO_QVARIANT(kDupsExRepeats | kDupsInAll));
+            new MythUIButtonListItem(m_dupscopeList,
+                                    tr("Record new episodes only"),
+                                    ENUM_TO_QVARIANT(kDupsNewEpi | kDupsInAll));
+            new MythUIButtonListItem(m_dupscopeList,
+                                    tr("Record new episode first showings"),
+                                    ENUM_TO_QVARIANT(kDupsFirstNew | kDupsInAll));
+        }
     }
-#if (ALLOW_MISSING_FILTERS)
-    }
-#endif
 
     m_dupscopeList->SetValueByData(ENUM_TO_QVARIANT(m_recordingRule->m_dupIn));
 
@@ -751,6 +740,7 @@ bool SchedFilterEditor::Create()
     bool err = false;
 
     UIUtilE::Assign(this, m_filtersList, "filters", &err);
+    UIUtilW::Assign(this, m_backButton, "back");
 
     if (err)
     {
@@ -759,7 +749,7 @@ bool SchedFilterEditor::Create()
         return false;
     }
 
-    if (!UIUtilW::Assign(this, m_backButton, "back"))
+    if (m_backButton)
         connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
 
     connect(m_filtersList, SIGNAL(itemClicked(MythUIButtonListItem *)),
@@ -880,6 +870,7 @@ bool StoreOptEditor::Create()
     UIUtilE::Assign(this, m_maxbehaviourList, "maxnewest", &err);
 
     UIUtilE::Assign(this, m_autoexpireCheck, "autoexpire", &err);
+    UIUtilW::Assign(this, m_backButton, "back");
 
     if (err)
     {
@@ -888,7 +879,7 @@ bool StoreOptEditor::Create()
         return false;
     }
 
-    if (!UIUtilW::Assign(this, m_backButton, "back"))
+    if (m_backButton)
         connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
 
     connect(m_maxepSpin, SIGNAL(itemSelected(MythUIButtonListItem *)),
@@ -1184,6 +1175,7 @@ bool PostProcEditor::Create()
     UIUtilE::Assign(this, m_userjob3Check, "userjob3", &err);
     UIUtilE::Assign(this, m_userjob4Check, "userjob4", &err);
     UIUtilW::Assign(this, m_metadataLookupCheck, "metadatalookup");
+    UIUtilW::Assign(this, m_backButton, "back");
 
     if (err)
     {
@@ -1192,7 +1184,7 @@ bool PostProcEditor::Create()
         return false;
     }
 
-    if (!UIUtilW::Assign(this, m_backButton, "back"))
+    if (m_backButton)
         connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
 
     connect(m_transcodeCheck, SIGNAL(toggled(bool)),
@@ -1383,8 +1375,8 @@ bool MetadataOptions::Create()
         return false;
     }
 
-    connect(m_backButton, SIGNAL(Clicked()),
-            SLOT(Close()));
+    if (m_backButton)
+        connect(m_backButton, SIGNAL(Clicked()), SLOT(Close()));
     connect(m_queryButton, SIGNAL(Clicked()),
             SLOT(PerformQuery()));
     connect(m_localFanartButton, SIGNAL(Clicked()),

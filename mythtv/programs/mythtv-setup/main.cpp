@@ -482,7 +482,7 @@ int main(int argc, char *argv[])
 
     // Refresh Global/Main Menu keys after DB update in case there was no DB
     // when they were written originally
-    mainWindow->ResetKeys();
+    mainWindow->ReloadKeys();
 
     if (!startPrompt)
         startPrompt = new StartPrompter();
@@ -512,6 +512,8 @@ int main(int argc, char *argv[])
 
     qApp->exec();
     // Main menu callback to ExitPrompter does CheckSetup(), cleanup and exit.
+
+    DestroyMythMainWindow();
 }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

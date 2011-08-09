@@ -94,8 +94,7 @@ QStringList HttpStatus::GetBasePaths()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool HttpStatus::ProcessRequest( HttpWorkerThread * /* pThread */,
-                                 HTTPRequest *pRequest )
+bool HttpStatus::ProcessRequest( HTTPRequest *pRequest )
 {
     try
     {
@@ -254,7 +253,7 @@ void HttpStatus::FillStatusXML( QDomDocument *pDoc )
     RecList recordingList;
 
     if (m_pSched)
-        m_pSched->getAllPending(&recordingList);
+        m_pSched->GetAllPending(recordingList);
 
     unsigned int iNum = 10;
     unsigned int iNumRecordings = 0;
@@ -526,13 +525,10 @@ void HttpStatus::FillStatusXML( QDomDocument *pDoc )
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("SELECT MAX(endtime) FROM program WHERE manualid = 0;");
 
-    if (query.exec() && query.isActive() && query.size())
+    if (query.exec() && query.next())
     {
-        query.next();
-
-        if (query.isValid())
-            GuideDataThrough = QDateTime::fromString(query.value(0).toString(),
-                                                     Qt::ISODate);
+        GuideDataThrough = QDateTime::fromString(
+            query.value(0).toString(), Qt::ISODate);
     }
 
     guide.setAttribute("start",

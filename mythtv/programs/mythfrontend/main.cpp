@@ -73,6 +73,7 @@ using namespace std;
 #include "backendconnectionmanager.h"
 #include "themechooser.h"
 #include "mythversion.h"
+#include "taskqueue.h"
 
 // Video
 #include "cleanup.h"
@@ -93,6 +94,7 @@ static MediaRenderer  *g_pUPnp   = NULL;
 static MythPluginManager *pmanager = NULL;
 
 static void handleExit(bool prompt);
+static void resetAllKeys(void);
 
 namespace
 {
@@ -227,6 +229,18 @@ namespace
             g_pUPnp = NULL;
         }
 
+        if (SSDP::Instance())
+        {
+            SSDP::Instance()->RequestTerminate();
+            SSDP::Instance()->wait();
+        }
+
+        if (TaskQueue::Instance())
+        {
+            TaskQueue::Instance()->RequestTerminate();
+            TaskQueue::Instance()->wait();
+        }
+
         if (pmanager)
         {
             delete pmanager;
@@ -235,6 +249,8 @@ namespace
 
         delete gContext;
         gContext = NULL;
+
+        delete qApp;
 
 #ifndef _MSC_VER
         signal(SIGUSR1, SIG_DFL);
@@ -1201,7 +1217,6 @@ static int reloadTheme(void)
     {
         LOG(VB_GENERAL, LOG_ERR, QString("Couldn't find theme '%1'")
                 .arg(themename));
-        cleanup();
         return GENERIC_EXIT_NO_THEME;
     }
 
@@ -1256,6 +1271,8 @@ static void setDebugShowNames(void)
         GetMythMainWindow()->GetMainStack()->GetTopScreen()->SetRedraw();
 }
 
+// If adding a new jump point, remember to also add a line to clear it in
+// ReloadJumpPoints(), below
 static void InitJumpPoints(void)
 {
      REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Reload Theme"),
@@ -1266,7 +1283,8 @@ static void InitJumpPoints(void)
          "", "", startGuide, "GUIDE");
      REG_JUMPLOC(QT_TRANSLATE_NOOP("MythControls", "Program Finder"),
          "", "", startFinder, "FINDER");
-     //REG_JUMP("Search Listings", "", "", startSearch);
+     //REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Search Listings"),
+     //    "", "", startSearch);
      REG_JUMPLOC(QT_TRANSLATE_NOOP("MythControls", "Manage Recordings / "
          "Fix Conflicts"), "", "", startManaged, "VIEWSCHEDULED");
      REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Program Recording "
@@ -1303,6 +1321,24 @@ static void InitJumpPoints(void)
      REG_JUMP("Play Disc", QT_TRANSLATE_NOOP("MythControls",
          "Play an Optical Disc"), "", playDisc);
 
+     REG_JUMPEX(QT_TRANSLATE_NOOP("MythControls", "Toggle Show Widget Borders"),
+         "", "", setDebugShowBorders, false);
+     REG_JUMPEX(QT_TRANSLATE_NOOP("MythControls", "Toggle Show Widget Names"),
+         "", "", setDebugShowNames, false);
+     REG_JUMPEX(QT_TRANSLATE_NOOP("MythControls", "Reset All Keys"),
+         QT_TRANSLATE_NOOP("MythControls", "Reset all keys to defaults"),
+         "", resetAllKeys, false);
+}
+
+static void ReloadJumpPoints(void)
+{
+    MythMainWindow *mainWindow = GetMythMainWindow();
+    mainWindow->ClearAllJumps();
+    InitJumpPoints();
+}
+
+static void InitKeys(void)
+{
      REG_KEY("Video","PLAYALT", QT_TRANSLATE_NOOP("MythControls",
          "Play selected item in alternate player"), "ALT+P");
      REG_KEY("Video","FILTER", QT_TRANSLATE_NOOP("MythControls",
@@ -1323,22 +1359,56 @@ static void InitJumpPoints(void)
          "Go to the first video"), "Home");
      REG_KEY("Video","END", QT_TRANSLATE_NOOP("MythControls",
          "Go to the last video"), "End");
-     REG_MEDIA_HANDLER(QT_TRANSLATE_NOOP("MythControls",
-         "MythDVD DVD Media Handler"), "", "", handleDVDMedia,
-         MEDIATYPE_DVD, QString::null);
+}
 
-     REG_JUMPEX(QT_TRANSLATE_NOOP("MythControls", "Toggle Show Widget Borders"),
-         "", "", setDebugShowBorders, false);
-     REG_JUMPEX(QT_TRANSLATE_NOOP("MythControls", "Toggle Show Widget Names"),
-         "", "", setDebugShowNames, false);
+static void ReloadKeys(void)
+{
+    GetMythMainWindow()->ClearKeyContext("Video");
+    InitKeys();
 
-    TV::InitKeys();
+    TV::ReloadKeys();
+}
 
+static void SetFuncPtrs(void)
+{
     TV::SetFuncPtr("playbackbox", (void *)PlaybackBox::RunPlaybackBox);
     TV::SetFuncPtr("viewscheduled", (void *)ViewScheduled::RunViewScheduled);
     TV::SetFuncPtr("programguide", (void *)GuideGrid::RunProgramGuide);
     TV::SetFuncPtr("programfinder", (void *)RunProgramFinder);
     TV::SetFuncPtr("scheduleeditor", (void *)ScheduleEditor::RunScheduleEditor);
+}
+
+/**
+ *  \brief Deletes all key bindings and jump points for this host
+ */
+static void clearAllKeys(void)
+{
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    query.prepare("DELETE FROM keybindings "
+                  "WHERE hostname = :HOSTNAME;");
+    query.bindValue(":HOSTNAME", gCoreContext->GetHostName());
+    if (!query.exec())
+        MythDB::DBError("Deleting keybindings", query);
+    query.prepare("DELETE FROM jumppoints "
+                  "WHERE hostname = :HOSTNAME;");
+    query.bindValue(":HOSTNAME", gCoreContext->GetHostName());
+    if (!query.exec())
+        MythDB::DBError("Deleting jumppoints", query);
+}
+
+/**
+ *  \brief Reset this host's key bindings and jump points to default values
+ */
+static void resetAllKeys(void)
+{
+    clearAllKeys();
+    // Reload MythMainWindow bindings
+    GetMythMainWindow()->ReloadKeys();
+    // Reload Jump Points
+    ReloadJumpPoints();
+    // Reload mythfrontend and TV bindings
+    ReloadKeys();
 }
 
 
@@ -1361,6 +1431,9 @@ static int internal_media_init()
 {
     REG_MEDIAPLAYER("Internal", QT_TRANSLATE_NOOP("MythControls",
         "MythTV's native media player."), internal_play_media);
+    REG_MEDIA_HANDLER(QT_TRANSLATE_NOOP("MythControls",
+        "MythDVD DVD Media Handler"), "", "", handleDVDMedia,
+        MEDIATYPE_DVD, QString::null);
     return 0;
 }
 
@@ -1399,17 +1472,19 @@ int main(int argc, char **argv)
         return GENERIC_EXIT_OK;
     }
 
+    CleanupGuard callCleanup(cleanup);
+
 #ifdef Q_WS_MACX
     // Without this, we can't set focus to any of the CheckBoxSetting, and most
     // of the MythPushButton widgets, and they don't use the themed background.
     QApplication::setDesktopSettingsAware(false);
 #endif
-    QApplication a(argc, argv);
+    new QApplication(argc, argv);
     QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHFRONTEND);
 
     QString pluginname;
 
-    QFileInfo finfo(a.argv()[0]);
+    QFileInfo finfo(qApp->argv()[0]);
     QString binname = finfo.baseName();
 
     int retval;
@@ -1438,8 +1513,6 @@ int main(int argc, char **argv)
     {
         MythUIHelper::ParseGeometryOverride(cmdline.toString("geometry"));
     }
-
-    CleanupGuard callCleanup(cleanup);
 
     gContext = new MythContext(MYTH_BINARY_VERSION);
 
@@ -1544,9 +1617,12 @@ int main(int argc, char **argv)
 
     // Refresh Global/Main Menu keys after DB update in case there was no DB
     // when they were written originally
-    mainWindow->ResetKeys();
+    mainWindow->ReloadKeys();
 
     InitJumpPoints();
+    InitKeys();
+    TV::InitKeys();
+    SetFuncPtrs();
 
     internal_media_init();
 

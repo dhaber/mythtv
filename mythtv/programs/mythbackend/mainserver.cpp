@@ -29,7 +29,6 @@ using namespace std;
 #include <QDateTime>
 #include <QFile>
 #include <QDir>
-#include <QThread>
 #include <QWaitCondition>
 #include <QRegExp>
 #include <QEvent>
@@ -37,6 +36,7 @@ using namespace std;
 #include <QTcpServer>
 #include <QTimer>
 #include <QNetworkInterface>
+#include <QNetworkProxy>
 
 #include "previewgeneratorqueue.h"
 #include "exitcodes.h"
@@ -45,6 +45,7 @@ using namespace std;
 #include "mythdb.h"
 #include "mainserver.h"
 #include "server.h"
+#include "mthread.h"
 #include "scheduler.h"
 #include "backendutil.h"
 #include "programinfo.h"
@@ -120,89 +121,46 @@ int delete_file_immediately(const QString &filename,
 QMutex MainServer::truncate_and_close_lock;
 const uint MainServer::kMasterServerReconnectTimeout = 1000; //ms
 
-class ProcessRequestThread : public QThread
+class ProcessRequestRunnable : public QRunnable
 {
   public:
-    ProcessRequestThread(MainServer *ms) :
-        parent(ms), socket(NULL), threadlives(false) {}
-
-    void setup(MythSocket *sock)
+    ProcessRequestRunnable(MainServer &parent, MythSocket *sock) :
+        m_parent(parent), m_sock(sock)
     {
-        QMutexLocker locker(&lock);
-        socket = sock;
-        socket->UpRef();
-        waitCond.wakeAll();
-    }
-
-    void killit(void)
-    {
-        QMutexLocker locker(&lock);
-        threadlives = false;
-        waitCond.wakeAll();
+        m_sock->UpRef();
     }
 
     virtual void run(void)
     {
-        threadRegister("ProcessRequest");
-        QMutexLocker locker(&lock);
-        threadlives = true;
-        waitCond.wakeAll(); // Signal to creating thread
-
-        while (true)
-        {
-            waitCond.wait(locker.mutex());
-
-            if (!threadlives)
-                break;
-
-            if (!socket)
-                continue;
-
-            parent->ProcessRequest(socket);
-            socket->DownRef();
-            socket = NULL;
-            parent->MarkUnused(this);
-        }
-        threadDeregister();
+        m_parent.ProcessRequest(m_sock);
+        m_sock->DownRef();
     }
 
-    QMutex lock;
-    QWaitCondition waitCond;
-
-  private:
-    MainServer *parent;
-
-    MythSocket *socket;
-
-    bool threadlives;
+    MainServer &m_parent;
+    MythSocket *m_sock;
 };
 
 MainServer::MainServer(bool master, int port,
                        QMap<int, EncoderLink *> *tvList,
                        Scheduler *sched, AutoExpire *expirer) :
     encoderList(tvList), mythserver(NULL), masterServerReconnect(NULL),
-    masterServer(NULL), ismaster(master), masterBackendOverride(false),
+    masterServer(NULL), ismaster(master), threadPool("ProcessRequestPool"),
+    masterBackendOverride(false),
     m_sched(sched), m_expirer(expirer), deferredDeleteTimer(NULL),
-    autoexpireUpdateTimer(NULL), m_exitCode(GENERIC_EXIT_OK)
+    autoexpireUpdateTimer(NULL), m_exitCode(GENERIC_EXIT_OK),
+    m_stopped(false)
 {
     PreviewGeneratorQueue::CreatePreviewGeneratorQueue(
         PreviewGenerator::kLocalAndRemote, ~0, 0);
     PreviewGeneratorQueue::AddListener(this);
 
-    for (int i = 0; i < PRT_STARTUP_THREAD_COUNT; i++)
-    {
-        ProcessRequestThread *prt = new ProcessRequestThread(this);
-        prt->lock.lock();
-        prt->start();
-        prt->waitCond.wait(&prt->lock);
-        prt->lock.unlock();
-        threadPool.push_back(prt);
-    }
+    threadPool.setMaxThreadCount(PRT_STARTUP_THREAD_COUNT);
 
     masterBackendOverride =
         gCoreContext->GetNumSetting("MasterBackendOverride", 0);
 
     mythserver = new MythServer();
+    mythserver->setProxy(QNetworkProxy::NoProxy);
     if (!mythserver->listen(gCoreContext->MythHostAddressAny(), port))
     {
         LOG(VB_GENERAL, LOG_ERR, QString("Failed to bind port %1. Exiting.")
@@ -247,6 +205,22 @@ MainServer::MainServer(bool master, int port,
 
 MainServer::~MainServer()
 {
+    if (!m_stopped)
+        Stop();
+}
+
+void MainServer::Stop()
+{
+    m_stopped = true;
+
+    threadPool.Stop();
+
+    // since Scheduler::SetMainServer() isn't thread-safe
+    // we need to shut down the scheduler thread before we
+    // can call SetMainServer(NULL)
+    if (m_sched)
+        m_sched->Stop();
+
     PreviewGeneratorQueue::RemoveListener(this);
     PreviewGeneratorQueue::TeardownPreviewGeneratorQueue();
 
@@ -256,6 +230,15 @@ MainServer::~MainServer()
         mythserver->deleteLater();
         mythserver = NULL;
     }
+
+    if (m_sched)
+    {
+        m_sched->Wait();
+        m_sched->SetMainServer(NULL);
+    }
+
+    if (m_expirer)
+        m_expirer->SetMainServer(NULL);
 }
 
 void MainServer::autoexpireUpdate(void)
@@ -277,34 +260,9 @@ void MainServer::readyRead(MythSocket *sock)
     if (expecting_reply)
         return;
 
-    ProcessRequestThread *prt = NULL;
-    {
-        QMutexLocker locker(&threadPoolLock);
-
-        if (threadPool.empty())
-        {
-            LOG(VB_GENERAL, LOG_CRIT, 
-                "ThreadPool exhausted. Waiting for a process request thread..");
-            threadPoolCond.wait(&threadPoolLock, PRT_TIMEOUT);
-        }
-
-        if (!threadPool.empty())
-        {
-            prt = threadPool.front();
-            threadPool.pop_front();
-        }
-        else
-        {
-            LOG(VB_GENERAL, LOG_CRIT, "Adding a new process request thread");
-            prt = new ProcessRequestThread(this);
-            prt->lock.lock();
-            prt->start();
-            prt->waitCond.wait(&prt->lock);
-            prt->lock.unlock();
-        }
-    }
-
-    prt->setup(sock);
+    threadPool.startReserved(
+        new ProcessRequestRunnable(*this, sock),
+        "ProcessRequest", PRT_TIMEOUT);
 }
 
 void MainServer::ProcessRequest(MythSocket *sock)
@@ -748,13 +706,6 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
 
     // Decrease refcount..
     pbs->DownRef();
-}
-
-void MainServer::MarkUnused(ProcessRequestThread *prt)
-{
-    QMutexLocker locker(&threadPoolLock);
-    threadPool.push_back(prt);
-    threadPoolCond.wakeAll();
 }
 
 void MainServer::customEvent(QEvent *e)
@@ -1814,12 +1765,8 @@ void MainServer::HandleFillProgramInfo(QStringList &slist, PlaybackSock *pbs)
 
 void DeleteThread::run(void)
 {
-    if (!m_ms)
-        return;
-
-    threadRegister("Delete");
-    m_ms->DoDeleteThread(this);
-    threadDeregister();
+    if (m_ms)
+        m_ms->DoDeleteThread(this);
 }
 
 void MainServer::DoDeleteThread(DeleteStruct *ds)
@@ -3030,12 +2977,10 @@ void MainServer::getGuideDataThrough(QDateTime &GuideDataThrough)
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("SELECT MAX(endtime) FROM program WHERE manualid = 0;");
 
-    if (query.exec() && query.isActive() && query.size())
+    if (query.exec() && query.next())
     {
-        query.next();
-        if (query.isValid())
-            GuideDataThrough = QDateTime::fromString(query.value(0).toString(),
-                                                     Qt::ISODate);
+        GuideDataThrough = QDateTime::fromString(
+            query.value(0).toString(), Qt::ISODate);
     }
 }
 
@@ -3065,13 +3010,13 @@ void MainServer::HandleGetPendingRecordings(PlaybackSock *pbs,
     if (m_sched)
     {
         if (tmptable.isEmpty())
-            m_sched->getAllPending(strList);
+            m_sched->GetAllPending(strList);
         else
         {
             Scheduler *sched = new Scheduler(false, encoderList,
                                              tmptable, m_sched);
             sched->FillRecordListFromDB(recordid);
-            sched->getAllPending(strList);
+            sched->GetAllPending(strList);
             delete sched;
 
             if (recordid > 0)
@@ -4518,21 +4463,15 @@ void MainServer::GetFilesystemInfos(QList<FileSystemInfo> &fsInfos)
 
 void TruncateThread::run(void)
 {
-    if (!m_ms)
-        return;
-
-    threadRegister("Truncate");
-    m_ms->DoTruncateThread(this);
-    threadDeregister();
+    if (m_ms)
+        m_ms->DoTruncateThread(this);
 }
 
 void MainServer::DoTruncateThread(DeleteStruct *ds)
 {
     if (gCoreContext->GetNumSetting("TruncateDeletesSlowly", 0)) 
     {
-        QThreadPool::globalInstance()->releaseThread();
         TruncateAndClose(NULL, ds->m_fd, ds->m_filename, ds->m_size);
-        QThreadPool::globalInstance()->reserveThread();
     }
     else
     {

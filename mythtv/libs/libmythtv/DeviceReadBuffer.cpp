@@ -1,13 +1,13 @@
 #include <algorithm>
 using namespace std;
 
-#include <QThread>
 #include "DeviceReadBuffer.h"
 #include "mythcorecontext.h"
 #include "mythbaseutil.h"
-#include "tspacket.h"
-#include "compat.h"
 #include "mythlogging.h"
+#include "tspacket.h"
+#include "mthread.h"
+#include "compat.h"
 
 #ifndef USING_MINGW
 #include <sys/poll.h>
@@ -19,11 +19,12 @@ using namespace std;
 #define LOC QString("DevRdB(%1): ").arg(videodevice)
 
 DeviceReadBuffer::DeviceReadBuffer(DeviceReaderCB *cb, bool use_poll)
-    : videodevice(QString::null),   _stream_fd(-1),
+    : MThread("DeviceReadBuffer"),
+      videodevice(""),              _stream_fd(-1),
       readerCB(cb),
 
       // Data for managing the device ringbuffer
-      dorun(false),                 running(false),
+      dorun(false),
       eof(false),                   error(false),
       request_pause(false),         paused(false),
       using_poll(use_poll),         max_poll_wait(2500 /*ms*/),
@@ -58,10 +59,12 @@ DeviceReadBuffer::DeviceReadBuffer(DeviceReaderCB *cb, bool use_poll)
 
 DeviceReadBuffer::~DeviceReadBuffer()
 {
+    Stop();
     if (buffer)
+    {
         delete[] buffer;
-    if (isRunning())
-        Stop();
+        buffer = NULL;
+    }
 }
 
 bool DeviceReadBuffer::Setup(const QString &streamName, int streamfd,
@@ -73,6 +76,7 @@ bool DeviceReadBuffer::Setup(const QString &streamName, int streamfd,
         delete[] buffer;
 
     videodevice   = streamName;
+    videodevice   = (videodevice == QString::null) ? "" : videodevice;
     _stream_fd    = streamfd;
 
     // BEGIN HACK -- see #6897, remove after August 2009
@@ -124,28 +128,26 @@ void DeviceReadBuffer::Start(void)
 {
     LOG(VB_RECORD, LOG_INFO, LOC + "Start() -- begin");
 
-    if (isRunning())
+    QMutexLocker locker(&lock);
+    if (isRunning() || dorun)
     {
-        {
-            QMutexLocker locker(&lock);
-            dorun = false;
-        }
+        dorun = false;
+        locker.unlock();
         WakePoll();
         wait();
+        locker.relock();
     }
 
-    {
-        QMutexLocker locker(&lock);
-        error = false;
-        eof   = false;
-    }
+    dorun = true;
+    error = false;
+    eof   = false;
 
     start();
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Start() -- middle");
 
-    while (!IsRunning())
-        usleep(5000);
+    while (dorun && !isRunning())
+        runWait.wait(locker.mutex(), 100);
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Start() -- end");
 }
@@ -155,6 +157,7 @@ void DeviceReadBuffer::Reset(const QString &streamName, int streamfd)
     QMutexLocker locker(&lock);
 
     videodevice   = streamName;
+    videodevice   = (videodevice == QString::null) ? "" : videodevice;
     _stream_fd    = streamfd;
 
     used          = 0;
@@ -167,15 +170,14 @@ void DeviceReadBuffer::Reset(const QString &streamName, int streamfd)
 void DeviceReadBuffer::Stop(void)
 {
     LOG(VB_RECORD, LOG_INFO, LOC + "Stop() -- begin");
+    QMutexLocker locker(&lock);
+    if (isRunning() || dorun)
     {
-        QMutexLocker locker(&lock);
         dorun = false;
+        locker.unlock();
+        WakePoll();
+        wait();
     }
-
-    WakePoll();
-    LOG(VB_RECORD, LOG_INFO, LOC + "Stop() -- middle");
-
-    wait();
     LOG(VB_RECORD, LOG_INFO, LOC + "Stop() -- end");
 }
 
@@ -202,7 +204,7 @@ void DeviceReadBuffer::WakePoll(void) const
     char buf[1];
     buf[0] = '0';
     ssize_t wret = 0;
-    while (running && (wret <= 0) && (wake_pipe[1] >= 0))
+    while (isRunning() && (wret <= 0) && (wake_pipe[1] >= 0))
     {
         wret = ::write(wake_pipe[1], &buf, 1);
         if ((wret < 0) && (EAGAIN != errno) && (EINTR != errno))
@@ -274,7 +276,7 @@ bool DeviceReadBuffer::IsEOF(void) const
 bool DeviceReadBuffer::IsRunning(void) const
 {
     QMutexLocker locker(&lock);
-    return running;
+    return isRunning();
 }
 
 uint DeviceReadBuffer::GetUnused(void) const
@@ -305,6 +307,7 @@ void DeviceReadBuffer::IncrWritePointer(uint len)
     max_used = max(used, max_used);
     avg_used = ((avg_used * avg_cnt) + used) / ++avg_cnt;
 #endif
+    dataWait.wakeAll();
 }
 
 void DeviceReadBuffer::IncrReadPointer(uint len)
@@ -317,12 +320,12 @@ void DeviceReadBuffer::IncrReadPointer(uint len)
 
 void DeviceReadBuffer::run(void)
 {
+    RunProlog();
+
     uint      errcnt = 0;
 
-    threadRegister("DeviceReadBuffer");
     lock.lock();
-    dorun   = true;
-    running = true;
+    runWait.wakeAll();
     lock.unlock();
 
     if (using_poll)
@@ -377,11 +380,14 @@ void DeviceReadBuffer::run(void)
     ClosePipes();
 
     lock.lock();
-    running = false;
     eof     = true;
+    runWait.wakeAll();
+    dataWait.wakeAll();
+    pauseWait.wakeAll();
+    unpauseWait.wakeAll();
     lock.unlock();
 
-    threadDeregister();
+    RunEpilog();
 }
 
 bool DeviceReadBuffer::HandlePausing(void)
@@ -661,14 +667,12 @@ uint DeviceReadBuffer::WaitForUnused(uint needed) const
  */
 uint DeviceReadBuffer::WaitForUsed(uint needed, uint max_wait) const
 {
-    QWaitCondition dataWait;
-
     MythTimer timer;
     timer.start();
 
     QMutexLocker locker(&lock);
     size_t avail = used;
-    while ((needed > avail) && running &&
+    while ((needed > avail) && isRunning() &&
            !request_pause && !error && !eof &&
            (timer.elapsed() < (int)max_wait))
     {

@@ -34,7 +34,8 @@ const uint MythSocket::kSocketBufferSize = 128000;
 const uint MythSocket::kShortTimeout = kMythSocketShortTimeout;
 const uint MythSocket::kLongTimeout  = kMythSocketLongTimeout;
 
-MythSocketThread *MythSocket::s_readyread_thread = new MythSocketThread();
+QMutex MythSocket::s_readyread_thread_lock;
+MythSocketThread *MythSocket::s_readyread_thread = NULL;
 
 MythSocket::MythSocket(int socket, MythSocketCBs *cb)
     : MSocketDevice(MSocketDevice::Stream),            m_cb(cb),
@@ -52,6 +53,13 @@ MythSocket::MythSocket(int socket, MythSocketCBs *cb)
         // Could this apply to other platforms, too?
         setSendBufferSize(kSocketBufferSize);
 #endif
+    }
+
+    if (!s_readyread_thread)
+    {
+        QMutexLocker locker(&s_readyread_thread_lock);
+        if (!s_readyread_thread)
+            s_readyread_thread = new MythSocketThread();
     }
 
     if (m_cb)
@@ -845,7 +853,7 @@ bool MythSocket::Validate(uint timeout_ms, bool error_dialog_desired)
     }
     else if (strlist[0] == "ACCEPT")
     {
-        LOG(VB_GENERAL, LOG_CRIT, QString("Using protocol version %1")
+        LOG(VB_GENERAL, LOG_NOTICE, QString("Using protocol version %1")
                                .arg(MYTH_PROTO_VERSION));
         setValidated();
         return true;

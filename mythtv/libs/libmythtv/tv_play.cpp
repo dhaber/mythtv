@@ -763,7 +763,7 @@ void TV::InitKeys(void)
 */
 }
 
-void TV::ResetKeys(void)
+void TV::ReloadKeys(void)
 {
     MythMainWindow *mainWindow = GetMythMainWindow();
     mainWindow->ClearKeyContext("TV Frontend");
@@ -1195,6 +1195,12 @@ TV::~TV(void)
         player.pop_back();
     }
     ReturnPlayerLock(mctx);
+
+    if (browsehelper)
+    {
+        delete browsehelper;
+        browsehelper = NULL;
+    }
 
     LOG(VB_PLAYBACK, LOG_INFO, "TV::~TV() -- end");
 }
@@ -2836,10 +2842,8 @@ int  TV::StartTimer(int interval, int line)
     return x;
 }
 
-#include <cassert>
 void TV::KillTimer(int id)
 {
-    assert(id);
     QObject::killTimer(id);
 }
 
@@ -8406,7 +8410,7 @@ void TV::customEvent(QEvent *e)
 
         PlayerContext *mctx = GetPlayerReadLock(0, __FILE__, __LINE__);
         OSD *osd = GetOSDLock(mctx);
-        if (osd && osd->IsWindowVisible("program_info"))
+        if (osd && !osd->IsWindowVisible(OSD_WIN_INTERACT))
         {
             for (uint i = 0; mctx && (i < player.size()); i++)
             {
@@ -9089,6 +9093,7 @@ void *TV::load_dd_map_thunk(void *param)
     load_dd_map *x = (load_dd_map*) param;
     threadRegister("LoadDDMap");
     x->tv->RunLoadDDMap(x->sourceid);
+    GetMythDB()->GetDBManager()->CloseDatabases();
     threadDeregister();
     delete x;
     return NULL;
@@ -9099,6 +9104,7 @@ void *TV::load_dd_map_post_thunk(void *param)
     uint *sourceid = (uint*) param;
     threadRegister("LoadDDMapPost");
     SourceUtil::UpdateChannelsFromListings(*sourceid);
+    GetMythDB()->GetDBManager()->CloseDatabases();
     threadDeregister();
     delete sourceid;
     return NULL;

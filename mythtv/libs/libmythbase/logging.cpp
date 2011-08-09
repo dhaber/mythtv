@@ -3,7 +3,6 @@
 #include <QWaitCondition>
 #include <QList>
 #include <QQueue>
-#include <QThread>
 #include <QHash>
 #include <QCoreApplication>
 #include <QFileInfo>
@@ -64,7 +63,7 @@ QHash<uint64_t, char *> logThreadHash;
 QMutex                   logThreadTidMutex;
 QHash<uint64_t, int64_t> logThreadTidHash;
 
-LoggerThread            logThread;
+LoggerThread           *logThread = NULL;
 bool                    logThreadFinished = false;
 bool                    debugRegistration = false;
 
@@ -171,9 +170,9 @@ LoggerBase::~LoggerBase()
 }
 
 
-FileLogger::FileLogger(char *filename, bool quiet, bool daemon) : 
-        LoggerBase(filename, 0), m_opened(false), m_fd(-1), m_quiet(quiet),
-        m_daemon(daemon)
+FileLogger::FileLogger(char *filename, bool progress, int quiet) :
+        LoggerBase(filename, 0), m_opened(false), m_fd(-1),
+        m_progress(progress), m_quiet(quiet)
 {
     if( !strcmp(filename, "-") )
     {
@@ -183,8 +182,8 @@ FileLogger::FileLogger(char *filename, bool quiet, bool daemon) :
     }
     else
     {
-        m_quiet = false;
-        m_daemon = false;
+        m_progress = false;
+        m_quiet = 0;
         m_fd = open(filename, O_WRONLY|O_CREAT|O_APPEND, 0664);
         m_opened = (m_fd != -1);
         LOG(VB_GENERAL, LOG_INFO, QString("Added logging to %1")
@@ -228,20 +227,17 @@ bool FileLogger::logmsg(LoggingItem_t *item)
     char                line[MAX_STRING_LENGTH];
     char                usPart[9];
     char                timestamp[TIMESTAMP_MAX];
-    int                 length;
     char               *threadName = NULL;
     pid_t               pid = getpid();
     pid_t               tid = 0;
 
-    if (!m_opened || m_daemon || (m_quiet && item->level > LOG_ERR))
+    if (!m_opened || m_quiet || (m_progress && item->level > LOG_ERR))
         return false;
 
     strftime( timestamp, TIMESTAMP_MAX-8, "%Y-%m-%d %H:%M:%S",
               (const struct tm *)&item->tm );
     snprintf( usPart, 9, ".%06d", (int)(item->usec) );
     strcat( timestamp, usPart );
-    length = strlen( timestamp );
-
     char shortname;
 
     {
@@ -278,10 +274,7 @@ bool FileLogger::logmsg(LoggingItem_t *item)
 
     int result = write( m_fd, line, strlen(line) );
 
-    {
-        QMutexLocker locker((QMutex *)item->refmutex);
-        item->refcount--;
-    }
+    deleteItem(item);
 
     if( result == -1 )
     {
@@ -292,7 +285,6 @@ bool FileLogger::logmsg(LoggingItem_t *item)
             close( m_fd );
         return false;
     }
-    deleteItem(item);
     return true;
 }
 
@@ -330,12 +322,8 @@ bool SyslogLogger::logmsg(LoggingItem_t *item)
 
     syslog( item->level, "%s", item->message );
 
-    {
-        QMutexLocker locker((QMutex *)item->refmutex);
-        item->refcount--;
-    }
-
     deleteItem(item);
+
     return true;
 }
 #endif
@@ -434,7 +422,7 @@ bool DatabaseLogger::logqmsg(LoggingItem_t *item)
         m_host = strdup((char *)gCoreContext->GetHostName()
                         .toLocal8Bit().constData());
 
-    MSqlQuery   query(MSqlQuery::LogCon());
+    MSqlQuery   query(MSqlQuery::InitCon());
     query.prepare( m_query );
     query.bindValue(":HOST",        m_host);
     query.bindValue(":APPLICATION", m_application);
@@ -444,21 +432,20 @@ bool DatabaseLogger::logqmsg(LoggingItem_t *item)
     query.bindValue(":LEVEL",       item->level);
     query.bindValue(":MESSAGE",     item->message);
 
-    {
-        QMutexLocker locker((QMutex *)item->refmutex);
-        item->refcount--;
-    }
-
     if (!query.exec())
     {
         MythDB::DBError("DBLogging", query);
+        deleteItem(item);
         return false;
     }
+
+    deleteItem(item);
 
     return true;
 }
 
 DBLoggerThread::DBLoggerThread(DatabaseLogger *logger) :
+    MThread("DBLogger"),
     m_logger(logger), m_queue(new QQueue<LoggingItem_t *>),
     m_wait(new QWaitCondition()), aborted(false)
 {
@@ -469,13 +456,17 @@ DBLoggerThread::~DBLoggerThread()
     stop();
     wait();
 
+    QMutexLocker qLock(&m_queueMutex);
     delete m_queue;
     delete m_wait;
+    m_queue = NULL;
+    m_wait = NULL;
 }
 
 void DBLoggerThread::run(void)
 {
-    threadRegister("DBLogger");
+    RunProlog();
+
     LoggingItem_t *item;
 
     QMutexLocker qLock(&m_queueMutex);
@@ -494,19 +485,25 @@ void DBLoggerThread::run(void)
 
         qLock.unlock();
 
-        if( item->message && !aborted && !m_logger->logqmsg(item) )
+        if (item->message && !aborted)
         {
-            qLock.relock();
-            m_queue->prepend(item);
-            m_wait->wait(qLock.mutex(), 100);
-        } else {
-            deleteItem(item);
-            qLock.relock();
+            if (!m_logger->logqmsg(item) )
+            {
+                qLock.relock();
+                m_queue->prepend(item);
+                m_wait->wait(qLock.mutex(), 100);
+                continue;
+            }
         }
+        else
+        {
+            deleteItem(item);
+        }
+
+        qLock.relock();
     }
 
-    MSqlQuery::CloseLogCon();
-    threadDeregister();
+    RunEpilog();
 }
 
 void DBLoggerThread::stop(void)
@@ -542,7 +539,7 @@ bool DatabaseLogger::isDatabaseReady()
 bool DatabaseLogger::tableExists(const QString &table)
 {
     bool result = false;
-    MSqlQuery query(MSqlQuery::LogCon());
+    MSqlQuery query(MSqlQuery::InitCon());
     if (query.isConnected())
     {
         QString sql = "SELECT INFORMATION_SCHEMA.TABLES.TABLE_NAME "
@@ -625,13 +622,14 @@ void setThreadTid( LoggingItem_t *item )
 
 
 LoggerThread::LoggerThread() :
+    MThread("Logger"),
     m_wait(new QWaitCondition()), aborted(false)
 {
     char *debug = getenv("VERBOSE_THREADS");
     if (debug != NULL)
     {
-        LOG(VB_GENERAL, LOG_CRIT, "Logging thread registration/deregistration "
-                                  "enabled!");
+        LOG(VB_GENERAL, LOG_NOTICE,
+            "Logging thread registration/deregistration enabled!");
         debugRegistration = true;
     }
 }
@@ -655,7 +653,7 @@ LoggerThread::~LoggerThread()
 
 void LoggerThread::run(void)
 {
-    threadRegister("Logger");
+    RunProlog();
     LoggingItem_t *item;
 
     logThreadFinished = false;
@@ -744,11 +742,16 @@ void LoggerThread::run(void)
                     deleteItem(item);
             }
         }
+        else
+        {
+            delete item;
+        }
 
         qLock.relock();
     }
 
     logThreadFinished = true;
+    RunEpilog();
 }
 
 void LoggerThread::stop(void)
@@ -764,7 +767,8 @@ void deleteItem( LoggingItem_t *item )
         return;
 
     {
-        QMutexLocker locker((QMutex *)item->refmutex);
+        QMutexLocker locker((QMutex*)item->refmutex);
+        item->refcount--;
         if( item->refcount != 0 )
             return;
 
@@ -775,7 +779,8 @@ void deleteItem( LoggingItem_t *item )
             free( item->threadName );
     }
 
-    delete (QMutex *)item->refmutex;
+    delete (QMutex*)item->refmutex;
+    item->refmutex = NULL;
     delete item;
 }
 
@@ -833,7 +838,10 @@ void LogPrintLine( uint64_t mask, LogLevel_t level, const char *file, int line,
 
     message = (char *)malloc(LOGLINE_MAX+1);
     if( !message )
+    {
+        delete item;
         return;
+    }
 
     QMutexLocker qLock(&logQueueMutex);
 
@@ -886,10 +894,9 @@ void logPropagateCalc(void)
         logPropagateArgs += " --logpath " + logPropagateOpts.path;
 
     QString name = logLevelGetName(logLevel);
-    name.remove(0, 4);
     logPropagateArgs += " --loglevel " + name;
 
-    if (logPropagateOpts.quiet)
+    for (int i = 0; i < logPropagateOpts.quiet; i++)
         logPropagateArgs += " --quiet";
 
     if (!logPropagateOpts.dblog)
@@ -914,16 +921,19 @@ bool logPropagateQuiet(void)
     return logPropagateOpts.quiet;
 }
 
-void logStart(QString logfile, int quiet, bool daemon, int facility,
+void logStart(QString logfile, int progress, int quiet, int facility,
               LogLevel_t level, bool dblog, bool propagate)
 {
     LoggerBase *logger;
 
-    if (logThread.isRunning())
+    if (!logThread)
+        logThread = new LoggerThread();
+
+    if (logThread->isRunning())
         return;
  
     logLevel = level;
-    LOG(VB_GENERAL, LOG_CRIT, QString("Setting Log Level to LOG_%1")
+    LOG(VB_GENERAL, LOG_NOTICE, QString("Setting Log Level to LOG_%1")
              .arg(logLevelGetName(logLevel).toUpper()));
 
     logPropagateOpts.propagate = propagate;
@@ -941,7 +951,7 @@ void logStart(QString logfile, int quiet, bool daemon, int facility,
     logPropagateCalc();
 
     /* log to the console */
-    logger = new FileLogger((char *)"-", quiet, daemon);
+    logger = new FileLogger((char *)"-", progress, quiet);
 
     /* Debug logfile */
     if( !logfile.isEmpty() )
@@ -963,7 +973,7 @@ void logStart(QString logfile, int quiet, bool daemon, int facility,
 
 #ifndef _WIN32
     /* Setup SIGHUP */
-    LOG(VB_GENERAL, LOG_CRIT, "Setting up SIGHUP handler");
+    LOG(VB_GENERAL, LOG_NOTICE, "Setting up SIGHUP handler");
     struct sigaction sa;
     sa.sa_sigaction = logSighup;
     sigemptyset( &sa.sa_mask );
@@ -971,13 +981,18 @@ void logStart(QString logfile, int quiet, bool daemon, int facility,
     sigaction( SIGHUP, &sa, NULL );
 #endif
 
-    logThread.start();
+    (void)logger;
+
+    logThread->start();
 }
 
 void logStop(void)
 {
-    logThread.stop();
-    logThread.wait();
+    if (logThread)
+    {
+        logThread->stop();
+        logThread->wait();
+    }
 
 #ifndef _WIN32
     /* Tear down SIGHUP */
@@ -988,27 +1003,25 @@ void logStop(void)
     sigaction( SIGHUP, &sa, NULL );
 #endif
 
-    QMutexLocker locker(&loggerListMutex);
-    QList<LoggerBase *>::iterator it;
+    loggerListMutex.lock();
+    QList<LoggerBase *> list = loggerList;
+    loggerList.clear();
+    loggerListMutex.unlock();
 
-    for(it = loggerList.begin(); it != loggerList.end(); )
-    {
-        locker.unlock();
+    QList<LoggerBase *>::iterator it;
+    for (it = list.begin(); it != list.end(); ++it)
         delete *it;
-        locker.relock();
-        it = loggerList.begin();
-    }
 }
 
 void threadRegister(QString name)
 {
     uint64_t id = (uint64_t)QThread::currentThreadId();
 
-    LoggingItem_t *item = new LoggingItem_t;
-    if (!item)
+    if (logThreadFinished)
         return;
 
-    if (logThreadFinished)
+    LoggingItem_t *item = new LoggingItem_t;
+    if (!item)
         return;
 
     memset( item, 0, sizeof(LoggingItem_t) );
@@ -1031,11 +1044,11 @@ void threadDeregister(void)
     uint64_t id = (uint64_t)QThread::currentThreadId();
     LoggingItem_t  *item;
 
-    item = new LoggingItem_t;
-    if (!item)
+    if (logThreadFinished)
         return;
 
-    if (logThreadFinished)
+    item = new LoggingItem_t;
+    if (!item)
         return;
 
     memset( item, 0, sizeof(LoggingItem_t) );
@@ -1054,8 +1067,8 @@ void threadDeregister(void)
 int syslogGetFacility(QString facility)
 {
 #ifdef _WIN32
-    LOG(VB_GENERAL, LOG_CRIT, "Windows does not support syslog,"
-                                   " disabling" );
+    LOG(VB_GENERAL, LOG_NOTICE,
+        "Windows does not support syslog, disabling" );
     return( -2 );
 #else
     CODE *name;
