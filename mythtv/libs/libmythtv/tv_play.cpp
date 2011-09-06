@@ -4,18 +4,18 @@
 #include <cmath>
 #include <unistd.h>
 #include <stdint.h>
-#include <pthread.h>
 
 #include <algorithm>
 using namespace std;
 
 #include <QCoreApplication>
-#include <QRegExp>
-#include <QFile>
-#include <QTimer>
-#include <QDir>
 #include <QKeyEvent>
+#include <QRunnable>
+#include <QRegExp>
+#include <QTimer>
 #include <QEvent>
+#include <QFile>
+#include <QDir>
 
 #include "mythdb.h"
 #include "tv_play.h"
@@ -148,6 +148,43 @@ EMBEDRETURNVOIDEPG TV::RunProgramGuidePtr = NULL;
  */
 EMBEDRETURNVOIDFINDER TV::RunProgramFinderPtr = NULL;
 
+/// Helper class to load channel info for channel editor
+class DDLoader : public QRunnable
+{
+  public:
+    DDLoader(TV *parent) : m_parent(parent), m_sourceid(0)
+    {
+        setAutoDelete(false);
+    }
+
+    void SetParent(TV *parent) { m_parent = parent; }
+    void SetSourceID(uint sourceid) { m_sourceid = sourceid; }
+
+    virtual void run(void)
+    {
+        if (m_parent)
+            m_parent->RunLoadDDMap(m_sourceid);
+        else
+            SourceUtil::UpdateChannelsFromListings(m_sourceid);
+
+        QMutexLocker locker(&m_lock);
+        m_sourceid = 0;
+        m_wait.wakeAll();
+    }
+
+    void wait(void)
+    {
+        QMutexLocker locker(&m_lock);
+        while (m_sourceid)
+            m_wait.wait(locker.mutex());
+    }
+
+  private:
+    TV *m_parent;
+    uint m_sourceid;
+    QMutex m_lock;
+    QWaitCondition m_wait;
+};
 
 /**
  * \brief If any cards are configured, return the number.
@@ -161,7 +198,7 @@ int TV::ConfiguredTunerCards(void)
     if (query.exec() && query.isActive() && query.size() && query.next())
         count = query.value(0).toInt();
 
-    LOG(VB_RECORD, LOG_INFO, 
+    LOG(VB_RECORD, LOG_INFO,
         "ConfiguredTunerCards() = " + QString::number(count));
 
     return count;
@@ -447,7 +484,7 @@ void TV::InitKeys(void)
     REG_KEY("TV Frontend", ACTION_VIEWSCHEDULED, QT_TRANSLATE_NOOP("MythControls",
             "List scheduled upcoming episodes"), "");
     REG_KEY("TV Frontend", "DETAILS", QT_TRANSLATE_NOOP("MythControls",
-            "Show program details"), "U");
+            "Show details"), "U");
     REG_KEY("TV Frontend", "VIEWCARD", QT_TRANSLATE_NOOP("MythControls",
             "Switch Capture Card view"), "Y");
     REG_KEY("TV Frontend", "VIEWINPUT", QT_TRANSLATE_NOOP("MythControls",
@@ -813,7 +850,7 @@ TV::TV(void)
       askAllowLock(QMutex::Recursive),
       // Channel Editing
       chanEditMapLock(QMutex::Recursive),
-      ddMapSourceId(0), ddMapLoaderRunning(false),
+      ddMapSourceId(0), ddMapLoader(new DDLoader(this)),
       // Sleep Timer
       sleep_index(0), sleepTimerId(0), sleepDialogTimerId(0),
       // Idle Timer
@@ -857,7 +894,6 @@ TV::TV(void)
       pseudoChangeChanTimerId(0),   speedChangeTimerId(0),
       errorRecoveryTimerId(0),      exitPlayerTimerId(0)
 {
-    memset(&ddMapLoader, 0, sizeof(pthread_t));
     LOG(VB_GENERAL, LOG_INFO, LOC + "Creating TV object");
     ctorTime.start();
 
@@ -1168,18 +1204,24 @@ TV::~TV(void)
         lcd->switchToTime();
     }
 
-    if (ddMapLoaderRunning)
+    if (ddMapLoader)
     {
-        pthread_join(ddMapLoader, NULL);
-        ddMapLoaderRunning = false;
+        ddMapLoader->wait();
 
         if (ddMapSourceId)
         {
-            int *src = new int;
-            *src = ddMapSourceId;
-            pthread_create(&ddMapLoader, NULL, load_dd_map_post_thunk, src);
-            pthread_detach(ddMapLoader);
+            ddMapLoader->SetParent(NULL);
+            ddMapLoader->SetSourceID(ddMapSourceId);
+            ddMapLoader->setAutoDelete(true);
+            MThreadPool::globalInstance()->start(ddMapLoader, "DDLoadMapPost");
         }
+        else
+        {
+            delete ddMapLoader;
+        }
+
+        ddMapSourceId = 0;
+        ddMapLoader = NULL;
     }
 
     if (browsehelper)
@@ -1449,7 +1491,7 @@ void TV::ShowOSDAskAllow(PlayerContext *ctx)
     QMap<QString,AskProgramInfo>::iterator next = it;
     while (it != askAllowPrograms.end())
     {
-        next = it; next++;
+        next = it; ++next;
         if ((*it).expiry <= timeNow)
         {
 #if 0
@@ -5374,8 +5416,8 @@ void TV::DoPlay(PlayerContext *ctx)
         if (ctx->ff_rew_state)
             time = StopFFRew(ctx);
         else if (ctx->player->IsPaused())
-            SendMythSystemPlayEvent("PLAY_UNPAUSED", ctx->playingInfo); 
-        
+            SendMythSystemPlayEvent("PLAY_UNPAUSED", ctx->playingInfo);
+
         ctx->player->Play(ctx->ts_normal, true);
         ctx->ff_rew_speed = 0;
     }
@@ -6070,7 +6112,7 @@ void TV::SwitchSource(PlayerContext *ctx, uint source_direction)
 
     if (kNextSource == source_direction)
     {
-        sit++;
+        ++sit;
         if (sit == sources.end())
             sit = sources.begin();
     }
@@ -6078,14 +6120,14 @@ void TV::SwitchSource(PlayerContext *ctx, uint source_direction)
     if (kPreviousSource == source_direction)
     {
         if (sit != sources.begin())
-            sit--;
+            --sit;
         else
         {
             QMap<uint,InputInfo>::const_iterator tmp = sources.begin();
             while (tmp != sources.end())
             {
                 sit = tmp;
-                tmp++;
+                ++tmp;
             }
         }
     }
@@ -6328,7 +6370,7 @@ void TV::ToggleInputs(PlayerContext *ctx, uint inputid)
     {
         it = find(inputs.begin(), inputs.end(), inputname);
         if (it != inputs.end())
-            it++;
+            ++it;
     }
 
     if (it == inputs.end())
@@ -7244,7 +7286,7 @@ void TV::UpdateOSDTimeoutMessage(PlayerContext *ctx)
     {
         if (timed_out)
         {
-            LOG(VB_GENERAL, LOG_ERR, LOC + 
+            LOG(VB_GENERAL, LOG_ERR, LOC +
                 "You have no OSD, but tuning has already taken too long.");
         }
         ReturnOSDLock(ctx, osd);
@@ -7759,7 +7801,7 @@ void TV::ChangeVolume(PlayerContext *ctx, bool up)
 
             if (ctx->buffer && ctx->buffer->IsDVD())
                 appName = tr("DVD");
-            
+
             lcd->switchToVolume(appName);
             lcd->setVolumeLevel((float)curvol / 100);
 
@@ -8192,7 +8234,7 @@ void TV::customEvent(QEvent *e)
             if (me->ExtraDataCount() == 3)
                 filename = me->ExtraData(2);
         }
-        if (mctx && mctx->player && 
+        if (mctx && mctx->player &&
             mctx->player->GetScreenShot(width, height, filename))
         {
         }
@@ -8204,12 +8246,12 @@ void TV::customEvent(QEvent *e)
     }
     else if (message.left(14) == "DONE_RECORDING")
     {
-        int seconds = 0;
+        // int seconds = 0;
         long long frames = 0;
         if (tokens.size() >= 4)
         {
             cardnum = tokens[1].toUInt();
-            seconds = tokens[2].toInt();
+            // seconds = tokens[2].toInt();
             frames = tokens[3].toLongLong();
         }
 
@@ -9080,36 +9122,6 @@ static void insert_map(InfoMap &infoMap, const InfoMap &newMap)
         infoMap.insert(it.key(), *it);
 }
 
-class load_dd_map
-{
-  public:
-    load_dd_map(TV *t, uint s) : tv(t), sourceid(s) {}
-    TV   *tv;
-    uint  sourceid;
-};
-
-void *TV::load_dd_map_thunk(void *param)
-{
-    load_dd_map *x = (load_dd_map*) param;
-    threadRegister("LoadDDMap");
-    x->tv->RunLoadDDMap(x->sourceid);
-    GetMythDB()->GetDBManager()->CloseDatabases();
-    threadDeregister();
-    delete x;
-    return NULL;
-}
-
-void *TV::load_dd_map_post_thunk(void *param)
-{
-    uint *sourceid = (uint*) param;
-    threadRegister("LoadDDMapPost");
-    SourceUtil::UpdateChannelsFromListings(*sourceid);
-    GetMythDB()->GetDBManager()->CloseDatabases();
-    threadDeregister();
-    delete sourceid;
-    return NULL;
-}
-
 /** \fn TV::StartChannelEditMode(PlayerContext*)
  *  \brief Starts channel editing mode.
  */
@@ -9124,11 +9136,7 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
     ReturnOSDLock(ctx, osd);
 
     QMutexLocker locker(&chanEditMapLock);
-    if (ddMapLoaderRunning)
-    {
-        pthread_join(ddMapLoader, NULL);
-        ddMapLoaderRunning = false;
-    }
+    ddMapLoader->wait();
 
     // Get the info available from the backend
     chanEditMap.clear();
@@ -9152,12 +9160,8 @@ void TV::StartChannelEditMode(PlayerContext *ctx)
 
     if (sourceid && (sourceid != ddMapSourceId))
     {
-        ddMapLoaderRunning = true;
-        if (!pthread_create(&ddMapLoader, NULL, load_dd_map_thunk,
-                            new load_dd_map(this, sourceid)))
-        {
-            ddMapLoaderRunning = false;
-        }
+        ddMapLoader->SetSourceID(sourceid);
+        MThreadPool::globalInstance()->start(ddMapLoader, "DDMapLoader");
     }
 }
 
@@ -9490,7 +9494,7 @@ void TV::OSDDialogEvent(int result, QString text, QString action)
 {
     PlayerContext *actx = GetPlayerReadLock(-1, __FILE__, __LINE__);
 
-    LOG(VB_GENERAL, LOG_INFO, LOC +
+    LOG(VB_GENERAL, LOG_DEBUG, LOC +
         QString("OSDDialogEvent: result %1 text %2 action %3")
             .arg(result).arg(text).arg(action));
 
@@ -9685,7 +9689,7 @@ void TV::OSDDialogEvent(int result, QString text, QString action)
                         new_channum = (*it).channum;
                 }
 
-                LOG(VB_GENERAL, LOG_INFO, LOC +
+                LOG(VB_GENERAL, LOG_DEBUG, LOC +
                     QString("Channel Group: '%1'->'%2'")
                         .arg(cur_channum).arg(new_channum));
             }
@@ -9938,7 +9942,7 @@ void TV::FillOSDMenuVideo(const PlayerContext *ctx, OSD *osd,
                           QString &currenttext, QString &backaction)
 {
     QStringList tracks;
-    uint curtrack                     = ~0;
+    //uint curtrack                     = ~0;
     uint sup                          = kPictureAttributeSupported_None;
     bool studio_levels                = false;
     bool autodetect                   = false;
@@ -9955,8 +9959,8 @@ void TV::FillOSDMenuVideo(const PlayerContext *ctx, OSD *osd,
         adjustfill       = ctx->player->GetAdjustFill();
         scan_type        = ctx->player->GetScanType();
         scan_type_locked = ctx->player->IsScanTypeLocked();
-        if (!tracks.empty())
-            curtrack = (uint) ctx->player->GetTrack(kTrackTypeVideo);
+        //if (!tracks.empty())
+        //    curtrack = (uint) ctx->player->GetTrack(kTrackTypeVideo);
         VideoOutput *vo = ctx->player->GetVideoOutput();
         if (vo)
         {
@@ -10133,7 +10137,7 @@ void TV::FillOSDMenuSubtitles(const PlayerContext *ctx, OSD *osd,
                               QString category, const QString selected,
                               QString &currenttext, QString &backaction)
 {
-    uint capmode  = 0;
+    // uint capmode  = 0;
     QStringList av_tracks;
     QStringList cc708_tracks;
     QStringList cc608_tracks;
@@ -10149,7 +10153,7 @@ void TV::FillOSDMenuSubtitles(const PlayerContext *ctx, OSD *osd,
     ctx->LockDeletePlayer(__FILE__, __LINE__);
     if (ctx->player)
     {
-        capmode      = ctx->player->GetCaptionMode();
+        // capmode      = ctx->player->GetCaptionMode();
         havetext     = ctx->player->HasTextSubtitles();
         av_tracks    = ctx->player->GetTracks(kTrackTypeSubtitle);
         cc708_tracks = ctx->player->GetTracks(kTrackTypeCC708);
@@ -10845,11 +10849,11 @@ void TV::FillOSDMenuSchedule(const PlayerContext *ctx, OSD *osd,
 void TV::FillOSDMenuJumpRec(PlayerContext* ctx, const QString category,
                             int level, const QString selected)
 {
-    bool in_recgroup = !category.isEmpty() && level > 0;
+    // bool in_recgroup = !category.isEmpty() && level > 0;
     if (level < 0 || level > 1)
     {
         level = 0;
-        in_recgroup = false;
+        // in_recgroup = false;
     }
 
     OSD *osd = GetOSDLock(ctx);
@@ -10871,7 +10875,7 @@ void TV::FillOSDMenuJumpRec(PlayerContext* ctx, const QString category,
             ctx->UnlockPlayingInfo(__FILE__, __LINE__);
 
             vector<ProgramInfo *>::const_iterator it = infoList->begin();
-            for ( ; it != infoList->end(); it++)
+            for ( ; it != infoList->end(); ++it)
             {
                 if ((*it)->GetRecordingGroup() != "LiveTV" || LiveTVInAllPrograms ||
                      (*it)->GetRecordingGroup() == currecgroup)
@@ -10883,7 +10887,7 @@ void TV::FillOSDMenuJumpRec(PlayerContext* ctx, const QString category,
 
             ProgramInfo *lastprog = GetLastProgram();
             QMap<QString,ProgramList>::const_iterator Iprog;
-            for (Iprog = progLists.begin(); Iprog != progLists.end(); Iprog++)
+            for (Iprog = progLists.begin(); Iprog != progLists.end(); ++Iprog)
             {
                 const ProgramList &plist = *Iprog;
                 uint progIndex = (uint) plist.size();
@@ -11326,22 +11330,23 @@ void TV::UnpauseLiveTV(PlayerContext *ctx, bool bQuietly /*=false*/)
  */
 void TV::ITVRestart(PlayerContext *ctx, bool isLive)
 {
-    uint chanid = 0;
-    uint cardid = 0;
+    uint chanid = -1;
+    uint sourceid = -1;
 
     if (ContextIsPaused(ctx, __FILE__, __LINE__))
         return;
 
     ctx->LockPlayingInfo(__FILE__, __LINE__);
     if (ctx->playingInfo)
+    {
         chanid = ctx->playingInfo->GetChanID();
+        sourceid = ChannelUtil::GetSourceIDForChannel(chanid);
+    }
     ctx->UnlockPlayingInfo(__FILE__, __LINE__);
-
-    cardid = ctx->GetCardID();
 
     ctx->LockDeletePlayer(__FILE__, __LINE__);
     if (ctx->player)
-        ctx->player->ITVRestart(chanid, cardid, isLive);
+        ctx->player->ITVRestart(chanid, sourceid, isLive);
     ctx->UnlockDeletePlayer(__FILE__, __LINE__);
 }
 

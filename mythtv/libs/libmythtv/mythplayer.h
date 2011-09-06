@@ -177,7 +177,7 @@ class MTV_PUBLIC MythPlayer
 
 
     // Bool Gets
-    bool    IsPaused(void)                    { return allpaused;      }
+    bool    IsPaused(void) const              { return allpaused;      }
     bool    GetRawAudioState(void) const;
     bool    GetLimitKeyRepeat(void) const     { return limitKeyRepeat; }
     bool    GetEof(void);

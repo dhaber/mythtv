@@ -75,7 +75,7 @@ class Task : public RefCounted
 
                         Task(); 
 
-                long    Id() { return( m_nTaskId ); }
+                long    Id() const { return( m_nTaskId ); }
 
         virtual void    Execute( TaskQueue *pQueue ) = 0;
         virtual QString Name   () = 0;
@@ -117,6 +117,7 @@ class UPNP_PUBLIC TaskQueue : public MThread
     public:
 
         static TaskQueue* Instance();
+        static void Shutdown();
 
         virtual ~TaskQueue();
 

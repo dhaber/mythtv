@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <fcntl.h>
+#include <pthread.h>
 using namespace std;
 
 #include <QDateTime>
@@ -1618,7 +1619,7 @@ void JobQueue::CleanupOldJobsInQueue()
 void JobQueue::ProcessJob(JobQueueEntry job)
 {
     int jobID = job.id;
-    QString name = QString("jobqueue%1%2").arg(jobID).arg(rand());
+    QString name = QString("jobqueue%1%2").arg(jobID).arg(random());
 
     if (!MSqlQuery::testDBConnection())
     {

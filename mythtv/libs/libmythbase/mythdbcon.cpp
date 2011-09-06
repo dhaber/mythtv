@@ -268,7 +268,7 @@ MDBManager::~MDBManager()
 #endif
 }
 
-MSqlDatabase *MDBManager::popConnection()
+MSqlDatabase *MDBManager::popConnection(bool reuse)
 {
     PurgeIdleConnections(true);
 
@@ -277,12 +277,15 @@ MSqlDatabase *MDBManager::popConnection()
     MSqlDatabase *db;
 
 #if REUSE_CONNECTION
-    db = m_inuse[QThread::currentThread()];
-    if (db != NULL)
+    if (reuse)
     {
-        m_inuse_count[QThread::currentThread()]++;
-        m_lock.unlock();
-        return db;
+        db = m_inuse[QThread::currentThread()];
+        if (db != NULL)
+        {
+            m_inuse_count[QThread::currentThread()]++;
+            m_lock.unlock();
+            return db;
+        }
     }
 #endif
 
@@ -301,8 +304,11 @@ MSqlDatabase *MDBManager::popConnection()
     }
 
 #if REUSE_CONNECTION
-    m_inuse_count[QThread::currentThread()]=1;
-    m_inuse[QThread::currentThread()] = db;
+    if (reuse)
+    {
+        m_inuse_count[QThread::currentThread()]=1;
+        m_inuse[QThread::currentThread()] = db;
+    }
 #endif
 
     m_lock.unlock();
@@ -532,9 +538,10 @@ MSqlQuery::~MSqlQuery()
     }
 }
 
-MSqlQueryInfo MSqlQuery::InitCon()
+MSqlQueryInfo MSqlQuery::InitCon(ConnectionReuse _reuse)
 {
-    MSqlDatabase *db = GetMythDB()->GetDBManager()->popConnection();
+    bool reuse = kNormalConnection == _reuse;
+    MSqlDatabase *db = GetMythDB()->GetDBManager()->popConnection(reuse);
     MSqlQueryInfo qi;
 
     InitMSqlQueryInfo(qi);
@@ -553,13 +560,10 @@ MSqlQueryInfo MSqlQuery::InitCon()
         return qi;
     }
 
-    if (db)
-    {
-        qi.db = db;
-        qi.qsqldb = db->db();
+    qi.db = db;
+    qi.qsqldb = db->db();
 
-        db->KickDatabase();
-    }
+    db->KickDatabase();
 
     return qi;
 }
@@ -689,7 +693,7 @@ bool MSqlQuery::exec()
         // out
         if (!str.startsWith("INSERT INTO logging "))
         {
-       	    // Sadly, neither executedQuery() nor lastQuery() display
+            // Sadly, neither executedQuery() nor lastQuery() display
             // the values in bound queries against a MySQL5 database.
             // So, replace the named placeholders with their values.
 
@@ -847,7 +851,7 @@ bool MSqlQuery::prepare(const QString& query)
     // Close and reopen the database connection and retry the query if it
     // connects again
     if (!ok && QSqlQuery::lastError().number() == 2006 && Reconnect())
-        ok = QSqlQuery::prepare(query);
+        ok = true;
 
     if (!ok && !(GetMythDB()->SuppressDBMessages()))
     {
@@ -862,7 +866,7 @@ bool MSqlQuery::prepare(const QString& query)
 
 bool MSqlQuery::testDBConnection()
 {
-    MSqlDatabase *db = GetMythDB()->GetDBManager()->popConnection();
+    MSqlDatabase *db = GetMythDB()->GetDBManager()->popConnection(true);
 
     // popConnection() has already called OpenDatabase(),
     // so we only have to check if it was successful:

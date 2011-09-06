@@ -368,10 +368,10 @@ void TVBrowseHelper::GetNextProgramDB(
 
     MSqlBindings bindings;
     bindings[":CHANID"] = chanid;
-    bindings[":NOWTS"] = nowtime.toString("yyyy-MM-ddThh:mm:ss");
-    bindings[":LATESTTS"] = latesttime.toString("yyyy-MM-ddThh:mm:ss");
-    bindings[":BROWSETS"] = browsetime.toString("yyyy-MM-ddThh:mm:ss");
-    bindings[":BROWSETS2"] = browsetime.toString("yyyy-MM-ddThh:mm:ss");
+    bindings[":NOWTS"] = nowtime;
+    bindings[":LATESTTS"] = latesttime;
+    bindings[":BROWSETS"] = browsetime;
+    bindings[":BROWSETS2"] = browsetime;
 
     QString querystr = " WHERE program.chanid = :CHANID ";
     switch (direction)
@@ -443,7 +443,7 @@ void TVBrowseHelper::run()
                 QMultiMap<QString,uint>::iterator it;
                 it = db_channum_to_chanids.lowerBound(bi.m_channum);
                 for ( ; (it != db_channum_to_chanids.end()) &&
-                          (it.key() == bi.m_channum); it++)
+                          (it.key() == bi.m_channum); ++it)
                 {
                     if (db_chanid_to_sourceid[*it] == sourceid)
                         chanids.push_back(*it);

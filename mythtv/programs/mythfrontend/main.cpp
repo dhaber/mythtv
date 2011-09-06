@@ -229,18 +229,6 @@ namespace
             g_pUPnp = NULL;
         }
 
-        if (SSDP::Instance())
-        {
-            SSDP::Instance()->RequestTerminate();
-            SSDP::Instance()->wait();
-        }
-
-        if (TaskQueue::Instance())
-        {
-            TaskQueue::Instance()->RequestTerminate();
-            TaskQueue::Instance()->wait();
-        }
-
         if (pmanager)
         {
             delete pmanager;
@@ -916,11 +904,6 @@ static void TVMenuCallback(void *data, QString &selection)
         QStringList strlist( QString("REFRESH_BACKEND") );
         gCoreContext->SendReceiveStringList(strlist);
     }
-    else if (sel == "settings audiogeneral")
-    {
-        AudioGeneralSettings audiosettings;
-        audiosettings.exec();
-    }
     else if (sel == "settings playback")
     {
         PlaybackSettings settings;
@@ -1271,8 +1254,6 @@ static void setDebugShowNames(void)
         GetMythMainWindow()->GetMainStack()->GetTopScreen()->SetRedraw();
 }
 
-// If adding a new jump point, remember to also add a line to clear it in
-// ReloadJumpPoints(), below
 static void InitJumpPoints(void)
 {
      REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Reload Theme"),

@@ -60,7 +60,7 @@ class MBASE_PUBLIC MDBManager
     void PurgeIdleConnections(bool leaveOne = false);
 
   protected:
-    MSqlDatabase *popConnection(void);
+    MSqlDatabase *popConnection(bool reuse);
     void pushConnection(MSqlDatabase *db);
 
     MSqlDatabase *getSchedCon(void);
@@ -126,7 +126,7 @@ typedef QMap<QString, QVariant> MSqlBindings;
  */
 class MBASE_PUBLIC MSqlQuery : private QSqlQuery
 {
-    friend void MSqlEscapeAsAQuery(QString&, MSqlBindings&);
+    MBASE_PUBLIC friend void MSqlEscapeAsAQuery(QString&, MSqlBindings&);
   public:
     /// \brief Get DB connection from pool
     MSqlQuery(const MSqlQueryInfo &qi);
@@ -198,8 +198,13 @@ class MBASE_PUBLIC MSqlQuery : private QSqlQuery
     /// \brief Checks DB connection + login (login info via Mythcontext)
     static bool testDBConnection();
 
+    typedef enum
+    {
+        kDedicatedConnection,
+        kNormalConnection,
+    } ConnectionReuse;
     /// \brief Only use this in combination with MSqlQuery constructor
-    static MSqlQueryInfo InitCon();
+    static MSqlQueryInfo InitCon(ConnectionReuse = kNormalConnection);
 
     /// \brief Returns dedicated connection. (Required for using temporary SQL tables.)
     static MSqlQueryInfo SchedCon();

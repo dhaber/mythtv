@@ -59,6 +59,17 @@ SSDP* SSDP::Instance()
     QMutexLocker locker(&g_pSSDPCreationLock);
     return g_pSSDP ? g_pSSDP : (g_pSSDP = new SSDP());
 }
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+void SSDP::Shutdown()
+{
+    QMutexLocker locker(&g_pSSDPCreationLock);
+    delete g_pSSDP;
+    g_pSSDP = NULL;
+}
  
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -132,11 +143,7 @@ SSDP::~SSDP()
         }
     }
 
-    QMutexLocker locker(&g_pSSDPCreationLock);
-    g_pSSDP = NULL;
-
     LOG(VB_UPNP, LOG_INFO, "SSDP Thread Terminated." );
-
 }
 
 void SSDP::RequestTerminate(void)
@@ -242,7 +249,7 @@ void SSDP::PerformSearch(const QString &sST, uint timeout_secs)
         LOG(VB_GENERAL, LOG_INFO,
             "SSDP::PerformSearch - did not write entire buffer.");
 
-    usleep( rand() % 250000 );
+    usleep( random() % 250000 );
 
     if ( pSocket->writeBlock( sRequest.data(),
                               sRequest.size(), address, SSDP_PORT ) != nSize)
@@ -283,9 +290,9 @@ void SSDP::run()
 #if 0
                 if (m_Sockets[ nIdx ]->bytesAvailable() > 0)
                 {
-	            LOG(VB_GENERAL, LOG_DEBUG,
+                    LOG(VB_GENERAL, LOG_DEBUG,
                         QString("Found Extra data before select: %1")
-                            .arg(nIdx));
+                        .arg(nIdx));
                     ProcessData( m_Sockets[ nIdx ] );
                 }
 #endif
@@ -301,7 +308,7 @@ void SSDP::run()
         {
             if (m_Sockets[nIdx] != NULL && m_Sockets[nIdx]->socket() >= 0 &&
                 FD_ISSET(m_Sockets[nIdx]->socket(), &read_set))
-	    {
+            {
 #if 0
                 LOG(VB_GENERAL, LOG_DEBUG, QString("FD_ISSET( %1 )").arg(nIdx));
 #endif
@@ -489,7 +496,7 @@ bool SSDP::ProcessSearchRequest( const QStringMap &sHeaders,
 
     nMX = (nMX > 120) ? 120 : nMX;
 
-    int nNewMX = (int)(0 + ((unsigned short)rand() % nMX)) * 1000;
+    int nNewMX = (int)(0 + ((unsigned short)random() % nMX)) * 1000;
 
     // ----------------------------------------------------------------------
     // See what they are looking for...

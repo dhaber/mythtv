@@ -65,6 +65,7 @@ class MythCoreContextPrivate : public QObject
     bool           m_WOLInProgress;
 
     bool m_backend;
+    bool m_hasIPv6;
 
     MythDB *m_database;
 
@@ -88,12 +89,15 @@ MythCoreContextPrivate::MythCoreContextPrivate(MythCoreContext *lparent,
       m_serverSock(NULL), m_eventSock(NULL),
       m_WOLInProgress(false),
       m_backend(false),
+      m_hasIPv6(false),
       m_database(GetMythDB()),
       m_UIThread(QThread::currentThread()),
       m_locale(NULL),
       m_scheduler(NULL)
 {
     threadRegister("CoreContext");
+    srandom(QDateTime::currentDateTime().toTime_t() ^
+            QTime::currentTime().msec());
 }
 
 MythCoreContextPrivate::~MythCoreContextPrivate()
@@ -121,7 +125,11 @@ MythCoreContextPrivate::~MythCoreContextPrivate()
 
     ShutdownMythDownloadManager();
 
+    // This has already been run in the MythContext dtor.  Do we need it here
+    // too?
+#if 0
     logStop(); // need to shutdown db logger before we kill db
+#endif
 
     MThread::Cleanup();
 
@@ -184,7 +192,31 @@ bool MythCoreContext::Init(void)
         return false;
     }
 
-    has_ipv6 = false;
+#ifndef _WIN32
+    QString lang_variables("");
+    QString lc_value = getenv("LC_ALL");
+    if (lc_value.isEmpty())
+    {
+        // LC_ALL is undefined or empty, so check "sub-variable"
+        lc_value = getenv("LC_CTYPE");
+    }
+    if (!lc_value.contains("UTF-8", Qt::CaseInsensitive))
+        lang_variables.append("LC_ALL or LC_CTYPE");
+    lc_value = getenv("LANG");
+    if (!lc_value.contains("UTF-8", Qt::CaseInsensitive))
+    {
+        if (!lang_variables.isEmpty())
+            lang_variables.append(", and ");
+        lang_variables.append("LANG");
+    }
+    if (!lang_variables.isEmpty())
+        LOG(VB_GENERAL, LOG_WARNING, QString("This application expects to "
+            "be running a locale that specifies a UTF-8 codeset, and many "
+            "features may behave improperly with your current language "
+            "settings. Please set the %1 variable(s) in the environment "
+            "in which this program is executed to include a UTF-8 codeset "
+            "(such as 'en_US.UTF-8').").arg(lang_variables));
+#endif
 
     // If any of the IPs on any interfaces look like IPv6 addresses, assume IPv6
     // is available
@@ -193,9 +225,11 @@ bool MythCoreContext::Init(void)
     for (int i = 0; i < IpList.size(); i++)
     {
         if (IpList.at(i).toString().contains(":"))
-            has_ipv6 = true;
-    };
-
+        {
+            d->m_hasIPv6 = true;
+            break;
+        }
+    }
 
     return true;
 }
@@ -520,7 +554,7 @@ void MythCoreContext::SetBackend(bool backend)
     d->m_backend = backend;
 }
 
-bool MythCoreContext::IsBackend(void)
+bool MythCoreContext::IsBackend(void) const
 {
     return d->m_backend;
 }
@@ -574,12 +608,8 @@ bool MythCoreContext::IsFrontendOnly(void)
 
 QHostAddress MythCoreContext::MythHostAddressAny(void)
 {
-
-    if (has_ipv6)
-        return QHostAddress(QHostAddress::AnyIPv6);
-    else
-        return QHostAddress(QHostAddress::Any);
-
+    return QHostAddress(
+        (d->m_hasIPv6) ? QHostAddress::AnyIPv6 : QHostAddress::Any);
 }
 
 QString MythCoreContext::GenMythURL(QString host, QString port, QString path, QString storageGroup)
@@ -587,7 +617,7 @@ QString MythCoreContext::GenMythURL(QString host, QString port, QString path, QS
     return GenMythURL(host,port.toInt(),path,storageGroup);
 }
 
-QString MythCoreContext::GenMythURL(QString host, int port, QString path, QString storageGroup) 
+QString MythCoreContext::GenMythURL(QString host, int port, QString path, QString storageGroup)
 {
     QString ret;
 
@@ -597,18 +627,18 @@ QString MythCoreContext::GenMythURL(QString host, int port, QString path, QStrin
 
     QHostAddress addr(host);
 
-    if (!storageGroup.isEmpty()) 
+    if (!storageGroup.isEmpty())
         m_storageGroup = storageGroup + "@";
 
     m_host = host;
 
 #if !defined(QT_NO_IPV6)
     // Basically if it appears to be an IPv6 IP surround the IP with [] otherwise don't bother
-    if (( addr.protocol() == QAbstractSocket::IPv6Protocol ) || (host.contains(":"))) 
+    if (( addr.protocol() == QAbstractSocket::IPv6Protocol ) || (host.contains(":")))
         m_host = "[" + host + "]";
 #endif
 
-    if (port > 0) 
+    if (port > 0)
         m_port = QString(":%1").arg(port);
     else
         m_port = "";
@@ -620,7 +650,7 @@ QString MythCoreContext::GenMythURL(QString host, int port, QString path, QStrin
     ret = QString("myth://%1%2%3%4%5").arg(m_storageGroup).arg(m_host).arg(m_port).arg(seperator).arg(path);
 
 #if 0
-    LOG(VB_GENERAL, LOG_DEBUG, LOC + 
+    LOG(VB_GENERAL, LOG_DEBUG, LOC +
         QString("GenMythURL returning %1").arg(ret));
 #endif
 
@@ -899,7 +929,7 @@ bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
                     QString("Protocol query '%1' responded with the error '%2'")
                         .arg(query_type).arg(strlist[1]));
             else
-                LOG(VB_GENERAL, LOG_INFO, 
+                LOG(VB_GENERAL, LOG_INFO,
                     QString("Protocol query '%1' responded with an error, but "
                             "no error message.") .arg(query_type));
 
@@ -1046,7 +1076,7 @@ void MythCoreContext::SetGUIObject(QObject *gui)
     d->m_GUIobject = gui;
 }
 
-bool MythCoreContext::HasGUI(void)
+bool MythCoreContext::HasGUI(void) const
 {
     return d->m_GUIobject;
 }
@@ -1061,7 +1091,7 @@ MythDB *MythCoreContext::GetDB(void)
     return d->m_database;
 }
 
-const MythLocale *MythCoreContext::GetLocale(void)
+const MythLocale *MythCoreContext::GetLocale(void) const
 {
     return d->m_locale;
 }
