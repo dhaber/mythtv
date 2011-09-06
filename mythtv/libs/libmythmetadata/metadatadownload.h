@@ -58,7 +58,7 @@ class META_PUBLIC MetadataDownload : public MThread
     // Video handling
     MetadataLookupList  handleMovie(MetadataLookup* lookup);
     MetadataLookupList  handleTelevision(MetadataLookup* lookup);
-    MetadataLookupList  handleVideoUndetermined(MetadataLookup* lookup);
+    MetadataLookupList  handleVideoUndetermined(MetadataLookup* lookup, bool useDate);
     MetadataLookupList  handleRecordingGeneric(MetadataLookup* lookup);
 
     MetadataLookupList  handleGame(MetadataLookup* lookup);

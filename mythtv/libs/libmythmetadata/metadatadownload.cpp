@@ -78,7 +78,7 @@ void MetadataDownload::run()
             else if (lookup->GetSubtype() == kProbableMovie)
                 list = handleMovie(lookup);
             else
-                list = handleVideoUndetermined(lookup);
+                list = handleVideoUndetermined(lookup, false);
 
             if (!list.size() &&
                 lookup->GetSubtype() == kUnknownVideo)
@@ -92,8 +92,8 @@ void MetadataDownload::run()
             {
                 if (lookup->GetSeason() > 0 || lookup->GetEpisode() > 0)
                     list = handleTelevision(lookup);
-                else if (!lookup->GetSubtitle().isEmpty() || lookup->GetReleaseDate().isValid())
-                    list = handleVideoUndetermined(lookup);
+                else if (!lookup->GetSubtitle().isEmpty())
+                    list = handleVideoUndetermined(lookup, false);
             }
             else if (lookup->GetSubtype() == kProbableMovie)
                 list = handleMovie(lookup);
@@ -559,7 +559,7 @@ MetadataLookupList MetadataDownload::handleTelevision(MetadataLookup* lookup)
 }
 
 MetadataLookupList MetadataDownload::handleVideoUndetermined(
-                                                    MetadataLookup* lookup)
+                                                    MetadataLookup* lookup, bool useDate)
 {
     MetadataLookupList list;
 
@@ -575,10 +575,11 @@ MetadataLookupList MetadataDownload::handleVideoUndetermined(
     args.append(QString("-l")); // Language Flag
     args.append(gCoreContext->GetLanguage()); // UI Language
 
-    if (!lookup->GetSubtitle().isEmpty())
+    // subtitle search
+    if (!useDate)
     	args.append(QString("-N"));
 
-    // If it's not a subtitle search it's a release date search
+    // date search
     else 
     	args.append(QString("-R"));
 
@@ -593,7 +594,7 @@ MetadataLookupList MetadataDownload::handleVideoUndetermined(
         args.append(title);
     }
 
-    if (!lookup->GetSubtitle().isEmpty())
+    if (!useDate)
     	args.append(lookup->GetSubtitle());
     else 
     	args.append(lookup->GetReleaseDate().toString("yyyy-MM-dd"));
@@ -616,6 +617,11 @@ MetadataLookupList MetadataDownload::handleRecordingGeneric(
     // hail mary to try to get at least *series* level info and art/inetref.
 
     MetadataLookupList list;
+
+    // search by date first
+    list = handleVideoUndetermined(lookup, true);
+    if (list.count() > 0)
+        return list;
 
     QString def_cmd = QDir::cleanPath(QString("%1/%2")
             .arg(GetShareDir())
