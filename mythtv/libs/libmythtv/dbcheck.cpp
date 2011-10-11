@@ -5869,6 +5869,35 @@ NULL
             return false;
     }
 
+    if (dbver == "1281")
+    {
+        const char *updates[] = {
+"ALTER TABLE cardinput ADD changer_device VARCHAR(128) "
+"AFTER externalcommand;",
+"ALTER TABLE cardinput ADD changer_model VARCHAR(128) "
+"AFTER changer_device;",
+NULL
+};
+        if (!performActualUpdate(updates, "1282", dbver))
+            return false;
+    }
+
+    if (dbver == "1282")
+    {
+        const char *updates[] = {
+"UPDATE settings"
+"   SET data = SUBSTR(data, INSTR(data, 'share/mythtv/metadata')+13)"
+" WHERE value "
+"    IN ('TelevisionGrabber', "
+"        'MovieGrabber', "
+"        'mythgame.MetadataGrabber');",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1283", dbver))
+            return false;
+    }
+
     return true;
 }
 

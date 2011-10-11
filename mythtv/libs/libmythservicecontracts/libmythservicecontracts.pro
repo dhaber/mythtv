@@ -17,6 +17,7 @@ HEADERS += serviceexp.h service.h datacontracthelper.h
 HEADERS += services/mythServices.h    services/guideServices.h
 HEADERS += services/contentServices.h services/dvrServices.h
 HEADERS += services/channelServices.h services/videoServices.h
+HEADERS += services/captureServices.h
 
 HEADERS += datacontracts/connectionInfo.h        datacontracts/databaseInfo.h
 HEADERS += datacontracts/programAndChannel.h     datacontracts/programGuide.h
@@ -30,6 +31,8 @@ HEADERS += datacontracts/videoMultiplexList.h    datacontracts/videoMetadataInfo
 HEADERS += datacontracts/videoMetadataInfoList.h datacontracts/blurayInfo.h
 HEADERS += datacontracts/timeZoneInfo.h          datacontracts/videoLookupInfo.h
 HEADERS += datacontracts/videoLookupInfoList.h   datacontracts/versionInfo.h
+HEADERS += datacontracts/lineup.h                datacontracts/captureCard.h
+HEADERS += datacontracts/captureCardList.h
 
 SOURCES += service.cpp
 
@@ -48,6 +51,7 @@ incServices.path = $${PREFIX}/include/mythtv/libmythservicecontracts/services/
 incServices.files  = services/mythServices.h    services/guideServices.h
 incServices.files += services/contentServices.h services/dvrServices.h
 incServices.files += services/channelServices.h services/videoServices.h
+incServices.files += services/captureServices.h
 
 incDatacontracts.path = $${PREFIX}/include/mythtv/libmythservicecontracts/datacontracts/
 incDatacontracts.files  = datacontracts/connectionInfo.h      datacontracts/databaseInfo.h
@@ -59,7 +63,8 @@ incDatacontracts.files += datacontracts/videoMultiplex.h      datacontracts/vide
 incDatacontracts.files += datacontracts/videoMetadataInfo.h   datacontracts/videoMetadataInfoList.h
 incDatacontracts.files += datacontracts/blurayInfo.h          datacontracts/videoLookupInfo.h
 incDatacontracts.files += datacontracts/timeZoneInfo.h        datacontracts/videoLookupInfoList.h
-incDatacontracts.files += datacontracts/versionInfo.h
+incDatacontracts.files += datacontracts/versionInfo.h         datacontracts/lineup.h
+incDatacontracts.files += datacontracts/captureCard.h         datacontracts/captureCardList.h
 
 INSTALLS += inc incServices incDatacontracts
 

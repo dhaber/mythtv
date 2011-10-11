@@ -51,6 +51,7 @@ const int kEnd          = 0,
 const char* NamedOptType(int type);
 bool openPidfile(ofstream &pidfs, const QString &pidfile);
 bool setUser(const QString &username);
+int GetTermWidth(void);
 
 int GetTermWidth(void)
 {
@@ -99,18 +100,19 @@ const char* NamedOptType(int type)
 CommandLineArg::CommandLineArg(QString name, QVariant::Type type,
                    QVariant def, QString help, QString longhelp) :
     ReferenceCounter(), m_given(false), m_name(name), m_group(""),
-    m_type(type), m_default(def), m_help(help), m_longhelp(longhelp)
+    m_deprecated(""), m_type(type), m_default(def), m_help(help),
+    m_longhelp(longhelp)
 {
 }
 
 CommandLineArg::CommandLineArg(QString name, QVariant::Type type, QVariant def)
   : ReferenceCounter(), m_given(false), m_name(name), m_group(""),
-    m_type(type), m_default(def)
+    m_deprecated(""), m_type(type), m_default(def)
 {
 }
 
 CommandLineArg::CommandLineArg(QString name) :
-    ReferenceCounter(), m_given(false), m_name(name), 
+    ReferenceCounter(), m_given(false), m_name(name), m_deprecated(""),
     m_type(QVariant::Invalid)
 {
 }
@@ -442,6 +444,11 @@ CommandLineArg* CommandLineArg::SetBlocks(QStringList opts)
     QStringList::const_iterator i = opts.begin();
     for (; i != opts.end(); ++i)
         m_blocks << new CommandLineArg(*i);
+    return this;
+}
+
+CommandLineArg* CommandLineArg::SetDeprecated(QString depstr)
+{
     return this;
 }
 
@@ -1286,6 +1293,11 @@ QStringList MythCommandLineParser::GetArgs(void) const
     return toStringList("_args");
 }
 
+QMap<QString,QString> MythCommandLineParser::GetExtra(void) const
+{
+    return toMap("_extra");
+}
+
 QString MythCommandLineParser::GetPassthrough(void) const
 {
     return toStringList("_passthrough").join(" ");
@@ -1776,7 +1788,7 @@ void MythCommandLineParser::addLogging(
                 ->SetGroup("Logging");
     add("--syslog", "syslog", "none", 
         "Set the syslog logging facility.\nSet to \"none\" to disable, "
-        "defaults to none", "")
+        "defaults to none.", "")
                 ->SetGroup("Logging");
     add("--nodblog", "nodblog", false, "Disable database logging.", "")
                 ->SetGroup("Logging");
@@ -1929,7 +1941,8 @@ int MythCommandLineParser::ConfigureLogging(QString mask, unsigned int progress)
 // WARNING: this must not be called until after MythContext is initialized
 void MythCommandLineParser::ApplySettingsOverride(void)
 {
-    cerr << "Applying settings override" << endl;
+    if (m_verbose)
+        cerr << "Applying settings override" << endl;
 
     QMap<QString, QString> override = GetSettingsOverride();
     if (override.size())

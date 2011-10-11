@@ -151,7 +151,7 @@ int MythOpenGLPainter::GetTextureFromCache(MythImage *im)
 
     QImage tx = QGLWidget::convertToGLFormat(*im);
     GLuint tx_id =
-        realRender->CreateTexture(tx.size(),false, 0,
+        realRender->CreateTexture(tx.size(), false, 0,
                                   GL_UNSIGNED_BYTE, GL_RGBA, GL_RGBA8,
                                   GL_LINEAR_MIPMAP_LINEAR);
 
@@ -192,7 +192,8 @@ void MythOpenGLPainter::DrawRect(const QRect &area, const QBrush &fillBrush,
                                  const QPen &linePen, int alpha)
 {
     if ((fillBrush.style() == Qt::SolidPattern ||
-         fillBrush.style() == Qt::NoBrush) && realRender)
+         fillBrush.style() == Qt::NoBrush) &&
+        (realRender && realRender->RectanglesAreAccelerated()))
     {
         realRender->DrawRect(area, fillBrush, linePen, alpha);
         return;

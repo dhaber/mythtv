@@ -32,6 +32,8 @@
 #include "mythcorecontext.h"
 #include "channelutil.h"
 #include "sourceutil.h"
+#include "cardutil.h"
+#include "datadirect.h"
 
 #include "serviceUtil.h"
 
@@ -386,7 +388,7 @@ bool Channel::UpdateVideoSource( uint nSourceId,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Channel::CreateVideoSource( const QString &sSourceName,
+int  Channel::CreateVideoSource( const QString &sSourceName,
                                  const QString &sGrabber,
                                  const QString &sUserId,
                                  const QString &sFreqTable,
@@ -396,13 +398,11 @@ bool Channel::CreateVideoSource( const QString &sSourceName,
                                  const QString &sConfigPath,
                                  int           nNITId )
 {
-    bool bResult = false;
-
-    bResult = SourceUtil::CreateSource(sSourceName, sGrabber, sUserId, sFreqTable,
+    int nResult = SourceUtil::CreateSource(sSourceName, sGrabber, sUserId, sFreqTable,
                                        sLineupId, sPassword, bUseEIT, sConfigPath,
                                        nNITId);
 
-    return bResult;
+    return nResult;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -416,6 +416,76 @@ bool Channel::DeleteVideoSource( uint nSourceID )
     bResult = SourceUtil::DeleteSource( nSourceID );
 
     return bResult;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+DTC::LineupList* Channel::GetDDLineups( const QString &sSource,
+                                        const QString &sUserId,
+                                        const QString &sPassword )
+{
+    int source = 0;
+
+    DTC::LineupList *pLineups = new DTC::LineupList();
+
+    if (sSource.toLower() == "schedulesdirect1" ||
+        sSource.toLower() == "schedulesdirect" ||
+        sSource.isEmpty())
+    {
+        source = 1;
+        DataDirectProcessor ddp(source, sUserId, sPassword);
+        if (!ddp.GrabLineupsOnly())
+        {
+            throw( QString("Unable to grab lineups. Check info."));
+        }
+        const DDLineupList lineups = ddp.GetLineups();
+
+        DDLineupList::const_iterator it;
+        for (it = lineups.begin(); it != lineups.end(); ++it)
+        {
+            DTC::Lineup *pLineup = pLineups->AddNewLineup();
+
+            pLineup->setLineupId((*it).lineupid);
+            pLineup->setName((*it).name);
+            pLineup->setDisplayName((*it).displayname);
+            pLineup->setType((*it).type);
+            pLineup->setPostal((*it).postal);
+            pLineup->setDevice((*it).device);
+        }
+    }
+
+    return pLineups;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+int Channel::FetchChannelsFromSource( const uint nSourceId,
+                                      const uint nCardId,
+                                      bool       bWaitForFinish )
+{
+    if ( nSourceId < 1 || nCardId < 1)
+        throw( QString("A source ID and card ID are both required."));
+
+    int nResult = 0;
+
+    QString cardtype = CardUtil::GetRawCardType(nCardId);
+
+    if (!CardUtil::IsUnscanable(cardtype) &&
+        !CardUtil::IsEncoder(cardtype))
+    {
+        throw( QString("This device is incompatible with channel fetching.") );
+    }
+
+    SourceUtil::UpdateChannelsFromListings(nSourceId, cardtype, bWaitForFinish);
+
+    if (bWaitForFinish)
+        nResult = SourceUtil::GetChannelCount(nSourceId);
+
+    return nResult;
 }
 
 /////////////////////////////////////////////////////////////////////////////

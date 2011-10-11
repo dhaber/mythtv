@@ -42,8 +42,15 @@ OpenGLLocker::~OpenGLLocker()
         m_render->doneCurrent();
 }
 
-MythRenderOpenGL* MythRenderOpenGL::Create(const QGLFormat& format, QPaintDevice* device)
+MythRenderOpenGL* MythRenderOpenGL::Create(QPaintDevice* device)
 {
+    QGLFormat format;
+    format.setDepth(false);
+
+#if defined(Q_WS_MAC)
+    format.setSwapInterval(1);
+#endif
+
 #ifdef USING_OPENGLES
     if (device)
         return new MythRenderOpenGL2ES(format, device);
@@ -560,7 +567,7 @@ bool MythRenderOpenGL::CreateFrameBuffer(uint &fb, uint tex)
                 "Frame buffer incomplete_DRAW_BUFFER");
             break;
         case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
-            LOG(VB_PLAYBACK, LOG_INFO, LOC + 
+            LOG(VB_PLAYBACK, LOG_INFO, LOC +
                 "Frame buffer incomplete_READ_BUFFER");
             break;
         case GL_FRAMEBUFFER_UNSUPPORTED:
@@ -693,6 +700,8 @@ void MythRenderOpenGL::InitProcs(void)
 {
     m_extensions = (reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)));
 
+    m_glTexImage1D = (MYTH_GLTEXIMAGE1DPROC)
+        GetProcAddress("glTexImage1D");
     m_glActiveTexture = (MYTH_GLACTIVETEXTUREPROC)
         GetProcAddress("glActiveTexture");
     m_glMapBuffer = (MYTH_GLMAPBUFFERPROC)
@@ -926,6 +935,7 @@ void MythRenderOpenGL::ResetProcs(void)
 {
     m_extensions = QString();
 
+    m_glTexImage1D = NULL;
     m_glActiveTexture = NULL;
     m_glMapBuffer = NULL;
     m_glBindBuffer = NULL;
@@ -1229,11 +1239,12 @@ bool MythRenderOpenGL::ClearTexture(uint tex)
 
     memset(scratch, 0, tmp_size);
 
-    if (m_textures[tex].m_type == GL_TEXTURE_1D)
+    if ((m_textures[tex].m_type == GL_TEXTURE_1D) && m_glTexImage1D)
     {
-        glTexImage1D(m_textures[tex].m_type, 0, m_textures[tex].m_internal_fmt,
-                     size.width(), 0, m_textures[tex].m_data_fmt ,
-                     m_textures[tex].m_data_type, scratch);
+        m_glTexImage1D(m_textures[tex].m_type, 0,
+                       m_textures[tex].m_internal_fmt,
+                       size.width(), 0, m_textures[tex].m_data_fmt,
+                       m_textures[tex].m_data_type, scratch);
     }
     else
     {

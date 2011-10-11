@@ -31,6 +31,7 @@
 #include "datacontracts/videoSourceList.h"
 #include "datacontracts/videoMultiplex.h"
 #include "datacontracts/videoMultiplexList.h"
+#include "datacontracts/lineup.h"
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -51,7 +52,7 @@
 class SERVICE_PUBLIC ChannelServices : public Service
 {
     Q_OBJECT
-    Q_CLASSINFO( "version"    , "1.05" );
+    Q_CLASSINFO( "version"    , "1.1" );
     Q_CLASSINFO( "CreateDBChannel_Method",           "POST" )
     Q_CLASSINFO( "UpdateDBChannel_Method",           "POST" )
     Q_CLASSINFO( "DeleteDBChannel_Method",           "POST" )
@@ -71,6 +72,8 @@ class SERVICE_PUBLIC ChannelServices : public Service
             DTC::VideoSourceList::InitializeCustomTypes();
             DTC::VideoMultiplex::InitializeCustomTypes();
             DTC::VideoMultiplexList::InitializeCustomTypes();
+            DTC::Lineup::InitializeCustomTypes();
+            DTC::LineupList::InitializeCustomTypes();
         }
 
     public slots:
@@ -136,7 +139,7 @@ class SERVICE_PUBLIC ChannelServices : public Service
                                                                    const QString &ConfigPath,
                                                                    int           NITId ) = 0;
 
-        virtual bool                      CreateVideoSource      ( const QString &SourceName,
+        virtual int                       CreateVideoSource      ( const QString &SourceName,
                                                                    const QString &Grabber,
                                                                    const QString &UserId,
                                                                    const QString &FreqTable,
@@ -147,6 +150,14 @@ class SERVICE_PUBLIC ChannelServices : public Service
                                                                    int           NITId ) = 0;
 
         virtual bool                      DeleteVideoSource      ( uint          SourceID ) = 0;
+
+        virtual DTC::LineupList*          GetDDLineups           ( const QString &Source,
+                                                                   const QString &UserId,
+                                                                   const QString &Password ) = 0;
+
+        virtual int                       FetchChannelsFromSource( const uint SourceId,
+                                                                   const uint CardId,
+                                                                   bool       WaitForFinish ) = 0;
 
         /* Multiplex Methods */
 

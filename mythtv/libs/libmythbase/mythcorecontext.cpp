@@ -17,6 +17,8 @@ using namespace std;
 #ifdef USING_MINGW
 #include <winsock2.h>
 #include <unistd.h>
+#else
+#include <locale.h>
 #endif
 
 #include "compat.h"
@@ -194,11 +196,14 @@ bool MythCoreContext::Init(void)
 
 #ifndef _WIN32
     QString lang_variables("");
-    QString lc_value = getenv("LC_ALL");
+    QString lc_value = setlocale(LC_CTYPE, NULL);
     if (lc_value.isEmpty())
     {
-        // LC_ALL is undefined or empty, so check "sub-variable"
-        lc_value = getenv("LC_CTYPE");
+        // try fallback to environment variables for non-glibc systems
+        // LC_ALL, then LC_CTYPE
+        lc_value = getenv("LC_ALL");
+        if (lc_value.isEmpty())
+            lc_value = getenv("LC_CTYPE");
     }
     if (!lc_value.contains("UTF-8", Qt::CaseInsensitive))
         lang_variables.append("LC_ALL or LC_CTYPE");
@@ -281,7 +286,8 @@ bool MythCoreContext::SetupCommandSocket(MythSocket *serverSock,
 
 // Assumes that either m_sockLock is held, or the app is still single
 // threaded (i.e. during startup).
-bool MythCoreContext::ConnectToMasterServer(bool blockingClient)
+bool MythCoreContext::ConnectToMasterServer(bool blockingClient,
+                                            bool openEventSocket)
 {
     if (IsMasterBackend())
     {
@@ -307,6 +313,9 @@ bool MythCoreContext::ConnectToMasterServer(bool blockingClient)
 
     if (!d->m_serverSock)
         return false;
+
+    if (!openEventSocket)
+        return true;
 
     if (!IsBackend() && !d->m_eventSock)
         d->m_eventSock = ConnectEventSocket(server, port);

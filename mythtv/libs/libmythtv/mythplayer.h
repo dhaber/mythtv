@@ -76,8 +76,8 @@ enum
     kDisplayTextSubtitle        = 0x020,
     kDisplayDVDButton           = 0x040,
     kDisplayRawTextSubtitle     = 0x080,
-    kDisplayAllCaptions         = 0x100,
-    kDisplayTeletextMenu        = 0x200,
+    kDisplayAllCaptions         = 0x0FF,
+    kDisplayTeletextMenu        = 0x100,
 };
 
 class DecoderThread : public MThread
@@ -190,6 +190,7 @@ class MTV_PUBLIC MythPlayer
     bool    IsPIPActive(void) const           { return pip_active; }
     bool    IsPIPVisible(void) const          { return pip_visible; }
     bool    IsMuted(void)                     { return audio.IsMuted(); }
+    bool    PlayerControlsVolume(void) const  { return audio.ControlsVolume(); }
     bool    UsingNullVideo(void) const { return using_null_videoout; }
     bool    HasTVChainNext(void) const;
     bool    CanSupportDoubleRate(void);
@@ -493,6 +494,7 @@ class MTV_PUBLIC MythPlayer
     bool         DecoderGetFrame(DecodeType, bool unsafe = false);
 
     // These actually execute commands requested by public members
+    bool UpdateFFRewSkip(void);
     virtual void ChangeSpeed(void);
     bool DoFastForward(uint64_t frames, bool override_seeks = false,
                        bool seeks_wanted = false);

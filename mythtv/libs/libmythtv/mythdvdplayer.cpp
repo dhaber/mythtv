@@ -18,7 +18,9 @@ MythDVDPlayer::MythDVDPlayer(bool muted)
 
 void MythDVDPlayer::AutoDeint(VideoFrame *frame, bool allow_lock)
 {
-    MythPlayer::AutoDeint(frame, false);
+    (void)frame;
+    (void)allow_lock;
+    SetScanType(kScan_Interlaced);
 }
 
 void MythDVDPlayer::ReleaseNextVideoFrame(VideoFrame *buffer,
@@ -67,13 +69,14 @@ bool MythDVDPlayer::PrebufferEnoughFrames(int min_buffers)
 
 bool MythDVDPlayer::DecoderGetFrameFFREW(void)
 {
-    return MythPlayer::DecoderGetFrameFFREW();
+    bool res = MythPlayer::DecoderGetFrameFFREW();
     if (decoder_change_lock.tryLock(1))
     {
         if (decoder)
             decoder->UpdateDVDFramesPlayed();
         decoder_change_lock.unlock();
     }
+    return res;
 }
 
 bool MythDVDPlayer::DecoderGetFrameREW(void)
@@ -214,6 +217,7 @@ void MythDVDPlayer::DisplayLastFrame(void)
     // clear the buffering state
     SetBuffering(false);
 
+    SetScanType(kScan_Progressive);
     DisplayDVDButton();
 
     osdLock.lock();
