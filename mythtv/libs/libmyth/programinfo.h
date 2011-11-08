@@ -194,6 +194,10 @@ class MPUBLIC ProgramInfo
                 bool commfree,
                 bool repeat,
 
+                uint videoprops,
+                uint audioprops,
+                uint subtitletype,
+
                 const ProgramList &schedList,
                 bool               oneChanid);
     /// Constructs a basic ProgramInfo (used by RecordingInfo)
@@ -232,7 +236,8 @@ class MPUBLIC ProgramInfo
                 int season, int episode,
                 const QString &inetref,
                 uint length_in_minutes,
-                uint year);
+                uint year,
+                const QString &programid);
     /// Constructs a manual record ProgramInfo.
     ProgramInfo(const QString &_title, uint _chanid,
                 const QDateTime &_startts, const QDateTime &_endts);

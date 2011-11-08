@@ -32,9 +32,9 @@ class System( DBCache ):
             s = cls(path, db=db)
             res = s._runcmd(command)
             if len(res):
-                s.log(MythLog.SYSTEM|MythLog.EXTRA, '---- Output ----', res)
+                s.log(MythLog.SYSTEM, MythLog.DEBUG, '---- Output ----', res)
             if len(s.stderr):
-                s.log(MythLog.SYSTEM|MythLog.EXTRA,
+                s.log(MythLog.SYSTEM, MythLog.DEBUG,
                                                '---- Error  ----', s.stderr)
             return 0
         except (MythDBError,MythFileError):
@@ -116,12 +116,12 @@ class System( DBCache ):
         return self._runcmd('%s %s' % (self.path, arg))
 
     def _runshell(self, cmd):
-        self.log(MythLog.SYSTEM, 'Running external command', cmd)
+        self.log(MythLog.SYSTEM, MythLog.INFO, 'Running external command', cmd)
         fd = Popen(cmd, stdout=-1, stderr=-1, shell=True)
         return self._runshared(fd, cmd)
 
     def _runnative(self, cmd):
-        self.log(MythLog.SYSTEM, 'Running external command', cmd)
+        self.log(MythLog.SYSTEM, MythLog.INFO, 'Running external command', cmd)
         args = shlex.split(cmd)
         fd = Popen(args, stdout=-1, stderr=-1)
         return self._runshared(fd, cmd)
@@ -222,16 +222,18 @@ class Metadata( DictData ):
 
     def _process(self, xml):
         for element in xml.getchildren():
-            if element.tag in self:
-                if (element.text == '') or (element.text is None):
-                    self[element.tag] = None
-                else:
-                    self[element.tag] = \
-                            self._trans[self._global_type[element.tag]]\
-                                (element.text)
-            if element.tag in self._groups:
-                self.__dict__[element.tag] = \
-                    getattr(self, element.tag.capitalize())(element)
+            try:
+                if element.tag in self:
+                    if (element.text == '') or (element.text is None):
+                        self[element.tag] = None
+                    else:
+                        self[element.tag] = \
+                                self._trans[self._global_type[element.tag]]\
+                                    (element.text)
+                elif element.tag in self._groups:
+                    self.__dict__[element.tag] = \
+                        getattr(self, element.tag.capitalize())(element)
+            except: pass
 
     def toXML(self):
         eroot = etree.Element('item')

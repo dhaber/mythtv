@@ -107,6 +107,7 @@ class MTV_PUBLIC MythPlayer
     friend class SubtitleScreen;
     friend class InteractiveScreen;
     friend class BDOverlayScreen;
+    friend class VideoPerformanceTest;
     // TODO remove these
     friend class TV;
     friend class Transcode;
@@ -151,6 +152,7 @@ class MTV_PUBLIC MythPlayer
     bool    IsAudioNeeded(void) { return !using_null_videoout && player_ctx->IsAudioNeeded(); }
     uint    GetVolume(void) { return audio.GetVolume(); }
     int     GetSecondsBehind(void) const;
+    int     GetFreeVideoFrames(void) const;
     AspectOverrideMode GetAspectOverride(void) const;
     AdjustFillMode     GetAdjustFill(void) const;
     MuteState          GetMuteState(void) { return audio.GetMuteState(); }
@@ -232,6 +234,7 @@ class MTV_PUBLIC MythPlayer
     void ReleaseNextVideoFrame(void)
         { videoOutput->ReleaseFrame(GetNextVideoFrame()); }
     void ReleaseCurrentFrame(VideoFrame *frame);
+    void ClearDummyVideoFrame(VideoFrame *frame);
     void DiscardVideoFrame(VideoFrame *buffer);
     void DiscardVideoFrames(bool next_frame_keyframe);
     void DrawSlice(VideoFrame *frame, int x, int y, int w, int h);
@@ -258,6 +261,9 @@ class MTV_PUBLIC MythPlayer
     // Public Audio/Subtitle/EIA-608/EIA-708 stream selection - thread safe
     void TracksChanged(uint trackType);
     void EnableSubtitles(bool enable);
+    void EnableForcedSubtitles(bool enable);
+    void SetAllowForcedSubtitles(bool allow);
+    bool GetAllowForcedSubtitles(void) { return allowForcedSubtitles; }
 
     // Public MHEG/MHI stream selection
     bool SetAudioByComponentTag(int tag);
@@ -301,7 +307,8 @@ class MTV_PUBLIC MythPlayer
 
     // Visualisations
     bool CanVisualise(void);
-    bool ToggleVisualisation(void);
+    bool IsVisualising(void);
+    bool EnableVisualisation(bool enable);
 
     void SaveTotalDuration(void);
     void ResetTotalDuration(void);
@@ -383,6 +390,7 @@ class MTV_PUBLIC MythPlayer
     virtual bool PrebufferEnoughFrames(int min_buffers = 0);
     void         SetBuffering(bool new_buffering);
     void         RefreshPauseFrame(void);
+    void         CheckAspectRatio(VideoFrame* frame);
     virtual void DisplayPauseFrame(void);
     virtual void DisplayNormalFrame(bool check_prebuffer = true);
     virtual void PreProcessNormalFrame(void);
@@ -430,6 +438,7 @@ class MTV_PUBLIC MythPlayer
     bool ToggleCaptions(uint mode);
     bool HasTextSubtitles(void)        { return subReader.HasTextSubtitles(); }
     void SetCaptionsEnabled(bool, bool osd_msg=true);
+    bool GetCaptionsEnabled(void);
     virtual void DisableCaptions(uint mode, bool osd_msg=true);
     virtual void EnableCaptions(uint mode, bool osd_msg=true);
 
@@ -441,6 +450,8 @@ class MTV_PUBLIC MythPlayer
     int  ChangeTrack(uint type, int dir);
     void ChangeCaptionTrack(int dir);
     int  NextCaptionTrack(int mode);
+    void DoDisableForcedSubtitles(void);
+    void DoEnableForcedSubtitles(void);
 
     // Teletext Menu and non-NUV teletext decoder
     void EnableTeletext(int page = 0x100);
@@ -556,7 +567,7 @@ class MTV_PUBLIC MythPlayer
     bool           decoderPaused;
     bool           pauseDecoder;
     bool           unpauseDecoder;
-    bool           killdecoder;
+    bool volatile  killdecoder;
     int64_t        decoderSeek;
     bool           decodeOneFrame;
     bool           needNewPauseFrame;
@@ -653,6 +664,9 @@ class MTV_PUBLIC MythPlayer
     bool      textDesired;
     bool      enableCaptions;
     bool      disableCaptions;
+    bool      enableForcedSubtitles;
+    bool      disableForcedSubtitles;
+    bool      allowForcedSubtitles;
 
     // CC608/708
     bool db_prefer708;

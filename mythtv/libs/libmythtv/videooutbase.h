@@ -201,7 +201,9 @@ class VideoOutput
     /// \brief Releases all frames not being actively displayed from any queue
     ///        onto the queue of frames ready for decoding onto.
     virtual void DiscardFrames(bool kf) { vbuffers.DiscardFrames(kf); }
-
+    /// \brief Clears the frame to black. Subclasses may choose
+    ///        to mark the frame as a dummy and act appropriately
+    virtual void ClearDummyFrame(VideoFrame* frame);
     virtual void CheckFrameStates(void) { }
 
     /// \bug not implemented correctly. vpos is not updated.
@@ -244,11 +246,14 @@ class VideoOutput
     QRect   GetSafeRect(void);
 
     // Visualisations
-    bool ToggleVisualisation(AudioPlayer *audio);
+    bool EnableVisualisation(AudioPlayer *audio, bool enable);
     virtual bool CanVisualise(AudioPlayer *audio, MythRender *render);
     virtual bool SetupVisualisation(AudioPlayer *audio, MythRender *render);
+    VideoVisual* GetVisualisation(void) { return m_visual; }
     void DestroyVisualisation(void);
 
+    // Hue adjustment for certain vendors (mostly ATI)
+    static int CalcHueBase(const QString &adaptor_name);
 
   protected:
     void InitBuffers(int numdecode, bool extra_for_pause, int need_free,

@@ -236,6 +236,7 @@ bool MythUIButtonTree::AssignTree(MythGenericTree *tree)
     // as though the parent nodes do not exist
     m_depthOffset = m_rootNode->currentDepth();
     SetTreeState(true);
+    emit rootChanged(m_rootNode);
 
     return true;
 }
@@ -253,6 +254,7 @@ void MythUIButtonTree::Reset(void)
     m_active = true;
 
     SetTreeState(true);
+    emit rootChanged(m_rootNode);
 
     MythUIType::Reset();
 }

@@ -187,8 +187,8 @@ VideoOutput *VideoOutput::Create(
 #endif // Q_OS_MACX
 
 #ifdef USING_OPENGL_VIDEO
-        if (renderer == "opengl")
-            vo = new VideoOutputOpenGL();
+        if (renderer.contains("opengl"))
+            vo = new VideoOutputOpenGL(renderer);
 #endif // USING_OPENGL_VIDEO
 
 #ifdef USING_VDPAU
@@ -1213,6 +1213,15 @@ void VideoOutput::ShutdownVideoResize(void)
     vsz_enabled      = false;
 }
 
+void VideoOutput::ClearDummyFrame(VideoFrame *frame)
+{
+    // used by render devices to ignore frame rendering
+    if (frame)
+        frame->dummy = 1;
+    // will only clear frame in main memory
+    clear(frame);
+}
+
 void VideoOutput::SetVideoResize(const QRect &videoRect)
 {
     if (!videoRect.isValid()    ||
@@ -1342,9 +1351,9 @@ bool VideoOutput::DisplayOSD(VideoFrame *frame, OSD *osd)
     return show;
 }
 
-bool VideoOutput::ToggleVisualisation(AudioPlayer *audio)
+bool VideoOutput::EnableVisualisation(AudioPlayer *audio, bool enable)
 {
-    if (m_visual)
+    if (!enable)
     {
         DestroyVisualisation();
         return false;
@@ -1729,4 +1738,22 @@ void VideoOutput::InitDisplayMeasurements(uint width, uint height, bool resize)
             .arg(window.GetDisplayDim().width())
             .arg(window.GetDisplayDim().height())
             .arg(window.GetDisplayAspect()));
+}
+
+int VideoOutput::CalcHueBase(const QString &adaptor_name)
+{
+    // XVideo adjustments
+    if ((adaptor_name == "ATI Radeon Video Overlay") ||
+        (adaptor_name == "XV_SWOV" /* VIA 10K & 12K */) ||
+        (adaptor_name == "Savage Streams Engine" /* S3 Prosavage DDR-K */) ||
+        (adaptor_name == "SIS 300/315/330 series Video Overlay"))
+    {
+        return 50;
+    }
+
+    // VAAPI
+    if (adaptor_name.toLower().contains("xvba"))
+        return 50;
+
+    return 0; //< nVidia normal
 }

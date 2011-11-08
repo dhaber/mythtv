@@ -30,6 +30,7 @@
 #include "autoexpire.h"
 #include "jobqueue.h"
 #include "encoderlink.h"
+#include "remoteutil.h"
 
 #include "serviceUtil.h"
 
@@ -94,6 +95,44 @@ DTC::ProgramList* Dvr::GetRecorded( bool bDescending,
     pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
 
     return pPrograms;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+DTC::Program* Dvr::GetRecordedItem( int              nChanId,
+                                    const QDateTime &dStartTime  )
+{
+    if (nChanId <= 0 || !dStartTime.isValid())
+        throw( QString("Channel ID or StartTime appears invalid."));
+
+    ProgramInfo *pInfo = new ProgramInfo(nChanId, dStartTime);
+
+    DTC::Program *pProgram = new DTC::Program();
+    FillProgramInfo( pProgram, pInfo, true );
+
+    return pProgram;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+bool Dvr::RemoveRecordedItem( int              nChanId,
+                              const QDateTime &dStartTime  )
+{
+    if (nChanId <= 0 || !dStartTime.isValid())
+        throw( QString("Channel ID or StartTime appears invalid."));
+
+    bool bResult = false;
+
+    ProgramInfo *pInfo = new ProgramInfo(nChanId, dStartTime);
+
+    if (pInfo->HasPathname())
+        bResult = RemoteDeleteRecording(nChanId, dStartTime, true, false);
+
+    return bResult;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -186,7 +225,7 @@ DTC::EncoderList* Dvr::Encoders()
                     {
                         DTC::Program *pProgram = pEncoder->Recording();
 
-                        FillProgramInfo( pProgram, pInfo, false, true );
+                        FillProgramInfo( pProgram, pInfo, true, true );
 
                         delete pInfo;
                     }
@@ -200,5 +239,121 @@ DTC::EncoderList* Dvr::Encoders()
         }
     }
     return pList;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+DTC::ProgramList* Dvr::GetUpcoming( int  nStartIndex,
+                                    int  nCount,
+                                    bool bShowAll )
+{
+    RecordingList  recordingList;
+    RecordingList  tmpList;
+    bool hasConflicts;
+    LoadFromScheduler(tmpList, hasConflicts);
+
+    // Sort the upcoming into only those which will record
+    RecordingList::iterator it = tmpList.begin();
+    for(; it < tmpList.end(); ++it)
+    {
+        if (!bShowAll && ((*it)->GetRecordingStatus() <= rsWillRecord) &&
+            ((*it)->GetRecordingStartTime() >=
+             QDateTime::currentDateTime()))
+        {
+            recordingList.push_back(new RecordingInfo(**it));
+        }
+        else if (bShowAll && ((*it)->GetRecordingStartTime() >=
+             QDateTime::currentDateTime()))
+        {
+            recordingList.push_back(new RecordingInfo(**it));
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // Build Response
+    // ----------------------------------------------------------------------
+
+    DTC::ProgramList *pPrograms = new DTC::ProgramList();
+
+    nStartIndex   = min( nStartIndex, (int)recordingList.size() );
+    nCount        = (nCount > 0) ? min( nCount, (int)recordingList.size() ) : recordingList.size();
+    int nEndIndex = min((nStartIndex + nCount), (int)recordingList.size() );
+
+    for( int n = nStartIndex; n < nEndIndex; n++)
+    {
+        ProgramInfo *pInfo = recordingList[ n ];
+
+        DTC::Program *pProgram = pPrograms->AddNewProgram();
+
+        FillProgramInfo( pProgram, pInfo, true );
+    }
+
+    // ----------------------------------------------------------------------
+
+    pPrograms->setStartIndex    ( nStartIndex     );
+    pPrograms->setCount         ( nCount          );
+    pPrograms->setTotalAvailable( recordingList.size() );
+    pPrograms->setAsOf          ( QDateTime::currentDateTime() );
+    pPrograms->setVersion       ( MYTH_BINARY_VERSION );
+    pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
+
+    return pPrograms;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+DTC::ProgramList* Dvr::GetConflicts( int  nStartIndex,
+                                    int  nCount       )
+{
+    RecordingList  recordingList;
+    RecordingList  tmpList;
+    bool hasConflicts;
+    LoadFromScheduler(tmpList, hasConflicts);
+
+    // Sort the upcoming into only those which are conflicts
+    RecordingList::iterator it = tmpList.begin();
+    for(; it < tmpList.end(); ++it)
+    {
+        if (((*it)->GetRecordingStatus() == rsConflict) &&
+            ((*it)->GetRecordingStartTime() >=
+             QDateTime::currentDateTime()))
+        {
+            recordingList.push_back(new RecordingInfo(**it));
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // Build Response
+    // ----------------------------------------------------------------------
+
+    DTC::ProgramList *pPrograms = new DTC::ProgramList();
+
+    nStartIndex   = min( nStartIndex, (int)recordingList.size() );
+    nCount        = (nCount > 0) ? min( nCount, (int)recordingList.size() ) : recordingList.size();
+    int nEndIndex = min((nStartIndex + nCount), (int)recordingList.size() );
+
+    for( int n = nStartIndex; n < nEndIndex; n++)
+    {
+        ProgramInfo *pInfo = recordingList[ n ];
+
+        DTC::Program *pProgram = pPrograms->AddNewProgram();
+
+        FillProgramInfo( pProgram, pInfo, true );
+    }
+
+    // ----------------------------------------------------------------------
+
+    pPrograms->setStartIndex    ( nStartIndex     );
+    pPrograms->setCount         ( nCount          );
+    pPrograms->setTotalAvailable( recordingList.size() );
+    pPrograms->setAsOf          ( QDateTime::currentDateTime() );
+    pPrograms->setVersion       ( MYTH_BINARY_VERSION );
+    pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
+
+    return pPrograms;
 }
 

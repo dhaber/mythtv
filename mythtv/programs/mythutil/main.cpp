@@ -1,5 +1,9 @@
 // Qt includes
+#ifndef _WIN32
+#include <QCoreApplication>
+#else
 #include <QApplication>
+#endif
 
 // libmyth* includes
 #include "exitcodes.h"
@@ -12,6 +16,7 @@
 #include "commandlineparser.h"
 #include "backendutils.h"
 #include "fileutils.h"
+#include "mpegutils.h"
 #include "jobutils.h"
 #include "markuputils.h"
 #include "messageutils.h"
@@ -26,6 +31,21 @@ int main(int argc, char *argv[])
         return GENERIC_EXIT_INVALID_CMDLINE;
     }
 
+    // default to quiet operation for pidcounter and pidfilter
+    QString defaultVerbose = "general";
+    LogLevel_t defaultLevel = LOG_INFO;
+    if (cmdline.toBool("pidcounter") || cmdline.toBool("pidfilter"))
+    {
+        if (!cmdline.toBool("verbose"))
+        {
+            verboseString = defaultVerbose = "";
+            verboseMask = 0;
+        }
+        if (!cmdline.toBool("loglevel"))
+            logLevel = defaultLevel = LOG_ERR;
+    }
+
+
     if (cmdline.toBool("showhelp"))
     {
         cmdline.PrintHelp();
@@ -38,12 +58,22 @@ int main(int argc, char *argv[])
         return GENERIC_EXIT_OK;
     }
 
+#ifndef _WIN32
+    QCoreApplication a(argc, argv);
+#else
+    // MINGW application needs a window to receive messages
+    // such as socket notifications :[
     QApplication a(argc, argv);
+#endif
+
     QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHUTIL);
 
     int retval;
-    if ((retval = cmdline.ConfigureLogging()) != GENERIC_EXIT_OK)
+    if ((retval = cmdline.ConfigureLogging(defaultVerbose)) != GENERIC_EXIT_OK)
         return retval;
+
+    if (!cmdline.toBool("loglevel"))
+        logLevel = defaultLevel;
 
     gContext = new MythContext(MYTH_BINARY_VERSION);
     if (!gContext->Init(false))
@@ -58,6 +88,7 @@ int main(int argc, char *argv[])
 
     registerBackendUtils(utilMap);
     registerFileUtils(utilMap);
+    registerMPEGUtils(utilMap);
     registerJobUtils(utilMap);
     registerMarkupUtils(utilMap);
     registerMessageUtils(utilMap);
@@ -65,7 +96,7 @@ int main(int argc, char *argv[])
     bool cmdFound = false;
     int cmdResult = GENERIC_EXIT_OK;
     UtilMap::iterator i;
-    for (i = utilMap.begin(); i != utilMap.end(); i++)
+    for (i = utilMap.begin(); i != utilMap.end(); ++i)
     {
         if (cmdline.toBool(i.key()))
         {

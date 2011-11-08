@@ -229,6 +229,7 @@ class MTV_PUBLIC TV : public QObject
     int GetLastRecorderNum(int player_idx) const;
     TVState GetState(int player_idx) const;
     TVState GetState(const PlayerContext*) const;
+    void GetStatus(void);
 
     // Non-const queries
     OSD *GetOSDL(const char *, int);
@@ -592,7 +593,7 @@ class MTV_PUBLIC TV : public QObject
     bool DiscMenuHandleAction(PlayerContext*, const QStringList &actions);
 
     // Visualisations
-    void ToggleVisualisation(const PlayerContext*);
+    void EnableVisualisation(const PlayerContext*, bool enable, bool toggle = false);
 
     // Program jumping stuff
     void SetLastProgram(const ProgramInfo *rcinfo);

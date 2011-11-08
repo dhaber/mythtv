@@ -796,7 +796,6 @@ int DVDRingBuffer::safe_read(void *data, uint sz)
                 }
 
                 // update our status
-                dvd_time_t timeFromCellStart = dsi->dsi_gi.c_eltm;
                 m_currentTime = (uint)dvdnav_get_current_time(m_dvdnav);
                 m_currentpos = GetReadPosition();
 
@@ -862,8 +861,11 @@ int DVDRingBuffer::safe_read(void *data, uint sz)
                             .arg(aspect).arg(permission));
 
                 // trigger a rescan of the audio streams
-                if (vts->old_vtsN != vts->new_vtsN)
+                if ((vts->old_vtsN != vts->new_vtsN) ||
+                    (vts->old_domain != vts->new_domain))
+                {
                     m_audioStreamsChanged = true;
+                }
 
                 // release buffer
                 if (blockBuf != m_dvdBlockWriteBuf)
@@ -1440,7 +1442,10 @@ bool DVDRingBuffer::DecodeSubtitles(AVSubtitle *sub, int *gotSubtitles,
     if (sub->num_rects > 0)
     {
         if (force_subtitle_display)
-            LOG(VB_PLAYBACK, LOG_INFO, LOC + "Decoded menu item");
+        {
+            sub->forced = 1;
+            LOG(VB_PLAYBACK, LOG_INFO, LOC + "Decoded forced subtitle");
+        }
         return true;
     }
 fail:

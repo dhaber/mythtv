@@ -1007,7 +1007,7 @@ static void TVMenuCallback(void *data, QString &selection)
         GetMythUI()->RemoveCurrentLocation();
 
         gCoreContext->ActivateSettingsCache(true);
-        RemoteSendMessage("CLEAR_SETTINGS_CACHE");
+        gCoreContext->SendMessage("CLEAR_SETTINGS_CACHE");
 
         if (sel == "settings general" ||
             sel == "settings generalrecpriorities")
@@ -1085,7 +1085,8 @@ static void WriteDefaults()
 static int internal_play_media(const QString &mrl, const QString &plot,
                         const QString &title, const QString &subtitle,
                         const QString &director, int season, int episode,
-                        const QString &inetref, int lenMins, const QString &year)
+                        const QString &inetref, int lenMins, const QString &year,
+                        const QString &id)
 {
     int res = -1;
 
@@ -1105,7 +1106,8 @@ static int internal_play_media(const QString &mrl, const QString &plot,
 
     ProgramInfo *pginfo = new ProgramInfo(
         mrl, plot, title, subtitle, director, season, episode,
-        inetref, lenMins, (year.toUInt()) ? year.toUInt() : 1900);
+        inetref, lenMins, (year.toUInt()) ? year.toUInt() : 1900,
+        id);
 
     pginfo->SetProgramInfoType(pginfo->DiscoverProgramInfoType());
 
@@ -1395,7 +1397,7 @@ static void resetAllKeys(void)
 
 static void signal_USR1_handler(int){
       LOG(VB_GENERAL, LOG_NOTICE, "SIGUSR1 received, reloading theme");
-      RemoteSendMessage("CLEAR_SETTINGS_CACHE");
+      gCoreContext->SendMessage("CLEAR_SETTINGS_CACHE");
       gCoreContext->ActivateSettingsCache(false);
       GetMythMainWindow()->JumpTo("Reload Theme");
       gCoreContext->ActivateSettingsCache(true);
@@ -1673,7 +1675,6 @@ int main(int argc, char **argv)
         themeUpdateChecker = new ThemeUpdateChecker();
 
     MythSystemEventHandler *sysEventHandler = new MythSystemEventHandler();
-    GetMythMainWindow()->RegisterSystemEventHandler(sysEventHandler);
 
     BackendConnectionManager bcm;
 

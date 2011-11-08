@@ -478,7 +478,7 @@ static void commDetectorGotNewCommercialBreakList(void)
     LOG(VB_COMMFLAG, LOG_INFO,
         QString("mythcommflag sending update: %1").arg(message));
 
-    RemoteSendMessage(message);
+    gCoreContext->SendMessage(message);
 }
 
 static void incomingCustomEvent(QEvent* e)
@@ -574,7 +574,7 @@ static int DoFlagCommercials(
             "mythcommflag sending COMMFLAG_START notification");
         QString message = "COMMFLAG_START ";
         message += program_info->MakeUniqueKey();
-        RemoteSendMessage(message);
+        gCoreContext->SendMessage(message);
     }
 
     bool result = commDetector->go();
@@ -1006,7 +1006,7 @@ static int RebuildSeekTable(ProgramInfo *pginfo, int jobid)
         // assume file is in Video storage group on local backend
         // and try again
 
-        filename = QString("myth://Video@%1/%2")
+        filename = QString("myth://Videos@%1/%2")
                             .arg(gCoreContext->GetHostName()).arg(filename);
         pginfo->SetPathname(filename);
         if (!DoesFileExist(pginfo))

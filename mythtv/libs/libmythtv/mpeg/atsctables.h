@@ -5,9 +5,10 @@
 
 #include <stdint.h>  // uint32_t
 #include <QString>
-#include "mpegtables.h"
+
 #include "atscdescriptors.h"
-#include "mythlogging.h"
+#include "mpegtables.h"
+#include "mythtvexp.h"
 
 // Some sample code is in pcHDTV's dtvscan.c,
 // accum_sect/dequeue_buf/atsc_tables.  We should stuff
@@ -45,13 +46,7 @@
  *   updated version_number for that EIT, updating the data.
  */
 
-/** Seconds between start of GPS time and the start of UNIX time. */
-#define secs_Between_1Jan1970_6Jan1980 315964800
-
-/** Leap seconds as of Jan 1st, 2006. */
-#define GPS_LEAP_SECONDS 14
-
-class TableClass
+class MTV_PUBLIC TableClass
 {
   public:
     typedef enum
@@ -74,7 +69,7 @@ class TableClass
  *  \brief This table tells the decoder on which PIDs to find other tables,
  *         and their sizes and each table's current version number.
  */
-class MasterGuideTable : public PSIPTable
+class MTV_PUBLIC MasterGuideTable : public PSIPTable
 {
   public:
     MasterGuideTable(const MasterGuideTable& table) : PSIPTable(table)
@@ -177,8 +172,9 @@ class MasterGuideTable : public PSIPTable
     // }
     // CRC_32                          32
 
-    void Parse() const;
-    QString toString() const;
+    void Parse(void) const;
+    virtual QString toString(void) const;
+    virtual QString toStringXML(uint indent_level) const;
   private:
     mutable vector<unsigned char*> _ptrs; // used to parse
 };
@@ -189,7 +185,7 @@ class MasterGuideTable : public PSIPTable
  *  \sa TerrestrialVirtualChannelTable,
  *      CableVirtualChannelTable
  */
-class VirtualChannelTable : public PSIPTable
+class MTV_PUBLIC VirtualChannelTable : public PSIPTable
 {
   public:
     VirtualChannelTable(const VirtualChannelTable &table) : PSIPTable(table)
@@ -256,6 +252,7 @@ class VirtualChannelTable : public PSIPTable
     {
         return _ptrs[i][17];
     }
+    QString ModulationModeString(uint i) const;
     //   carrier_frequency     32  17.0 deprecated
     //   channel_TSID          16  21.0
     uint ChannelTransportStreamID(uint i) const
@@ -294,6 +291,7 @@ class VirtualChannelTable : public PSIPTable
     {
         return _ptrs[i][27] & 0x3f;
     }
+    QString ServiceTypeString(uint i) const;
     //   source_id             16  27.0
     uint SourceID(uint i) const
     {
@@ -327,6 +325,11 @@ class VirtualChannelTable : public PSIPTable
     void Parse() const;
     int Find(int major, int minor) const;
     QString GetExtendedChannelName(uint idx) const;
+    virtual QString toString(void) const;
+    virtual QString ChannelString(uint channel) const = 0;
+    virtual QString toStringXML(uint indent_level) const;
+    virtual QString ChannelStringXML(uint indent_level, uint channel) const;
+    virtual QString XMLChannelValues(uint indent_level, uint channel) const;
   protected:
     mutable vector<unsigned char*> _ptrs;
 };
@@ -336,7 +339,7 @@ class VirtualChannelTable : public PSIPTable
  *         channels transmitted on this multiplex.
  *  \sa CableVirtualChannelTable
  */
-class TerrestrialVirtualChannelTable : public VirtualChannelTable
+class MTV_PUBLIC TerrestrialVirtualChannelTable : public VirtualChannelTable
 {
   public:
     TerrestrialVirtualChannelTable(const TerrestrialVirtualChannelTable &table)
@@ -395,8 +398,8 @@ class TerrestrialVirtualChannelTable : public VirtualChannelTable
     // additional_descriptors_length 10
     // for (j=0; j<N; j++) { additional_descriptor() }
     // CRC_32                  32
-    QString toString() const;
-    QString toString(int) const;
+    virtual QString ChannelString(uint channel) const;
+    virtual QString XMLChannelValues(uint indent_level, uint channel) const;
 };
 
 
@@ -405,7 +408,7 @@ class TerrestrialVirtualChannelTable : public VirtualChannelTable
  *         channels transmitted on this multiplex.
  *  \sa TerrestrialVirtualChannelTable
  */
-class CableVirtualChannelTable : public VirtualChannelTable
+class MTV_PUBLIC CableVirtualChannelTable : public VirtualChannelTable
 {
   public:
     CableVirtualChannelTable(const CableVirtualChannelTable &table)
@@ -431,7 +434,8 @@ class CableVirtualChannelTable : public VirtualChannelTable
      * is expected to ignore any Map ID's other than the one corresponding
      * to it's head-end.
      *
-     * Note: This is only defined for SCTE streams, it is always 0 in ATSC streams
+     * Note: This is only defined for SCTE streams,
+     *       it is always 0 in ATSC streams.
      */
     uint SCTEMapId() const
     {
@@ -501,8 +505,8 @@ class CableVirtualChannelTable : public VirtualChannelTable
     // additional_descriptors_length 10
     // for (j=0; j<N; j++) { additional_descriptor() }
     // CRC_32                  32
-    QString toString() const;
-    QString toString(int) const;
+    virtual QString ChannelString(uint channel) const;
+    virtual QString XMLChannelValues(uint indent_level, uint channel) const;
 };
 
 /** \class EventInformationTable
@@ -510,7 +514,7 @@ class CableVirtualChannelTable : public VirtualChannelTable
  *         and channel information.
  *  \sa ExtendedTextTable, TerrestrialVirtualChannelTable, CableVirtualChannelTable
  */
-class EventInformationTable : public PSIPTable
+class MTV_PUBLIC EventInformationTable : public PSIPTable
 {
   public:
     EventInformationTable(const EventInformationTable &table)
@@ -561,7 +565,7 @@ class EventInformationTable : public PSIPTable
     {
         // Time in GPS seconds since 00:00:00 on January 6th, 1980 UTC
         QDateTime dt;
-        dt.setTime_t(secs_Between_1Jan1970_6Jan1980 + StartTimeRaw(i));
+        dt.setTime_t(GPS_EPOCH + StartTimeRaw(i));
         return dt;
     }
     //   reserved               2   6.0    3
@@ -612,7 +616,7 @@ class EventInformationTable : public PSIPTable
  *         contained in EventInformationTables.
  *  \sa EventInformationTable
  */
-class ExtendedTextTable : public PSIPTable
+class MTV_PUBLIC ExtendedTextTable : public PSIPTable
 {
   public:
     ExtendedTextTable(const ExtendedTextTable &table) : PSIPTable(table)
@@ -670,7 +674,7 @@ class ExtendedTextTable : public PSIPTable
  *   is currently at 14 seconds.
  *   See also: a_65b.pdf page 23
  */
-class SystemTimeTable : public PSIPTable
+class MTV_PUBLIC SystemTimeTable : public PSIPTable
 {
   public:
     SystemTimeTable(const SystemTimeTable &table) : PSIPTable(table)
@@ -705,11 +709,11 @@ class SystemTimeTable : public PSIPTable
     QDateTime SystemTimeGPS(void) const
     {
         QDateTime dt;
-        dt.setTime_t(secs_Between_1Jan1970_6Jan1980 + GPSRaw());
+        dt.setTime_t(GPS_EPOCH + GPSRaw());
         return dt;
     }
     time_t GPSUnix(void) const
-        { return secs_Between_1Jan1970_6Jan1980 + GPSRaw(); }
+        { return GPS_EPOCH + GPSRaw(); }
     time_t UTCUnix(void) const
         { return GPSUnix() - GPSOffset(); }
 
@@ -726,23 +730,14 @@ class SystemTimeTable : public PSIPTable
     // for (I = 0;I< N;I++) { descriptor() }
     // CRC_32                  32
 
-    QString toString() const
-    {
-        QString str =
-            QString("    SystemTimeTable  GPSTime(%1) GPS2UTC_Offset(%2) ")
-            .arg(SystemTimeGPS().toString(Qt::LocalDate)).arg(GPSOffset());
-        str.append(QString("DS(%3) Day(%4) Hour(%5)")
-                   .arg(InDaylightSavingsTime())
-                   .arg(DayDaylightSavingsStarts())
-                   .arg(HourDaylightSavingsStarts()));
-        return str;
-    }
+    QString toString(void) const;
+    QString toStringXML(uint indent_level) const;
 };
 
 /** \class RatingRegionTable
  *  \brief No one has had time to decode this table yet...
  */
-class RatingRegionTable : public PSIPTable
+class MTV_PUBLIC RatingRegionTable : public PSIPTable
 {
   public:
     RatingRegionTable(const RatingRegionTable &table) : PSIPTable(table)
@@ -758,7 +753,7 @@ class RatingRegionTable : public PSIPTable
 /** \class DirectedChannelChangeTable
  *  \brief No one has had time to decode this table yet...
  */
-class DirectedChannelChangeTable : public PSIPTable
+class MTV_PUBLIC DirectedChannelChangeTable : public PSIPTable
 {
   public:
     DirectedChannelChangeTable(const DirectedChannelChangeTable &table)
@@ -775,7 +770,7 @@ class DirectedChannelChangeTable : public PSIPTable
 /** \class DirectedChannelChangeSelectionCodeTable
  *  \brief No one has had time to decode this table yet...
  */
-class DirectedChannelChangeSelectionCodeTable : public PSIPTable
+class MTV_PUBLIC DirectedChannelChangeSelectionCodeTable : public PSIPTable
 {
   public:
     DirectedChannelChangeSelectionCodeTable(

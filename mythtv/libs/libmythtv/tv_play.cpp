@@ -310,7 +310,7 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
             else if (!startSysEventSent)
             {
                 startSysEventSent = true;
-                SendMythSystemEvent("LIVETV_STARTED");
+                gCoreContext->SendSystemEvent("LIVETV_STARTED");
             }
 
             if (!quitAll && (startInGuide || tv->StartLiveTVInGuide()))
@@ -399,7 +399,7 @@ bool TV::StartTV(ProgramInfo *tvrec, uint flags)
         delete curProgram;
     }
     else
-        SendMythSystemEvent("PLAY_STOPPED");
+        gCoreContext->SendSystemEvent("PLAY_STOPPED");
 
     if (!playerError.isEmpty())
     {
@@ -574,8 +574,12 @@ void TV::InitKeys(void)
             "Toggle the video aspect ratio"), "Ctrl+W");
     REG_KEY("TV Playback", "TOGGLEFILL", QT_TRANSLATE_NOOP("MythControls",
             "Next Preconfigured Zoom mode"), "W");
-    REG_KEY("TV Playback", "TOGGLECC", QT_TRANSLATE_NOOP("MythControls",
+    REG_KEY("TV Playback", ACTION_TOGGLESUBS, QT_TRANSLATE_NOOP("MythControls",
             "Toggle any captions"), "T");
+    REG_KEY("TV Playback", ACTION_ENABLESUBS, QT_TRANSLATE_NOOP("MythControls",
+            "Enable any captions"), "");
+    REG_KEY("TV Playback", ACTION_DISABLESUBS, QT_TRANSLATE_NOOP("MythControls",
+            "Disable any captions"), "");
     REG_KEY("TV Playback", "TOGGLETTC", QT_TRANSLATE_NOOP("MythControls",
             "Toggle Teletext Captions"),"");
     REG_KEY("TV Playback", "TOGGLESUBTITLE", QT_TRANSLATE_NOOP("MythControls",
@@ -617,6 +621,10 @@ void TV::InitKeys(void)
             "Display ATSC CC3"), "");
     REG_KEY("TV Playback", "SELECTCC708_3", QT_TRANSLATE_NOOP("MythControls",
             "Display ATSC CC4"), "");
+    REG_KEY("TV Playback", ACTION_ENABLEFORCEDSUBS, QT_TRANSLATE_NOOP("MythControls",
+            "Enable Forced Subtitles"), "");
+    REG_KEY("TV Playback", ACTION_DISABLEFORCEDSUBS, QT_TRANSLATE_NOOP("MythControls",
+            "Disable Forced Subtitles"), "");
 
     REG_KEY("TV Playback", "NEXTAUDIO", QT_TRANSLATE_NOOP("MythControls",
             "Next audio track"), "+");
@@ -1316,6 +1324,32 @@ TVState TV::GetState(int player_idx) const
     ret = GetState(ctx);
     ReturnPlayerLock(ctx);
     return ret;
+}
+
+void TV::GetStatus(void)
+{
+    const PlayerContext *ctx = GetPlayerReadLock(-1, __FILE__, __LINE__);
+
+    osdInfo status;
+    status.text.insert("state", StateToString(GetState(ctx)));
+    ctx->LockPlayingInfo(__FILE__, __LINE__);
+    if (ctx->playingInfo)
+    {
+        status.text.insert("title", ctx->playingInfo->GetTitle());
+        status.text.insert("subtitle", ctx->playingInfo->GetSubtitle());
+        status.text.insert("starttime",
+                           ctx->playingInfo->GetRecordingStartTime().toString(Qt::ISODate));
+        status.text.insert("chanid",
+                           QString::number(ctx->playingInfo->GetChanID()));
+        status.text.insert("programid", ctx->playingInfo->GetProgramID());
+    }
+    ctx->UnlockPlayingInfo(__FILE__, __LINE__);
+    ctx->CalcPlayerSliderPosition(status);
+
+    ReturnPlayerLock(ctx);
+
+    MythInfoMapEvent info("STATUS_UPDATE", status.text);
+    gCoreContext->dispatch(info);
 }
 
 /**
@@ -2039,7 +2073,7 @@ void TV::HandleStateChange(PlayerContext *mctx, PlayerContext *ctx)
                 {
                     QString message = "COMMFLAG_REQUEST ";
                     message += ctx->playingInfo->MakeUniqueKey();
-                    RemoteSendMessage(message);
+                    gCoreContext->SendMessage(message);
                 }
                 ctx->UnlockPlayingInfo(__FILE__, __LINE__);
             }
@@ -3262,7 +3296,27 @@ bool TV::HandleTrackAction(PlayerContext *ctx, const QString &action)
         handled = true;
         ctx->player->ToggleCaptions(kTrackTypeTextSubtitle);
     }
-    else if (action == "TOGGLECC" && !browsehelper->IsBrowsing())
+    else if (ACTION_ENABLEFORCEDSUBS == action)
+    {
+        handled = true;
+        ctx->player->SetAllowForcedSubtitles(true);
+    }
+    else if (ACTION_DISABLEFORCEDSUBS == action)
+    {
+        handled = true;
+        ctx->player->SetAllowForcedSubtitles(false);
+    }
+    else if (action == ACTION_ENABLESUBS)
+    {
+        handled = true;
+        ctx->player->SetCaptionsEnabled(true, true);
+    }
+    else if (action == ACTION_DISABLESUBS)
+    {
+        handled = true;
+        ctx->player->SetCaptionsEnabled(false, true);
+    }
+    else if (action == ACTION_TOGGLESUBS && !browsehelper->IsBrowsing())
     {
         handled = true;
         if (ccInputMode)
@@ -4102,7 +4156,11 @@ bool TV::ToggleHandleAction(PlayerContext *ctx,
     else if (has_action("TOGGLEAUDIOSYNC", actions))
         ChangeAudioSync(ctx, 0);   // just display
     else if (has_action(ACTION_TOGGLEVISUALISATION, actions))
-        ToggleVisualisation(ctx);
+        EnableVisualisation(ctx, false, true /*toggle*/);
+    else if (has_action(ACTION_ENABLEVISUALISATION, actions))
+        EnableVisualisation(ctx, true);
+    else if (has_action(ACTION_DISABLEVISUALISATION, actions))
+        EnableVisualisation(ctx, false);
     else if (has_action("TOGGLEPICCONTROLS", actions))
         DoTogglePictureAttribute(ctx, kAdjustingPicture_Playback);
     else if (has_action(ACTION_TOGGLESTUDIOLEVELS, actions))
@@ -4148,12 +4206,15 @@ bool TV::ToggleHandleAction(PlayerContext *ctx,
     return handled;
 }
 
-void TV::ToggleVisualisation(const PlayerContext *ctx)
+void TV::EnableVisualisation(const PlayerContext *ctx, bool enable, bool toggle)
 {
     ctx->LockDeletePlayer(__FILE__, __LINE__);
     if (ctx->player && ctx->player->CanVisualise())
     {
-        bool on = ctx->player->ToggleVisualisation();
+        bool want = enable;
+        if (toggle)
+            want = !ctx->player->IsVisualising();
+        bool on = ctx->player->EnableVisualisation(want);
         SetOSDMessage(ctx, on ? tr("Visualisation On") :
                                 tr("Visualisation Off"));
     }
@@ -6592,7 +6653,7 @@ bool TV::CommitQueuedInput(PlayerContext *ctx)
     {
         commited = true;
         if (HasQueuedInput())
-            HandleTrackAction(ctx, "TOGGLECC");
+            HandleTrackAction(ctx, ACTION_TOGGLESUBS);
     }
     else if (asInputMode)
     {
@@ -8247,6 +8308,10 @@ void TV::customEvent(QEvent *e)
         }
         ReturnPlayerLock(mctx);
     }
+    else if (message == ACTION_GETSTATUS)
+    {
+        GetStatus();
+    }
     else if (message.left(14) == "DONE_RECORDING")
     {
         // int seconds = 0;
@@ -8574,7 +8639,7 @@ void TV::customEvent(QEvent *e)
             {
                 QString msg = "COMMFLAG_REQUEST ";
                 msg += ProgramInfo::MakeUniqueKey(evchanid, evrecstartts);
-                RemoteSendMessage(msg);
+                gCoreContext->SendMessage(msg);
             }
         }
         ReturnPlayerLock(mctx);
@@ -9622,7 +9687,11 @@ void TV::OSDDialogEvent(int result, QString text, QString action)
     else if (action.left(15) == "TOGGLEAUDIOSYNC")
         ChangeAudioSync(actx, 0);
     else if (action == ACTION_TOGGLEVISUALISATION)
-        ToggleVisualisation(actx);
+        EnableVisualisation(actx, false, true /*toggle*/);
+    else if (action == ACTION_ENABLEVISUALISATION)
+        EnableVisualisation(actx, true);
+    else if (action == ACTION_DISABLEVISUALISATION)
+        EnableVisualisation(actx, false);
     else if (action.left(11) == ACTION_TOGGLESLEEP)
     {
         ToggleSleepTimer(actx, action.left(13));
@@ -9865,9 +9934,9 @@ void TV::ShowOSDMenu(const PlayerContext *ctx, const QString category,
         FillOSDMenuAudio    (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuVideo    (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuSubtitles(ctx, osd, cat, selected, currenttext, back);
+        FillOSDMenuPlayback (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuNavigate (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuSchedule (ctx, osd, cat, selected, currenttext, back);
-        FillOSDMenuPlayback (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuSource   (ctx, osd, cat, selected, currenttext, back);
         FillOSDMenuJobs     (ctx, osd, cat, selected, currenttext, back);
 
@@ -9887,10 +9956,12 @@ void TV::FillOSDMenuAudio(const PlayerContext *ctx, OSD *osd,
     uint curtrack = ~0;
     bool avsync = true;
     bool visual = false;
+    bool active = false;
     ctx->LockDeletePlayer(__FILE__, __LINE__);
     if (ctx->player)
     {
         visual = ctx->player->CanVisualise();
+        active = ctx->player->IsVisualising();
         tracks = ctx->player->GetTracks(kTrackTypeAudio);
         if (!tracks.empty())
             curtrack = (uint) ctx->player->GetTrack(kTrackTypeAudio);
@@ -9918,13 +9989,18 @@ void TV::FillOSDMenuAudio(const PlayerContext *ctx, OSD *osd,
                                  "DIALOG_MENU_AUDIOTRACKS_0", true,
                                  selected == "AUDIOTRACKS");
         }
-        if (visual)
-        {
-            osd->DialogAddButton(tr("Toggle Visualisation"),
-                                 ACTION_TOGGLEVISUALISATION);
-        }
         if (avsync)
             osd->DialogAddButton(tr("Adjust Audio Sync"), "TOGGLEAUDIOSYNC");
+        if (visual && !active)
+        {
+            osd->DialogAddButton(tr("Enable Visualisation"),
+                                 ACTION_ENABLEVISUALISATION);
+        }
+        if (visual && active)
+        {
+            osd->DialogAddButton(tr("Disable Visualisation"),
+                                 ACTION_DISABLEVISUALISATION);
+        }
         osd->DialogAddButton(tr("Toggle Audio Upmixer"), ACTION_TOGGLEUPMIX);
     }
     else if (category == "AUDIOTRACKS")
@@ -10153,11 +10229,15 @@ void TV::FillOSDMenuSubtitles(const PlayerContext *ctx, OSD *osd,
     uint ttx_curtrack   = ~0;
     uint text_curtrack  = ~0;
     bool havetext = false;
+    bool forcedon = true;
+    bool enabled  = false;
     ctx->LockDeletePlayer(__FILE__, __LINE__);
     if (ctx->player)
     {
         // capmode      = ctx->player->GetCaptionMode();
+        enabled      = ctx->player->GetCaptionsEnabled();
         havetext     = ctx->player->HasTextSubtitles();
+        forcedon     = ctx->player->GetAllowForcedSubtitles();
         av_tracks    = ctx->player->GetTracks(kTrackTypeSubtitle);
         cc708_tracks = ctx->player->GetTracks(kTrackTypeCC708);
         cc608_tracks = ctx->player->GetTracks(kTrackTypeCC608);
@@ -10195,10 +10275,22 @@ void TV::FillOSDMenuSubtitles(const PlayerContext *ctx, OSD *osd,
         backaction = "MAIN";
         currenttext = tr("Subtitles");
 
-        if (have_subs)
-            osd->DialogAddButton(tr("Toggle Subtitles"), "TOGGLECC");
+        if (have_subs &&enabled)
+            osd->DialogAddButton(tr("Disable Subtitles"), ACTION_DISABLESUBS);
+        else if (have_subs && !enabled)
+            osd->DialogAddButton(tr("Enable Subtitles"), ACTION_ENABLESUBS);
         if (!av_tracks.empty())
         {
+            if (forcedon)
+            {
+                osd->DialogAddButton(tr("Disable Forced Subtitles"),
+                                     ACTION_DISABLEFORCEDSUBS);
+            }
+            else
+            {
+                osd->DialogAddButton(tr("Enable Forced Subtitles"),
+                                     ACTION_ENABLEFORCEDSUBS);
+            }
             osd->DialogAddButton(tr("Select Subtitle"),
                                  "DIALOG_MENU_AVSUBTITLES_0",
                                  true, selected == "AVSUBTITLES");

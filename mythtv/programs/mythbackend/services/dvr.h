@@ -43,6 +43,19 @@ class Dvr : public DvrServices
                                                 int              StartIndex,
                                                 int              Count      );
 
+        DTC::Program*     GetRecordedItem     ( int              ChanId,
+                                                const QDateTime &StartTime  );
+
+        bool              RemoveRecordedItem  ( int              ChanId,
+                                                const QDateTime &StartTime  );
+
+        DTC::ProgramList* GetConflicts        ( int              StartIndex,
+                                                int              Count      );
+
+        DTC::ProgramList* GetUpcoming         ( int              StartIndex,
+                                                int              Count,
+                                                bool             ShowAll );
+
         DTC::EncoderList* Encoders            ( );
 };
 
@@ -86,6 +99,18 @@ class ScriptableDvr : public QObject
                                        int              Count      )
         {
             return m_obj.GetRecorded( Descending, StartIndex, Count );
+        }
+
+        QObject* GetRecordedItem     ( int              ChanId,
+                                       const QDateTime &StartTime  )
+        {
+            return m_obj.GetRecordedItem( ChanId, StartTime );
+        }
+
+        QObject* GetConflicts        ( int              StartIndex,
+                                       int              Count      )
+        {
+            return m_obj.GetConflicts( StartIndex, Count );
         }
 
         QObject* Encoders            () { return m_obj.Encoders(); }

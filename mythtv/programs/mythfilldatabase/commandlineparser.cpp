@@ -39,22 +39,22 @@ void MythFillDatabaseCommandLineParser::LoadArguments(void)
             "Directly define the sourceid and XMLTV file to "
             "import.")
         ->SetBlocks("ddfile")
-        ->SetBlocks("xawchannels");
+        ->SetBlocks("xawchannels")
+        ->SetRequires("sourceid");
     add("--dd-file", "ddfile", false,
             "Bypass grabber, and read SD data from file",
             "Directly define the data needed to import a local "
             "DataDirect download.")
-        ->SetBlocks("xawchannels");
+        ->SetBlocks("xawchannels")
+        ->SetRequires("sourceid");
     add("--xawchannels", "xawchannels", false,
             "Read channels from xawtvrc file",
-            "Import channels from an xawtvrc file.");
+            "Import channels from an xawtvrc file.")
+        ->SetRequires("sourceid");
 
     add("--sourceid", "sourceid", 0, "Operate on single source",
             "Limit mythfilldatabase to only operate on the "
-            "specified channel source.")
-        ->SetRequiredChildOf("file")
-        ->SetRequiredChildOf("ddfile")
-        ->SetRequiredChildOf("xawchannels");
+            "specified channel source.");
 
     add("--offset", "offset", 0, "Day offset of input xml file",
             "Specify how many days offset from today is the "
@@ -127,26 +127,30 @@ void MythFillDatabaseCommandLineParser::LoadArguments(void)
             "Force a refresh for today's guide data.\nThis can be used "
             "in combination with other --refresh-<n> options.\n"
             "If being used with datadirect, this option should not be "
-            "used, rather use --dd-grab-all to pull all listings each time.");
+            "used, rather use --dd-grab-all to pull all listings each time.")
+        ->SetDeprecated("use --refresh instead");
     add("--dont-refresh-tomorrow", "dontrefreshtomorrow", false, "",
             "This option is only valid for selected grabbers.\n"
             "Prevent mythfilldatabase from pulling information for "
             "tomorrow's listings. Data for tomorrow is always pulled "
             "unless specifically specified otherwise.\n"
             "If being used with datadirect, this option should not be "
-            "used, rather use --dd-grab-all to pull all listings each time.");
+            "used, rather use --dd-grab-all to pull all listings each time.")
+        ->SetDeprecated("use --refresh instead");
     add("--refresh-second", "refreshsecond", false, "",
             "This option is only valid for selected grabbers.\n"
             "Force a refresh for guide data two days from now. This can "
             "be used in combination with other --refresh-<n> options.\n"
             "If being used with datadirect, this option should not be "
-            "used, rather use --dd-grab-all to pull all listings each time.");
+            "used, rather use --dd-grab-all to pull all listings each time.")
+        ->SetDeprecated("use --refresh instead");
     add("--refresh-day", "refreshday", 0U, "",
             "This option is only valid for selected grabbers.\n"
             "Force a refresh for guide data on a specific day. This can "
             "be used in combination with other --refresh-<n> options.\n"
             "If being used with datadirect, this option should not be "
-            "used, rather use --dd-grab-all to pull all listings each time.");
+            "used, rather use --dd-grab-all to pull all listings each time.")
+        ->SetDeprecated("use --refresh instead");
     add("--dont-refresh-tba", "dontrefreshtba", false,
             "don't refresh \"To be announced\" programs",
             "This option is only valid for selected grabbers.\n"
@@ -161,6 +165,7 @@ void MythFillDatabaseCommandLineParser::LoadArguments(void)
             "with fourteen downloads of one day each.\n"
             "If being used with datadirect, this option should not be "
             "used, rather use --dd-grab-all to pull all listings each time.")
+        ->SetDeprecated("use --refresh instead")
         ->SetBlocks("dontrefreshtomorrow")
         ->SetBlocks("refreshsecond")
         ->SetBlocks("refreshday")
@@ -182,8 +187,7 @@ void MythFillDatabaseCommandLineParser::LoadArguments(void)
     add("--only-update-channels", "onlychannels", false,
             "only update channel lineup",
             "Download as little listings data as possible to update the "
-            "channel lineup.")
-        ->SetParentOf("sourceid");
+            "channel lineup.");
     add("--no-mark-repeats", "markrepeats", true, "do not mark repeats", "");
     add("--export-icon-map", "exporticonmap", "iconmap.xml",
             "export icon map to file", "");

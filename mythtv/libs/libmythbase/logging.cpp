@@ -81,7 +81,7 @@ LogPropagateOpts        logPropagateOpts;
 QString                 logPropagateArgs;
 
 #define TIMESTAMP_MAX 30
-#define MAX_STRING_LENGTH 2048
+#define MAX_STRING_LENGTH (LOGLINE_MAX+120)
 
 LogLevel_t logLevel = (LogLevel_t)LOG_INFO;
 
@@ -514,69 +514,70 @@ void DBLoggerThread::run(void)
 {
     RunProlog();
 
-    QMutexLocker qLock(&m_queueMutex);
-
     // Wait a bit before we start logging to the DB..  If we wait too long,
     // then short-running tasks (like mythpreviewgen) will not log to the db
     // at all, and that's undesirable.
     bool ready = false;
-    while (!gCoreContext && !aborted && !ready)
+    while ( !aborted && ( !gCoreContext || !ready ) )
     {
-        // If the mutex is locked during this call, it causes deadlock in some
-        // situations.
-        qLock.unlock();
         ready = m_logger->isDatabaseReady();
-        qLock.relock();
 
         // Don't delay if aborted was set while we were checking database ready
         if (!ready && !aborted && !gCoreContext)
+        {
+            QMutexLocker qLock(&m_queueMutex);
             m_wait->wait(qLock.mutex(), 100);
+        }
     }
 
-    // We want the query to be out of scope before the RunEpilog() so shutdown
-    // occurs correctly as otherwise the connection appears still in use, and
-    // we get a qWarning on shutdown.
-    MSqlQuery *query = new MSqlQuery(MSqlQuery::InitCon());
-    m_logger->prepare(*query);
-
-    while (!aborted || !m_queue->isEmpty())
+    if (ready)
     {
-        if (m_queue->isEmpty())
+        // We want the query to be out of scope before the RunEpilog() so
+        // shutdown occurs correctly as otherwise the connection appears still
+        // in use, and we get a qWarning on shutdown.
+        MSqlQuery *query = new MSqlQuery(MSqlQuery::InitCon());
+        m_logger->prepare(*query);
+
+        QMutexLocker qLock(&m_queueMutex);
+        while (!aborted || !m_queue->isEmpty())
         {
-            m_wait->wait(qLock.mutex(), 100);
-            continue;
-        }
-
-        LoggingItem *item = m_queue->dequeue();
-        if (!item)
-            continue;
-
-        qLock.unlock();
-
-        if (item->message[0] != '\0')
-        {
-            if (!m_logger->logqmsg(*query, item))
+            if (m_queue->isEmpty())
             {
-                qLock.relock();
-                m_queue->prepend(item);
                 m_wait->wait(qLock.mutex(), 100);
-                delete query;
-                query = new MSqlQuery(MSqlQuery::InitCon());
-                m_logger->prepare(*query);
                 continue;
             }
-        }
-        else
-        {
-            deleteItem(item);
+
+            LoggingItem *item = m_queue->dequeue();
+            if (!item)
+                continue;
+
+            qLock.unlock();
+
+            if (item->message[0] != '\0')
+            {
+                if (!m_logger->logqmsg(*query, item))
+                {
+                    qLock.relock();
+                    m_queue->prepend(item);
+                    m_wait->wait(qLock.mutex(), 100);
+                    delete query;
+                    query = new MSqlQuery(MSqlQuery::InitCon());
+                    m_logger->prepare(*query);
+                    continue;
+                }
+            }
+            else
+            {
+                deleteItem(item);
+            }
+
+            qLock.relock();
         }
 
-        qLock.relock();
+        delete query;
+
+        qLock.unlock();
     }
-
-    delete query;
-
-    qLock.unlock();
 
     RunEpilog();
 }
@@ -1269,12 +1270,12 @@ void verboseHelp()
     cerr << endl <<
       "The default for this program appears to be: '-v " <<
       m_verbose.toLocal8Bit().constData() << "'\n\n"
-      "Most options are additive except for none, and all.\n"
+      "Most options are additive except for 'none' and 'all'.\n"
       "These two are semi-exclusive and take precedence over any\n"
-      "prior options given.  You can however use something like\n"
-      "'-v none,jobqueue' to get only JobQueue related messages\n"
+      "other options.  However, you may use something like\n"
+      "'-v none,jobqueue' to receive only JobQueue related messages\n"
       "and override the default verbosity level.\n\n"
-      "The additive options may also be subtracted from 'all' by \n"
+      "Additive options may also be subtracted from 'all' by\n"
       "prefixing them with 'no', so you may use '-v all,nodatabase'\n"
       "to view all but database debug messages.\n\n"
       "Some debug levels may not apply to this program.\n\n";
