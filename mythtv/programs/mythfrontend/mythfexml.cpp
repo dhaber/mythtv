@@ -26,13 +26,14 @@
 
 #include "keybindings.h"
 
+#include "services/frontend.h"
+
 /////////////////////////////////////////////////////////////////////////////
 //
 /////////////////////////////////////////////////////////////////////////////
 
 MythFEXML::MythFEXML( UPnpDevice *pDevice , const QString sSharePath)
-  : Eventing( "MythFEXML", "MYTHTV_Event", sSharePath),
-    m_statusLock(new QMutex())
+  : Eventing( "MythFEXML", "MYTHTV_Event", sSharePath)
 {
 
     QString sUPnpDescPath =
@@ -44,9 +45,6 @@ MythFEXML::MythFEXML( UPnpDevice *pDevice , const QString sSharePath)
     // Add our Service Definition to the device.
 
     RegisterService( pDevice );
-
-    // listen for status updates
-    gCoreContext->addListener(this);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -55,35 +53,6 @@ MythFEXML::MythFEXML( UPnpDevice *pDevice , const QString sSharePath)
 
 MythFEXML::~MythFEXML()
 {
-    gCoreContext->removeListener(this);
-}
-
-/////////////////////////////////////////////////////////////////////////////
-//
-/////////////////////////////////////////////////////////////////////////////
-
-void MythFEXML::customEvent(QEvent *e)
-{
-    if (e->type() != MythEvent::MythEventMessage)
-        return;
-
-    MythEvent *me = (MythEvent *)e;
-    if ("STATUS_UPDATE" == me->Message())
-    {
-        MythInfoMapEvent *info = (MythInfoMapEvent*)e;
-        if (info && info->InfoMap())
-        {
-            QMutexLocker lock(m_statusLock);
-            m_latestStatus.clear();
-            QHashIterator<QString,QString> it(*info->InfoMap());
-            while (it.hasNext())
-            {
-                it.next();
-                m_latestStatus.insert(it.key(), it.value());
-            }
-            m_statusWait.wakeAll();
-        }
-    }
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -94,12 +63,8 @@ MythFEXMLMethod MythFEXML::GetMethod(const QString &sURI)
 {
     if (sURI == "GetServDesc")   return MFEXML_GetServiceDescription;
     if (sURI == "GetScreenShot") return MFEXML_GetScreenShot;
-    if (sURI == "SendMessage")   return MFEXML_Message;
-    if (sURI == "SendAction")    return MFEXML_Action;
-    if (sURI == "GetActionList") return MFEXML_ActionList;
     if (sURI == "GetActionTest") return MFEXML_ActionListTest;
     if (sURI == "GetRemote")     return MFEXML_GetRemote;
-    if (sURI == "GetStatus")     return MFEXML_GetStatus;
 
     return( MFEXML_Unknown );
 }
@@ -136,23 +101,11 @@ bool MythFEXML::ProcessRequest( HTTPRequest *pRequest )
         case MFEXML_GetScreenShot:
             GetScreenShot(pRequest);
             break;
-        case MFEXML_Message:
-            SendMessage(pRequest);
-            break;
-        case MFEXML_Action:
-            SendAction(pRequest);
-            break;
-        case MFEXML_ActionList:
-            GetActionList(pRequest);
-            break;
         case MFEXML_ActionListTest:
             GetActionListTest(pRequest);
             break;
         case MFEXML_GetRemote:
             GetRemote(pRequest);
-            break;
-        case MFEXML_GetStatus:
-            GetStatus(pRequest);
             break;
         default:
             UPnp::FormatErrorResponse(pRequest, UPnPResult_InvalidAction);
@@ -200,70 +153,15 @@ void MythFEXML::GetScreenShot(HTTPRequest *pRequest)
     pRequest->m_sFileName = sFileName;
 }
 
-void MythFEXML::SendMessage(HTTPRequest *pRequest)
-{
-    pRequest->m_eResponseType = ResponseTypeHTML;
-    QString sText = pRequest->m_mapParams[ "text" ];
-    LOG(VB_GENERAL, LOG_DEBUG, QString("UPNP message: ") + sText);
-
-    MythMainWindow *window = GetMythMainWindow();
-    MythEvent* me = new MythEvent(MythEvent::MythUserMessage, sText);
-    qApp->postEvent(window, me);
-}
-
-void MythFEXML::SendAction(HTTPRequest *pRequest)
-{
-    QStringMap* map = &pRequest->m_mapParams;
-    pRequest->m_eResponseType = ResponseTypeHTML;
-    QString sText = map->value("action");
-    uint pcount   = map->size();
-
-    LOG(VB_UPNP, LOG_INFO, QString("UPNP Action: %1 (total %2 params)")
-        .arg(sText).arg(pcount));
-
-    if (!IsValidAction(sText))
-        return;
-
-    if (pcount > 1)
-    {
-        bool valid = false;
-        QStringList args;
-        if (ACTION_SCREENSHOT == sText && 3 == pcount)
-        {
-            args << map->value("width");
-            args << map->value("height");
-            valid = true;
-        }
-        else if (ACTION_HANDLEMEDIA == sText && 2 == pcount)
-        {
-            args << map->value("file");
-            valid = true;
-        }
-
-        if (valid)
-        {
-            MythEvent* me = new MythEvent(sText, args);
-            qApp->postEvent(GetMythMainWindow(), me);
-            return;
-        }
-
-        LOG(VB_UPNP, LOG_WARNING,
-            "Failed to validate extra paramaters - ignoring");
-    }
-
-    QKeyEvent* ke = new QKeyEvent(QEvent::KeyPress, 0, Qt::NoModifier, sText);
-    qApp->postEvent(GetMythMainWindow(), (QEvent*)ke);
-}
-
 static const QString PROCESS_ACTION =
     "  <script type =\"text/javascript\">\n"
     "    function postaction(action) {\n"
     "      var myForm = document.createElement(\"form\");\n"
     "      myForm.method =\"Post\";\n"
-    "      myForm.action =\"SendAction?\";\n"
+    "      myForm.action =\"../Frontend/SendAction?\";\n"
     "      myForm.target =\"post_target\";\n"
     "      var myInput = document.createElement(\"input\");\n"
-    "      myInput.setAttribute(\"name\", \"action\");\n"
+    "      myInput.setAttribute(\"name\", \"Action\");\n"
     "      myInput.setAttribute(\"value\", action);\n"
     "      myForm.appendChild(myInput);\n"
     "      document.body.appendChild(myForm);\n"
@@ -278,7 +176,7 @@ static const QString HIDDEN_IFRAME =
 
 void MythFEXML::GetActionListTest(HTTPRequest *pRequest)
 {
-    InitActions();
+    Frontend::InitialiseActions();
 
     pRequest->m_eResponseType = ResponseTypeHTML;
     pRequest->m_mapRespHeaders[ "Cache-Control" ] = "no-cache=\"Ext\", max-age = 5000";
@@ -289,7 +187,7 @@ void MythFEXML::GetActionListTest(HTTPRequest *pRequest)
         "<html>\n" << PROCESS_ACTION <<
         "  <body>\n" << HIDDEN_IFRAME;
 
-    QHashIterator<QString,QStringList> contexts(m_actionDescriptions);
+    QHashIterator<QString,QStringList> contexts(Frontend::gActionDescriptions);
     while (contexts.hasNext())
     {
         contexts.next();
@@ -312,80 +210,11 @@ void MythFEXML::GetActionListTest(HTTPRequest *pRequest)
 
 }
 
-void MythFEXML::GetStatus(HTTPRequest *pRequest)
-{
-    QMutexLocker lock(m_statusLock);
-
-    pRequest->m_eResponseType = ResponseTypeXML;
-    pRequest->m_mapHeaders[ "Cache-Control" ] = "no-cache=\"Ext\", max-age = 1";
-
-    QTime now = QTime::currentTime();
-    int since = m_lastUpdate.msecsTo(now);
-
-    if (m_latestStatus.isEmpty() || (since < 0) || (since > 500))
-    {
-        m_lastUpdate = now;
-        MythEvent *req = new MythEvent(ACTION_GETSTATUS);
-        qApp->postEvent(GetMythMainWindow(), req);
-        if (!m_statusWait.wait(m_statusLock, 1000))
-        {
-            LOG(VB_GENERAL, LOG_ERR,
-                "MythFEXML::GetStatus - failed to update status.");
-        }
-    }
-
-    QTextStream stream( &pRequest->m_response );
-    stream << "<mythstatus version=\"1\">\n";
-    QHashIterator<QString,QString> it(m_latestStatus);
-    while (it.hasNext())
-    {
-        it.next();
-        stream << "    <";
-        stream << it.key() << ">" << it.value() << "</" << it.key() << ">\n";
-    }
-    stream << "</mythstatus>\n";
-}
-
-void MythFEXML::GetActionList(HTTPRequest *pRequest)
-{
-    InitActions();
-
-    pRequest->m_eResponseType = ResponseTypeXML;
-    pRequest->m_mapRespHeaders[ "Cache-Control" ] = "no-cache=\"Ext\", max-age = 5000";
-
-    QTextStream stream( &pRequest->m_response );
-
-    stream << "<mythactions version=\"1\">";
-
-    QHashIterator<QString,QStringList> contexts(m_actionDescriptions);
-    while (contexts.hasNext())
-    {
-        contexts.next();
-        stream << QString("<context name=\"%1\">")
-                                        .arg(contexts.key());
-        QStringList actions = contexts.value();
-        foreach (QString action, actions)
-        {
-            QStringList split = action.split(",");
-            if (split.size() == 2)
-            {
-                stream <<
-                    QString("<action name=\"%1\">%2</action>")
-                    .arg(split[0]).arg(split[1]);
-            }
-        }
-        stream << "</context>";
-    }
-    stream << "</mythactions>";
-}
-
 #define BUTTON(action,desc) \
   QString("      <input class=\"bigb\" type=\"button\" value=\"%1\" onClick=\"postaction('%2');\"></input>\r\n").arg(action).arg(desc)
 
 void MythFEXML::GetRemote(HTTPRequest *pRequest)
 {
-    InitActions();
-
     pRequest->m_eResponseType = ResponseTypeHTML;
     pRequest->m_mapRespHeaders[ "Cache-Control" ] = "no-cache=\"Ext\", max-age = 5000";
 
@@ -436,46 +265,4 @@ void MythFEXML::GetRemote(HTTPRequest *pRequest)
     stream <<
         "  </body>\n"
         "</html>\n";
-}
-
-bool MythFEXML::IsValidAction(const QString &action)
-{
-    InitActions();
-    if (m_actionList.contains(action))
-        return true;
-    LOG(VB_GENERAL, LOG_ERR, QString("UPNP Action: %1 is invalid").arg(action));
-    return false;
-}
-
-void MythFEXML::InitActions(void)
-{
-    static bool initialised = false;
-    if (initialised)
-        return;
-
-    initialised = true;
-    KeyBindings *bindings = new KeyBindings(gCoreContext->GetHostName());
-    if (bindings)
-    {
-        QStringList contexts = bindings->GetContexts();
-        contexts.sort();
-        foreach (QString context, contexts)
-        {
-            m_actionDescriptions[context] = QStringList();
-            QStringList ctx_actions = bindings->GetActions(context);
-            ctx_actions.sort();
-            m_actionList += ctx_actions;
-            foreach (QString actions, ctx_actions)
-            {
-                QString desc = actions + "," +
-                               bindings->GetActionDescription(context, actions);
-                m_actionDescriptions[context].append(desc);
-            }
-        }
-    }
-    m_actionList.removeDuplicates();
-    m_actionList.sort();
-
-    foreach (QString actions, m_actionList)
-        LOG(VB_UPNP, LOG_INFO, QString("MythFEXML Action: %1").arg(actions));
 }

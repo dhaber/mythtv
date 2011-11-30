@@ -244,7 +244,7 @@ long long DVDRingBuffer::Seek(long long time)
     if (m_parent)
         ffrewSkip = m_parent->GetFFRewSkip();
 
-    if (ffrewSkip != 1 && time != 0)
+    if (ffrewSkip != 1 && ffrewSkip != 0 && time != 0)
     {
         QMap<uint, uint>::const_iterator it = m_seekSpeedMap.lowerBound(labs(time));
         if (it == m_seekSpeedMap.end())
@@ -258,7 +258,7 @@ long long DVDRingBuffer::Seek(long long time)
     else
     {
         m_seektime = (uint64_t)time;
-        dvdRet = dvdnav_absolute_time_search(m_dvdnav, m_seektime, 1);
+        dvdRet = dvdnav_absolute_time_search(m_dvdnav, m_seektime, 0);
     }
 
     LOG(VB_PLAYBACK, LOG_DEBUG,
@@ -590,7 +590,7 @@ int DVDRingBuffer::safe_read(void *data, uint sz)
                     dvdnav_free_cache_block(m_dvdnav, blockBuf);
 
                 // debug
-                LOG(VB_PLAYBACK, LOG_DEBUG, LOC + "DVDNAV_BLOCK_OK");
+                LOG(VB_PLAYBACK|VB_FILE, LOG_DEBUG, LOC + "DVDNAV_BLOCK_OK");
             }
             break;
 

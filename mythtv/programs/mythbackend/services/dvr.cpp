@@ -20,6 +20,7 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include <QMap>
+#include <QRegExp>
 
 #include "dvr.h"
 
@@ -41,9 +42,20 @@ extern AutoExpire  *expirer;
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::ProgramList* Dvr::GetRecorded( bool bDescending,
-                                    int  nStartIndex,
-                                    int  nCount      )
+DTC::ProgramList* Dvr::GetRecordedList( bool bDescending,
+                                        int  nStartIndex,
+                                        int  nCount      )
+{
+    return GetFilteredRecordedList( bDescending, nStartIndex, nCount,
+                                    QString(), QString(), QString() );
+}
+
+DTC::ProgramList* Dvr::GetFilteredRecordedList( bool           bDescending,
+                                                int            nStartIndex,
+                                                int            nCount,
+                                                const QString &sTitleRegEx,
+                                                const QString &sRecGroup,
+                                                const QString &sStorageGroup )
 {
     QMap< QString, ProgramInfo* > recMap;
 
@@ -71,25 +83,64 @@ DTC::ProgramList* Dvr::GetRecorded( bool bDescending,
     // ----------------------------------------------------------------------
 
     DTC::ProgramList *pPrograms = new DTC::ProgramList();
+    int nAvailable = 0;
 
-    nStartIndex   = min( nStartIndex, (int)progList.size() );
-    nCount        = (nCount > 0) ? min( nCount, (int)progList.size() ) : progList.size();
-    int nEndIndex = min((nStartIndex + nCount), (int)progList.size() );
-
-    for( int n = nStartIndex; n < nEndIndex; n++)
+    if ((sTitleRegEx.isEmpty()) &&
+        (sRecGroup.isEmpty()) &&
+        (sStorageGroup.isEmpty()))
     {
-        ProgramInfo *pInfo = progList[ n ];
+        nStartIndex   = min( nStartIndex, (int)progList.size() );
+        nCount        = (nCount > 0) ? min( nCount, (int)progList.size() ) : progList.size();
+        int nEndIndex = min((nStartIndex + nCount), (int)progList.size() );
+        nCount        = nEndIndex - nStartIndex;
 
-        DTC::Program *pProgram = pPrograms->AddNewProgram();
+        nAvailable = progList.size();
 
-        FillProgramInfo( pProgram, pInfo, true );
+        for( int n = nStartIndex; n < nEndIndex; n++)
+        {
+            ProgramInfo *pInfo = progList[ n ];
+            DTC::Program *pProgram = pPrograms->AddNewProgram();
+
+            FillProgramInfo( pProgram, pInfo, true );
+        }
+    }
+    else
+    {
+        int nMax      = nCount;
+
+        nAvailable = 0;
+        nCount = 0;
+
+        QRegExp rTitleRegEx        = QRegExp(sTitleRegEx, Qt::CaseInsensitive);
+
+        for( unsigned int n = 0; n < progList.size(); n++)
+        {
+            ProgramInfo *pInfo = progList[ n ];
+
+            if ((!sTitleRegEx.isEmpty() && !pInfo->GetTitle().contains(rTitleRegEx)) ||
+                (!sRecGroup.isEmpty() && sRecGroup != pInfo->GetRecordingGroup()) ||
+                (!sStorageGroup.isEmpty() && sStorageGroup != pInfo->GetStorageGroup()))
+                continue;
+
+            ++nAvailable;
+
+            if ((nAvailable < nStartIndex) ||
+                (nCount >= nMax))
+                continue;
+
+            ++nCount;
+
+            DTC::Program *pProgram = pPrograms->AddNewProgram();
+
+            FillProgramInfo( pProgram, pInfo, true );
+        }
     }
 
     // ----------------------------------------------------------------------
 
     pPrograms->setStartIndex    ( nStartIndex     );
     pPrograms->setCount         ( nCount          );
-    pPrograms->setTotalAvailable( progList.size() );
+    pPrograms->setTotalAvailable( nAvailable      );
     pPrograms->setAsOf          ( QDateTime::currentDateTime() );
     pPrograms->setVersion       ( MYTH_BINARY_VERSION );
     pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
@@ -101,8 +152,8 @@ DTC::ProgramList* Dvr::GetRecorded( bool bDescending,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::Program* Dvr::GetRecordedItem( int              nChanId,
-                                    const QDateTime &dStartTime  )
+DTC::Program* Dvr::GetRecorded( int              nChanId,
+                                const QDateTime &dStartTime  )
 {
     if (nChanId <= 0 || !dStartTime.isValid())
         throw( QString("Channel ID or StartTime appears invalid."));
@@ -119,8 +170,8 @@ DTC::Program* Dvr::GetRecordedItem( int              nChanId,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Dvr::RemoveRecordedItem( int              nChanId,
-                              const QDateTime &dStartTime  )
+bool Dvr::RemoveRecorded( int              nChanId,
+                          const QDateTime &dStartTime  )
 {
     if (nChanId <= 0 || !dStartTime.isValid())
         throw( QString("Channel ID or StartTime appears invalid."));
@@ -139,8 +190,8 @@ bool Dvr::RemoveRecordedItem( int              nChanId,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::ProgramList* Dvr::GetExpiring( int nStartIndex, 
-                                    int nCount      )
+DTC::ProgramList* Dvr::GetExpiringList( int nStartIndex, 
+                                        int nCount      )
 {
     pginfolist_t  infoList;
 
@@ -187,7 +238,7 @@ DTC::ProgramList* Dvr::GetExpiring( int nStartIndex,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::EncoderList* Dvr::Encoders()
+DTC::EncoderList* Dvr::GetEncoderList()
 {
     DTC::EncoderList* pList = new DTC::EncoderList();
 
@@ -245,9 +296,9 @@ DTC::EncoderList* Dvr::Encoders()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::ProgramList* Dvr::GetUpcoming( int  nStartIndex,
-                                    int  nCount,
-                                    bool bShowAll )
+DTC::ProgramList* Dvr::GetUpcomingList( int  nStartIndex,
+                                        int  nCount,
+                                        bool bShowAll )
 {
     RecordingList  recordingList;
     RecordingList  tmpList;
@@ -306,8 +357,8 @@ DTC::ProgramList* Dvr::GetUpcoming( int  nStartIndex,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::ProgramList* Dvr::GetConflicts( int  nStartIndex,
-                                    int  nCount       )
+DTC::ProgramList* Dvr::GetConflictList( int  nStartIndex,
+                                        int  nCount       )
 {
     RecordingList  recordingList;
     RecordingList  tmpList;
@@ -355,5 +406,122 @@ DTC::ProgramList* Dvr::GetConflicts( int  nStartIndex,
     pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
 
     return pPrograms;
+}
+
+bool Dvr::RemoveRecordSchedule ( uint nRecordId )
+{
+    bool bResult = false;
+
+    if (nRecordId <= 0 )
+        throw( QString("Record ID appears invalid."));
+
+    RecordingRule *pRule = new RecordingRule();
+    pRule->m_recordID = nRecordId;
+
+    bResult = pRule->Delete();
+
+    return bResult;
+}
+
+DTC::RecRuleList* Dvr::GetRecordScheduleList( int nStartIndex,
+                                              int nCount      )
+{
+    vector<ProgramInfo *> infoList;
+    RemoteGetAllScheduledRecordings(infoList);
+
+    // ----------------------------------------------------------------------
+    // Build Response
+    // ----------------------------------------------------------------------
+
+    DTC::RecRuleList *pRecRules = new DTC::RecRuleList();
+
+    nStartIndex   = min( nStartIndex, (int)infoList.size() );
+    nCount        = (nCount > 0) ? min( nCount, (int)infoList.size() ) : infoList.size();
+    int nEndIndex = min((nStartIndex + nCount), (int)infoList.size() );
+
+    for( int n = nStartIndex; n < nEndIndex; n++)
+    {
+        RecordingRule *rule = new RecordingRule();
+        ProgramInfo *pInfo = infoList[ n ];
+        rule->LoadByProgram(pInfo);
+
+        if (pInfo != NULL)
+        {
+            DTC::RecRule *pRecRule = pRecRules->AddNewRecRule();
+
+            FillRecRuleInfo( pRecRule, rule );
+
+            delete rule;
+            delete pInfo;
+        }
+    }
+
+    // ----------------------------------------------------------------------
+
+    pRecRules->setStartIndex    ( nStartIndex     );
+    pRecRules->setCount         ( nCount          );
+    pRecRules->setTotalAvailable( infoList.size() );
+    pRecRules->setAsOf          ( QDateTime::currentDateTime() );
+    pRecRules->setVersion       ( MYTH_BINARY_VERSION );
+    pRecRules->setProtoVer      ( MYTH_PROTO_VERSION  );
+
+    return pRecRules;
+}
+
+DTC::RecRule* Dvr::GetRecordSchedule( uint nRecordId )
+{
+    if (nRecordId <= 0 )
+        throw( QString("Record ID appears invalid."));
+
+    RecordingRule *pRule = new RecordingRule();
+    pRule->m_recordID = nRecordId;
+    pRule->Load();
+
+    DTC::RecRule *pRecRule = new DTC::RecRule();
+    FillRecRuleInfo( pRecRule, pRule );
+
+    return pRecRule;
+}
+
+bool Dvr::EnableRecordSchedule ( uint nRecordId )
+{
+    bool bResult = false;
+
+    if (nRecordId <= 0 )
+        throw( QString("Record ID appears invalid."));
+
+    RecordingRule *pRule = new RecordingRule();
+    pRule->m_recordID = nRecordId;
+    pRule->Load();
+
+    if (pRule->IsLoaded())
+    {
+        pRule->m_isInactive = false;
+        pRule->Save();
+        bResult = true;
+    }
+
+    return bResult;
+}
+
+bool Dvr::DisableRecordSchedule( uint nRecordId )
+{
+    bool bResult = false;
+
+    if (nRecordId <= 0 )
+        throw( QString("Record ID appears invalid."));
+
+    RecordingRule *pRule = new RecordingRule();
+    pRule->m_recordID = nRecordId;
+    pRule->Load();
+
+    if (pRule->IsLoaded())
+    {
+        pRule->m_isInactive = true;
+        pRule->Save();
+        bResult = true;
+    }
+
+    return bResult;
 }
 

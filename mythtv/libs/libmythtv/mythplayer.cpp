@@ -644,6 +644,20 @@ void MythPlayer::ReinitVideo(void)
             return;
         }
 
+        // the display refresh rate may have been changed by VideoOutput
+        if (videosync)
+        {
+            int ri = MythDisplay::GetDisplayInfo(frame_interval).Rate();
+            if (ri != videosync->getRefreshInterval())
+            {
+                LOG(VB_PLAYBACK, LOG_INFO, LOC +
+                    QString("Refresh rate has changed from %1 to %2")
+                    .arg(videosync->getRefreshInterval())
+                    .arg(ri));
+                videosync->setRefreshInterval(ri);
+             }
+        }
+
         if (osd)
             osd->SetPainter(videoOutput->GetOSDPainter());
         ReinitOSD();
@@ -2029,7 +2043,7 @@ void MythPlayer::RefreshPauseFrame(void)
     {
         if (videoOutput->ValidVideoFrames())
         {
-            videoOutput->UpdatePauseFrame();
+            videoOutput->UpdatePauseFrame(disp_timecode);
             needNewPauseFrame = false;
         }
         else
@@ -2962,6 +2976,7 @@ void MythPlayer::DecoderStart(bool start_paused)
 
 void MythPlayer::DecoderEnd(void)
 {
+    PauseDecoder();
     SetPlaying(false);
     killdecoder = true;
     int tries = 0;
@@ -3079,8 +3094,7 @@ void MythPlayer::DecoderLoop(bool pause)
     }
 
     // Clear any wait conditions
-    PauseDecoder();
-    UnpauseDecoder();
+    DecoderPauseCheck();
     decoderSeek = -1;
 }
 
@@ -3229,9 +3243,12 @@ PIPLocation MythPlayer::GetNextPIPLocation(void) const
     return kPIP_END;
 }
 
-int64_t MythPlayer::AdjustAudioTimecodeOffset(int64_t v)
+int64_t MythPlayer::AdjustAudioTimecodeOffset(int64_t v, int newsync)
 {
-    tc_wrap[TC_AUDIO] += v;
+    if ((newsync >= -1000) && (newsync <= 1000))
+        tc_wrap[TC_AUDIO] = newsync;
+    else
+        tc_wrap[TC_AUDIO] += v;
     gCoreContext->SaveSetting("AudioSyncOffset", tc_wrap[TC_AUDIO]);
     return tc_wrap[TC_AUDIO];
 }
@@ -4548,21 +4565,36 @@ int MythPlayer::GetSecondsBehind(void) const
     return (int)((float)(written - played) / video_frame_rate);
 }
 
+int64_t MythPlayer::GetSecondsPlayed(void)
+{
+    return decoder->isCodecMPEG() ?
+                (disp_timecode / 1000.f) :
+                (framesPlayed / video_frame_rate);
+}
+
+int64_t MythPlayer::GetTotalSeconds(void) const
+{
+    return totalDuration;
+}
+
 void MythPlayer::calcSliderPos(osdInfo &info, bool paddedFields)
 {
     if (!decoder)
         return;
 
     bool islive = false;
-    int chapter = GetCurrentChapter() + 1;
-    int title = GetCurrentTitle() + 1;
-    info.text.insert("chapteridx", chapter ? QString().number(chapter) : QString());
-    info.text.insert("titleidx", title ? QString().number(title) : QString());
+    info.text.insert("chapteridx",    QString());
+    info.text.insert("totalchapters", QString());
+    info.text.insert("titleidx",      QString());
+    info.text.insert("totaltitles",   QString());
+    info.text.insert("angleidx",      QString());
+    info.text.insert("totalangles",   QString());
     info.values.insert("position",   0);
     info.values.insert("progbefore", 0);
     info.values.insert("progafter",  0);
 
-    int playbackLen = totalDuration;
+    int playbackLen = GetTotalSeconds();
+    float secsplayed = (float)GetSecondsPlayed();
 
     if (totalDuration == 0 || decoder->GetCodecDecoderName() == "nuppel")
         playbackLen = totalLength;
@@ -4582,21 +4614,38 @@ void MythPlayer::calcSliderPos(osdInfo &info, bool paddedFields)
                    video_frame_rate));
         islive = true;
     }
+    else
+    {
+        int chapter  = GetCurrentChapter();
+        int chapters = GetNumChapters();
+        if (chapter && chapters > 1)
+        {
+            info.text["chapteridx"] = QString::number(chapter + 1);
+            info.text["totalchapters"] =  QString::number(chapters);
+        }
 
-    float secsplayed = decoder->isCodecMPEG() ?
-        (float)(disp_timecode / 1000.f) :
-        (float)(framesPlayed / video_frame_rate);
+        int title  = GetCurrentTitle();
+        int titles = GetNumTitles();
+        if (title && titles > 1)
+        {
+            info.text["titleidx"] = QString::number(title + 1);
+            info.text["totaltitles"] = QString::number(titles);
+        }
 
-    calcSliderPosPriv(info, paddedFields, playbackLen, secsplayed, islive);
-}
+        int angle  = GetCurrentAngle();
+        int angles = GetNumAngles();
+        if (angle && angles > 1)
+        {
+            info.text["angleidx"] = QString::number(angle + 1);
+            info.text["totalangles"] = QString::number(angles);
+        }
+    }
 
-void MythPlayer::calcSliderPosPriv(osdInfo &info, bool paddedFields,
-                                   int playbackLen, float secsplayed,
-                                   bool islive)
-{
     playbackLen = max(playbackLen, 1);
     secsplayed  = min((float)playbackLen, max(secsplayed, 0.0f));
 
+    info.values.insert("secondsplayed", (int)secsplayed);
+    info.values.insert("totalseconds", playbackLen);
     info.values["position"] = (int)(1000.0f * (secsplayed / (float)playbackLen));
 
     int phours = (int)secsplayed / 3600;

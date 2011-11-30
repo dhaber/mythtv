@@ -3697,6 +3697,8 @@ uint ProgramInfo::QueryAverageFrameRate(void) const
  */
 int64_t ProgramInfo::QueryTotalDuration(void) const
 {
+    if (gCoreContext->IsDatabaseIgnored())
+        return 0LL;
     int64_t msec = load_markup_datum(MARK_DURATION_MS, chanid, recstartts);
     return msec * 1000;
 }

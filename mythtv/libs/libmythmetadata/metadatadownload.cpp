@@ -649,7 +649,10 @@ MetadataLookupList MetadataDownload::handleRecordingGeneric(
     list = runGrabber(cmd, args, lookup, true);
 
     if (list.count() == 1)
-        list.at(0)->SetStep(kLookupData);
+    {
+        lookup->SetInetref(list.at(0)->GetInetref());
+        list = handleTelevision(lookup);
+    }
 
     lookup->SetSeason(origseason);
     lookup->SetEpisode(origepisode);

@@ -6,6 +6,7 @@
 #include "sctedescriptors.h"
 #include "atscdescriptors.h"
 #include "dvbdescriptors.h"
+#include "util.h" // for xml_indent
 
 QMutex                RegistrationDescriptor::description_map_lock;
 bool                  RegistrationDescriptor::description_map_initialized = false;
@@ -61,16 +62,7 @@ desc_list_t MPEGDescriptor::ParseOnlyInclude(
     while (off < len)
     {
         if ((data+off)[0] == excluded_descid)
-        {
-            LOG(VB_GENERAL, LOG_INFO, QString("Including Descriptor %1")
-                .arg(int((data+off)[0]),0,16));
             tmp.push_back(data+off);
-        }
-        else
-        {
-            LOG(VB_GENERAL, LOG_INFO, QString("Excluding Descriptor %1")
-                .arg(int((data+off)[0]),0,16));
-        }
         MPEGDescriptor desc(data+off, len-off);
         if (!desc.IsValid())
         {
@@ -284,25 +276,32 @@ const char *descriptor_tag_strings[256] =
     /* 0x7E */ "",                      /* 0x7F */ "",
 
     /* 0x80 */ "ATSC Stuffing",         /* 0x81 */ "AC-3 Audio",
-    /* 0x82 */ "SCTE Frame Rate",       /* 0x83 */ "",
+    /* 0x82 */ "SCTE Frame Rate",       /* 0x83 */ "SCTE Extended Video",
     /* 0x84 */ "SCTE Component Name",   /* 0x85 */ "ATSC Program Identifier",
     /* 0x86 */ "Caption Service",       /* 0x87 */ "Content Advisory",
     /* 0x88 */ "ATSC CA Descriptor",    /* 0x89 */ "ATSC Descriptor Tag",
     /* 0x8A */ "SCTE CUE Identifier",   /* 0x8B */ "",
-    /* 0x8C */ "",                      /* 0x8D */ "",
+    /* 0x8C */ "TimeStamp",             /* 0x8D */ "",
     /* 0x8E */ "",                      /* 0x8F */ "",
 
-    /* 0x90-0x9F */ EMPTY_STR_16
+    /* 0x90 */ "SCTE Frequency Spec",   /* 0x91 */ "SCTE Modulation Params",
+    /* 0x92 */ "SCTE TSID",             /* 0x93 */ "SCTE Revision Detection",
+    /* 0x94 */ "SCTE Two part channel", /* 0x95 */ "SCTE Channel Properties",
+    /* 0x96 */ "SCTE Daylight Savings", /* 0x97 */ "SCTE AFD",
+    /* 0x98 */ "", /* 0x99 */ "",
+    /* 0x9A */ "", /* 0x9B */ "",
+    /* 0x9C */ "", /* 0x9D */ "",
+    /* 0x9E */ "", /* 0x9F */ "",
 
     /* 0xA0 */ "Extended Channel Name", /* 0xA1 */ "Service Location",
-    /* 0xA2 */ "ATSC Time-shifted Service", /* 0xA3 */ "Component Name",
+    /* 0xA2 */ "ATSC Time-shifted Service",/*0xA3*/"Component Name",
     /* 0xA4 */ "ATSC Data Service",     /* 0xA5 */ "ATSC PID Count",
     /* 0xA6 */ "ATSC Download",
     /* 0xA7 */ "ATSC Multiprotocol Encapsulation",
     /* 0xA8 */ "DCC Departing Request", /* 0xA9 */ "DCC Arriving Request",
-    /* 0xAA */ "Consumer Restrictions Control", /* 0xAB */ "ATSC Genre",
-    /* 0xAC */ "",                      /* 0xAD */ "ATSC Private Information",
-    /* 0xAE */ "",                      /* 0xAF */ "",
+    /* 0xAA */ "ATSC Restrictions Control",/*0xAB*/"ATSC Genre",
+    /* 0xAC */ "SCTE MAC Address List", /* 0xAD */ "ATSC Private Information",
+    /* 0xAE */ "ATSC Compatibility Wrap",/* 0xAF */"ATSC Broadcaster Policy",
 
     /* 0xB0 */ "", /* 0xB1 */ "",
     /* 0xB2 */ "", /* 0xB3 */ "",
@@ -428,6 +427,8 @@ QString MPEGDescriptor::toString() const
         SET_STRING(ServiceListDescriptor);
     else if (DescriptorID::scte_cue_identifier == DescriptorTag())
         SET_STRING(CueIdentifierDescriptor);
+    else if (DescriptorID::scte_revision_detection == DescriptorTag())
+        SET_STRING(RevisionDetectionDescriptor);
     /// POSSIBLY UNSAFE ! -- begin
     else if (PrivateDescriptorID::dvb_uk_channel_list == DescriptorTag())
         SET_STRING(UKChannelListDescriptor);
@@ -448,20 +449,12 @@ QString MPEGDescriptor::toString() const
     return str;
 }
 
-static inline QString indent(uint level)
-{
-    QString ret;
-    for (uint i = 0; i < level; i++)
-        ret += "  ";
-    return ret;
-}
-
 /// Returns XML representation of string the TS Reader XML format.
 /// When possible matching http://www.tsreader.com/tsreader/text-export.html
 QString MPEGDescriptor::toStringXML(uint level) const
 {
-    QString indent_0 = indent(level);
-    QString indent_1 = indent(level+1);
+    QString indent_0 = xml_indent(level);
+    QString indent_1 = xml_indent(level+1);
     QString str;
 
     str += indent_0 + "<Descriptor>\n";
