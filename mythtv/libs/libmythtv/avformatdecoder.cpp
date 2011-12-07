@@ -258,10 +258,7 @@ void AvFormatDecoder::GetDecoders(render_opts &opts)
 
 AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
                                  const ProgramInfo &pginfo,
-                                 bool use_null_videoout,
-                                 bool allow_private_decode,
-                                 bool no_hardware_decode,
-                                 AVSpecialDecode special_decoding)
+                                 PlayerFlags flags)
     : DecoderBase(parent, pginfo),
       private_dec(NULL),
       is_db_ignored(gCoreContext->IsDatabaseIgnored()),
@@ -286,11 +283,8 @@ AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
       pts_detected(false),
       reordered_pts_detected(false),
       pts_selected(true),
-      using_null_videoout(use_null_videoout),
+      playerFlags(flags),
       video_codec_id(kCodec_NONE),
-      no_hardware_decoders(no_hardware_decode),
-      allow_private_decoders(allow_private_decode),
-      special_decode(special_decoding),
       maxkeyframedist(-1),
       // Closed Caption & Teletext decoders
       ignore_scte(false),
@@ -330,8 +324,8 @@ AvFormatDecoder::AvFormatDecoder(MythPlayer *parent,
     if (gCoreContext->GetNumSetting("CCBackground", 0))
         CC708Window::forceWhiteOnBlackText = true;
 
-    LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString("Special Decode Flags: 0x%1")
-        .arg(special_decode, 0, 16));
+    LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString("PlayerFlags: 0x%1")
+        .arg(playerFlags, 0, 16));
 }
 
 AvFormatDecoder::~AvFormatDecoder()
@@ -1025,6 +1019,10 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
    
     if (dur == 0)
     {
+        if ((ic->duration == AV_NOPTS_VALUE) &&
+            (!livetv && !ringBuffer->IsDisc()))
+            av_estimate_timings(ic, 0);
+
         dur = ic->duration / (int64_t)AV_TIME_BASE;
     }
 
@@ -1309,33 +1307,35 @@ void AvFormatDecoder::InitVideoCodec(AVStream *stream, AVCodecContext *enc,
                 .arg(ff_codec_id_string(enc->codec_id)));
     }
 
-    if (special_decode)
+    if (FlagIsSet(kDecodeLowRes)    || FlagIsSet(kDecodeSingleThreaded) ||
+        FlagIsSet(kDecodeFewBlocks) || FlagIsSet(kDecodeNoLoopFilter)   ||
+        FlagIsSet(kDecodeNoDecode))
     {
         enc->flags2 |= CODEC_FLAG2_FAST;
 
         if ((CODEC_ID_MPEG2VIDEO == codec->id) ||
             (CODEC_ID_MPEG1VIDEO == codec->id))
         {
-            if (special_decode & kAVSpecialDecode_FewBlocks)
+            if (FlagIsSet(kDecodeFewBlocks))
             {
                 uint total_blocks = (enc->height+15) / 16;
                 enc->skip_top     = (total_blocks+3) / 4;
                 enc->skip_bottom  = (total_blocks+3) / 4;
             }
 
-            if (special_decode & kAVSpecialDecode_LowRes)
+            if (FlagIsSet(kDecodeLowRes))
                 enc->lowres = 2; // 1 = 1/2 size, 2 = 1/4 size
         }
         else if (CODEC_ID_H264 == codec->id)
         {
-            if (special_decode & kAVSpecialDecode_NoLoopFilter)
+            if (FlagIsSet(kDecodeNoLoopFilter))
             {
                 enc->flags &= ~CODEC_FLAG_LOOP_FILTER;
                 enc->skip_loop_filter = AVDISCARD_ALL;
             }
         }
 
-        if (special_decode & kAVSpecialDecode_NoDecode)
+        if (FlagIsSet(kDecodeNoDecode))
         {
             enc->skip_idct = AVDISCARD_ALL;
         }
@@ -1810,7 +1810,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                 if (version)
                     video_codec_id = (MythCodecID)(kCodec_MPEG1 + version - 1);
 
-                if (!using_null_videoout && version)
+                if (!FlagIsSet(kVideoIsNull) && version)
                 {
 #if defined(USING_VDPAU)
                     // HACK -- begin
@@ -1825,8 +1825,9 @@ int AvFormatDecoder::ScanStreams(bool novideo)
 #ifdef USING_VDPAU
                     MythCodecID vdpau_mcid;
                     vdpau_mcid = VideoOutputVDPAU::GetBestSupportedCodec(
-                        width, height,
-                        mpeg_version(enc->codec_id), no_hardware_decoders);
+                        width, height, dec,
+                        mpeg_version(enc->codec_id),
+                        !FlagIsSet(kDecodeAllowGPU));
 
                     if (vdpau_mcid >= video_codec_id)
                     {
@@ -1838,14 +1839,14 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                     MythCodecID vaapi_mcid;
                     PixelFormat pix_fmt = PIX_FMT_YUV420P;
                     vaapi_mcid = VideoOutputOpenGLVAAPI::GetBestSupportedCodec(
-                            width, height, mpeg_version(enc->codec_id),
-                            no_hardware_decoders, pix_fmt);
+                            width, height, dec, mpeg_version(enc->codec_id),
+                            !FlagIsSet(kDecodeAllowGPU), pix_fmt);
 
                     if (vaapi_mcid >= video_codec_id)
                     {
                         enc->codec_id = (CodecID)myth2av_codecid(vaapi_mcid);
                         video_codec_id = vaapi_mcid;
-                        if (!no_hardware_decoders &&
+                        if (FlagIsSet(kDecodeAllowGPU) &&
                             codec_is_vaapi(video_codec_id))
                         {
                             enc->pix_fmt = pix_fmt;
@@ -1856,14 +1857,14 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                     MythCodecID dxva2_mcid;
                     PixelFormat pix_fmt = PIX_FMT_YUV420P;
                     dxva2_mcid = VideoOutputD3D::GetBestSupportedCodec(
-                        width, height, mpeg_version(enc->codec_id),
-                        no_hardware_decoders, pix_fmt);
+                        width, height, dec, mpeg_version(enc->codec_id),
+                        !FlagIsSet(kDecodeAllowGPU), pix_fmt);
 
                     if (dxva2_mcid >= video_codec_id)
                     {
                         enc->codec_id = (CodecID)myth2av_codecid(dxva2_mcid);
                         video_codec_id = dxva2_mcid;
-                        if (!no_hardware_decoders &&
+                        if (FlagIsSet(kDecodeAllowGPU) &&
                             codec_is_dxva2(video_codec_id))
                         {
                             enc->pix_fmt = pix_fmt;
@@ -1895,11 +1896,10 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                 if (selectedTrack[kTrackTypeVideo].av_stream_index < 0)
                     selectedTrack[kTrackTypeVideo] = si;
 
-                if (!using_null_videoout && allow_private_decoders &&
+                if (!FlagIsSet(kVideoIsNull) &&
                    (selectedTrack[kTrackTypeVideo].av_stream_index == (int) i))
                 {
-                    private_dec = PrivateDecoder::Create(
-                                            dec, no_hardware_decoders, enc);
+                    private_dec = PrivateDecoder::Create(dec, playerFlags, enc);
                     if (private_dec)
                         thread_count = 1;
                 }
@@ -1907,7 +1907,7 @@ int AvFormatDecoder::ScanStreams(bool novideo)
                 if (!codec_is_std(video_codec_id))
                     thread_count = 1;
 
-                if (special_decode & kAVSpecialDecode_SingleThreaded)
+                if (FlagIsSet(kDecodeSingleThreaded))
                     thread_count = 1;
 
                 LOG(VB_PLAYBACK, LOG_INFO, LOC +
@@ -3136,7 +3136,7 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
 
     VideoFrame *picframe = (VideoFrame *)(mpa_pic->opaque);
 
-    if (special_decode & kAVSpecialDecode_NoDecode)
+    if (FlagIsSet(kDecodeNoDecode))
     {
         // Do nothing, we just want the pts, captions, subtites, etc.
         // So we can release the unconverted blank video frame to the

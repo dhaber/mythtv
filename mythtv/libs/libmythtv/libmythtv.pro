@@ -35,6 +35,7 @@ DEPENDPATH  += ../libmythlivemedia/UsageEnvironment/include
 DEPENDPATH  += ../libmythlivemedia/UsageEnvironment
 DEPENDPATH  += ../libmythbase ../libmythui
 DEPENDPATH  += ../libmythupnp
+DEPENDPATH  += ../libmythservicecontracts
 
 INCLUDEPATH += .. ../.. # for avlib headers
 INCLUDEPATH += ../../external/FFmpeg
@@ -203,6 +204,14 @@ SOURCES += diseqc.cpp               diseqcsettings.cpp
 # Listings downloading classes
 HEADERS += datadirect.h
 SOURCES += datadirect.cpp
+
+# File Writer classes
+HEADERS += filewriterbase.h         avformatwriter.h
+SOURCES += filewriterbase.cpp       avformatwriter.cpp
+
+# HTTP Live Streaming
+HEADERS += httplivestream.h
+SOURCES += httplivestream.cpp
 
 # Teletext stuff
 HEADERS += teletextdecoder.h        teletextreader.h   vbilut.h
@@ -570,6 +579,23 @@ using_backend {
         SOURCES *= streamhandler.cpp
 
         DEFINES += USING_HDHOMERUN
+    }
+
+    # Support for Ceton
+    using_ceton {
+        # MythTV Ceton glue
+        HEADERS += cetonsignalmonitor.h   cetonchannel.h
+        HEADERS += cetonrecorder.h        cetonstreamhandler.h
+        HEADERS += cetonrtp.h             cetonrtsp.h
+
+        SOURCES += cetonsignalmonitor.cpp cetonchannel.cpp
+        SOURCES += cetonrecorder.cpp      cetonstreamhandler.cpp
+        SOURCES += cetonrtp.cpp           cetonrtsp.cpp
+
+        HEADERS *= streamhandler.h
+        SOURCES *= streamhandler.cpp
+
+        DEFINES += USING_CETON
     }
 
     # Support for PVR-150/250/350/500, etc. on Linux

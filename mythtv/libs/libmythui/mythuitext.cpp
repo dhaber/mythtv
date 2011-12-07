@@ -411,7 +411,7 @@ bool MythUIText::Layout(QString & paragraph, QTextLayout *layout,
         {
             if (height > m_Area.height())
             {
-                LOG(VB_GUI, LOG_DEBUG,
+                LOG(VB_GUI, m_MultiLine ? LOG_DEBUG : LOG_NOTICE,
                     QString("'%1': height overflow. line height %2 "
                             "paragraph height %3, area height %4")
                     .arg(objectName())
@@ -419,6 +419,8 @@ bool MythUIText::Layout(QString & paragraph, QTextLayout *layout,
                     .arg(height)
                     .arg(m_Area.height()));
 
+                if (!m_MultiLine)
+                    m_drawRect.setHeight(height);
                 if (m_Cutdown != Qt::ElideNone)
                 {
                     QFontMetrics fm(GetFontProperties()->face());

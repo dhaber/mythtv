@@ -47,8 +47,8 @@ TeletextStuff::~TeletextStuff() { delete reader; }
 DVBSubStuff::~DVBSubStuff() { delete reader; }
 
 MythCCExtractorPlayer::MythCCExtractorPlayer(
-    bool showProgress, const QString &fileName) :
-    MythPlayer(true /*muted*/),
+    PlayerFlags flags, bool showProgress, const QString &fileName) :
+    MythPlayer(flags),
     m_curTime(0),
     m_curTimeShift(-1),
     m_myFramesPlayed(0),
@@ -61,8 +61,6 @@ MythCCExtractorPlayer::MythCCExtractorPlayer(
         comps.removeLast();
     m_workingDir = QDir(QFileInfo(m_fileName).path());
     m_baseName = comps.join(".");
-
-    SetNullVideo();
 }
 
 /**
@@ -121,7 +119,6 @@ bool MythCCExtractorPlayer::run(void)
 
     killdecoder = false;
     framesPlayed = 0;
-    using_null_videoout = true;
 
     decoder->SetDecodeAllSubtitles(true);
 
