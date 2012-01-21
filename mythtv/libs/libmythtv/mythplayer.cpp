@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <cstdio>
 #include <cstdlib>
-#include <cassert>
 #include <cerrno>
 #include <ctime>
 #include <cmath>
@@ -471,72 +470,25 @@ bool MythPlayer::IsPlaying(uint wait_in_msec, bool wait_for) const
 
 bool MythPlayer::InitVideo(void)
 {
-    assert(player_ctx);
     if (!player_ctx)
         return false;
 
     PIPState pipState = player_ctx->GetPIPState();
 
-    if (FlagIsSet(kVideoIsNull) && decoder)
+    if (!decoder)
     {
-        MythCodecID codec = decoder->GetVideoCodecID();
-        videoOutput = new VideoOutputNull();
-        if (!videoOutput->Init(video_disp_dim.width(), video_disp_dim.height(),
-                               video_aspect, 0, QRect(), codec))
-        {
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to create null video out");
-            SetErrored(QObject::tr("Unable to create null video out"));
-            return false;
-        }
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            "Cannot create a video renderer without a decoder.");
+        return false;
     }
-    else
-    {
-        QWidget *widget = parentWidget;
 
-        if (!widget)
-        {
-            MythMainWindow *window = GetMythMainWindow();
-
-            widget = window->findChild<QWidget*>("video playback window");
-
-            if (!widget)
-            {
-                LOG(VB_GENERAL, LOG_ERR, "Couldn't find 'tv playback' widget");
-                widget = window->currentWidget();
-            }
-        }
-
-        if (!widget)
-        {
-            LOG(VB_GENERAL, LOG_ERR, "Couldn't find 'tv playback' widget. "
-                                     "Current widget doesn't exist. Exiting..");
-            SetErrored(QObject::tr("'tv playback' widget missing."));
-            return false;
-        }
-
-        QRect display_rect;
-        if (pipState == kPIPStandAlone)
-            display_rect = embedRect;
-        else
-            display_rect = QRect(0, 0, widget->width(), widget->height());
-
-        if (decoder)
-        {
-            videoOutput = VideoOutput::Create(
-                decoder->GetCodecDecoderName(),
-                decoder->GetVideoCodecID(),
-                decoder->GetVideoCodecPrivate(),
-                pipState,
-                video_disp_dim, video_aspect,
-                widget->winId(), display_rect, video_frame_rate);
-        }
-
-        if (videoOutput)
-        {
-            videoOutput->SetVideoScalingAllowed(true);
-            CheckExtraAudioDecode();
-        }
-    }
+    videoOutput = VideoOutput::Create(
+                    decoder->GetCodecDecoderName(),
+                    decoder->GetVideoCodecID(),
+                    decoder->GetVideoCodecPrivate(),
+                    pipState, video_disp_dim, video_aspect,
+                    parentWidget, embedRect,
+                    video_frame_rate, (uint)playerFlags);
 
     if (!videoOutput)
     {
@@ -545,6 +497,8 @@ bool MythPlayer::InitVideo(void)
         SetErrored(QObject::tr("Failed to initialize video output"));
         return false;
     }
+
+    CheckExtraAudioDecode();
 
     if (embedding && pipState == kPIPOff)
         videoOutput->EmbedInWidget(embedRect);
@@ -941,7 +895,6 @@ int MythPlayer::OpenFile(uint retries)
 
     isDummy = false;
 
-    assert(player_ctx);
     if (!player_ctx || !player_ctx->buffer)
         return -1;
 
@@ -1024,6 +977,8 @@ int MythPlayer::OpenFile(uint retries)
     int ret = decoder->OpenFile(
         player_ctx->buffer, no_video_decode, testbuf, testreadsize);
     delete[] testbuf;
+
+    video_aspect = decoder->GetVideoAspect();
 
     if (ret < 0)
     {
@@ -2244,6 +2199,25 @@ void MythPlayer::EnableFrameRateMonitor(bool enable)
                VERBOSE_LEVEL_CHECK(VB_PLAYBACK, LOG_ANY) ?
                (video_frame_rate * 4) : 0;
     output_jmeter->SetNumCycles(rate);
+}
+
+void MythPlayer::ForceDeinterlacer(const QString &override)
+{
+    if (!videoOutput)
+        return;
+
+    bool normal = play_speed > 0.99f && play_speed < 1.01f && normal_speed;
+    videofiltersLock.lock();
+
+    m_double_framerate =
+         videoOutput->SetupDeinterlace(true, override) &&
+         videoOutput->NeedsDoubleFramerate();
+    m_double_process = videoOutput->IsExtraProcessingRequired();
+
+    if ((m_double_framerate && !CanSupportDoubleRate()) || !normal)
+        FallbackDeint();
+
+    videofiltersLock.unlock();
 }
 
 void MythPlayer::VideoStart(void)
@@ -4948,10 +4922,24 @@ bool MythPlayer::IsVisualising(void)
     return false;
 }
 
-bool MythPlayer::EnableVisualisation(bool enable)
+QString MythPlayer::GetVisualiserName(void)
 {
     if (videoOutput)
-        return videoOutput->EnableVisualisation(&audio, enable);
+        return videoOutput->GetVisualiserName();
+    return QString("");
+}
+
+QStringList MythPlayer::GetVisualiserList(void)
+{
+    if (videoOutput)
+        return videoOutput->GetVisualiserList();
+    return QStringList();
+}
+
+bool MythPlayer::EnableVisualisation(bool enable, const QString &name)
+{
+    if (videoOutput)
+        return videoOutput->EnableVisualisation(&audio, enable, name);
     return false;
 }
 

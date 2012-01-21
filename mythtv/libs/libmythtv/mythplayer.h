@@ -158,6 +158,7 @@ class MTV_PUBLIC MythPlayer
     void SetDuration(int duration);
     void SetVideoResize(const QRect &videoRect);
     void EnableFrameRateMonitor(bool enable = false);
+    void ForceDeinterlacer(const QString &override = QString());
 
     // Gets
     QSize   GetVideoBufferSize(void) const    { return video_dim; }
@@ -250,8 +251,6 @@ class MTV_PUBLIC MythPlayer
     void DeLimboFrame(VideoFrame *frame);
     virtual void ReleaseNextVideoFrame(VideoFrame *buffer, int64_t timecode,
                                        bool wrap = true);
-    void ReleaseNextVideoFrame(void)
-        { videoOutput->ReleaseFrame(GetNextVideoFrame()); }
     void ReleaseCurrentFrame(VideoFrame *frame);
     void ClearDummyVideoFrame(VideoFrame *frame);
     void DiscardVideoFrame(VideoFrame *buffer);
@@ -327,7 +326,9 @@ class MTV_PUBLIC MythPlayer
     // Visualisations
     bool CanVisualise(void);
     bool IsVisualising(void);
-    bool EnableVisualisation(bool enable);
+    QString GetVisualiserName(void);
+    QStringList GetVisualiserList(void);
+    bool EnableVisualisation(bool enable, const QString &name = QString(""));
 
     void SaveTotalDuration(void);
     void ResetTotalDuration(void);

@@ -591,7 +591,7 @@ void MythUIText::FillCutMessage(void)
     QFontMetrics fm(GetFontProperties()->face());
 
     m_lineHeight = fm.height();
-    m_Leading = fm.leading() + m_extraLeading;
+    m_Leading = m_MultiLine ? fm.leading() + m_extraLeading : m_extraLeading;
     m_CutMessage.clear();
     m_textCursor = -1;
 
@@ -1243,6 +1243,7 @@ void MythUIText::CopyFrom(MythUIType *base)
     m_textCase = text->m_textCase;
 
     MythUIType::CopyFrom(base);
+    FillCutMessage();
 }
 
 void MythUIText::CreateCopy(MythUIType *parent)

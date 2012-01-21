@@ -441,9 +441,12 @@ class MPUBLIC ProgramInfo
     bool IsDeletePending(void)  const
         { return programflags & FL_DELETEPENDING; }
 
-    uint GetSubtitleType(void)    const { return (properties >> 11) & 0x0F; }
-    uint GetVideoProperties(void) const { return (properties >> 6)  & 0x1F; }
-    uint GetAudioProperties(void) const { return (properties >> 0)  & 0x3F; }
+    uint GetSubtitleType(void)    const
+        { return (properties&kSubtitlePropertyMask)>>kSubtitlePropertyOffset; }
+    uint GetVideoProperties(void) const
+        { return (properties & kVideoPropertyMask) >> kVideoPropertyOffset; }
+    uint GetAudioProperties(void) const
+        { return (properties & kAudioPropertyMask) >> kAudioPropertyOffset; }
 
     typedef enum
     {
@@ -550,7 +553,7 @@ class MPUBLIC ProgramInfo
     void SaveFrameRate(uint64_t frame, uint framerate);
     void SaveTotalDuration(int64_t duration);
     void SaveTotalFrames(int64_t frames);
-    void SaveResolutionProperty(VideoProperty vid_flags);
+    void SaveVideoProperties(uint mask, uint video_property_flags);
     void SaveMarkupFlag(MarkTypes type) const;
     void ClearMarkupFlag(MarkTypes type) const { ClearMarkupMap(type); }
     void UpdateLastDelete(bool setTime) const;

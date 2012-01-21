@@ -228,6 +228,7 @@ class MTV_PUBLIC TV : public QObject
     bool TimeStretchHandleAction(PlayerContext*,
                                  const QStringList &actions);
     bool DiscMenuHandleAction(PlayerContext*, const QStringList &actions);
+    bool Handle3D(PlayerContext *ctx, const QString &action);
 
     // Timers and timer events
     int  StartTimer(int interval, int line);
@@ -496,7 +497,8 @@ class MTV_PUBLIC TV : public QObject
 
     // Sundry on screen
     void ITVRestart(PlayerContext*, bool isLive);
-    void EnableVisualisation(const PlayerContext*, bool enable, bool toggle = false);
+    void EnableVisualisation(const PlayerContext*, bool enable, bool toggle = false,
+                             const QString &action = QString(""));
 
     // Manual zoom mode
     void SetManualZoom(const PlayerContext *, bool enabled, QString msg);

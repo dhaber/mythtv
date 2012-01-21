@@ -352,6 +352,18 @@ using_frontend {
     SOURCES += videocolourspace.cpp
     SOURCES += videovisual.cpp
 
+   using_opengl | using_vdpau {
+        # Goom
+        HEADERS += goom/filters.h goom/goomconfig.h goom/goom_core.h goom/graphic.h
+        HEADERS += goom/ifs.h goom/lines.h goom/drawmethods.h
+        HEADERS += goom/mmx.h goom/mathtools.h goom/tentacle3d.h goom/v3d.h
+        HEADERS += videovisualgoom.h
+        SOURCES += goom/filters.c goom/goom_core.c goom/graphic.c goom/tentacle3d.c
+        SOURCES += goom/ifs.c goom/ifs_display.c goom/lines.c goom/surf3d.c
+        SOURCES += goom/zoom_filter_mmx.c goom/zoom_filter_xmmx.c
+        SOURCES += videovisualgoom.cpp
+    }
+
     using_libfftw3 {
         DEFINES += FFTW3_SUPPORT
         HEADERS += videovisualspectrum.h
@@ -373,8 +385,8 @@ using_frontend {
 
     using_vdpau {
         DEFINES += USING_VDPAU
-        HEADERS += videoout_vdpau.h
-        SOURCES += videoout_vdpau.cpp
+        HEADERS += videoout_vdpau.h   videoout_nullvdpau.h
+        SOURCES += videoout_vdpau.cpp videoout_nullvdpau.cpp
         LIBS += -lvdpau
     }
 
@@ -390,10 +402,14 @@ using_frontend {
     using_opengl_video:HEADERS += openglvideo.h   videoout_opengl.h
     using_opengl_video:SOURCES += openglvideo.cpp videoout_opengl.cpp
 
-    using_vaapi: DEFINES += USING_VAAPI
-    using_vaapi: DEFINES += vaapicontext.h   videoout_openglvaapi.h
-    using_vaapi: SOURCES += vaapicontext.cpp videoout_openglvaapi.cpp
-    using_vaapi: LIBS    += -lva -lva-x11 -lva-glx
+    using_vaapi {
+        DEFINES += USING_VAAPI
+        HEADERS += vaapicontext.h   videoout_nullvaapi.h
+        SOURCES += vaapicontext.cpp videoout_nullvaapi.cpp
+        LIBS    += -lva -lva-x11 -lva-glx
+        using_opengl_video:HEADERS += videoout_openglvaapi.h
+        using_opengl_video:SOURCES += videoout_openglvaapi.cpp
+    }
 
     # Misc. frontend
     HEADERS += DetectLetterbox.h
@@ -482,10 +498,10 @@ using_backend {
     # TVRec & Recorder base classes
     HEADERS += tv_rec.h
     HEADERS += recorderbase.h              DeviceReadBuffer.h
-    HEADERS += dtvrecorder.h
+    HEADERS += dtvrecorder.h               recordingquality.h
     SOURCES += tv_rec.cpp
     SOURCES += recorderbase.cpp            DeviceReadBuffer.cpp
-    SOURCES += dtvrecorder.cpp
+    SOURCES += dtvrecorder.cpp             recordingquality.cpp
 
     # Import recorder
     HEADERS += importrecorder.h

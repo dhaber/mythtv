@@ -133,13 +133,6 @@ as the Plextor ConvertX.
 The 'hostname' field is another important field for all cards
 as it specifies which backend the capture card is connected to.
 
-The 'defaultinput' field is a another important field for all
-cards except "FIREWIRE", "FREEBOX", "HDHOMERUN", and "IMPORT" cards.
-It specifies which
-input of the card to use. This does not have to mean a specific
-physical input, but may also indicate a different use for the
-same physical input.
-
 The 'signal_timeout' and 'channel_timeout' indicate in
 milliseconds how long it should take to get a signal and
 channel lock respectively.
@@ -5473,6 +5466,16 @@ NULL
     if (dbver == "1261")
     {
         const char *updates[] = {
+"UPDATE program SET description = '' WHERE description IS NULL;",
+"UPDATE record SET description = '' WHERE description IS NULL;",
+"UPDATE recorded SET description = '' WHERE description IS NULL;",
+"UPDATE recordedprogram SET description = '' WHERE description IS NULL;",
+"UPDATE oldrecorded SET description = '' WHERE description IS NULL;",
+"UPDATE mythlog SET details = '' WHERE details IS NULL;",
+"UPDATE settings SET data = '' WHERE data IS NULL;",
+"UPDATE powerpriority SET selectclause = '' WHERE selectclause IS NULL;",
+"UPDATE customexample SET fromclause = '' WHERE fromclause IS NULL;",
+"UPDATE customexample SET whereclause = '' WHERE whereclause IS NULL;",
 "ALTER TABLE program MODIFY COLUMN description VARCHAR(16000) "
 "    NOT NULL default '';",
 "ALTER TABLE record MODIFY COLUMN description VARCHAR(16000) "
@@ -6022,6 +6025,88 @@ NULL
 };
 
         if (!performActualUpdate(updates, "1288", dbver))
+            return false;
+    }
+
+    if (dbver == "1288")
+    {
+        const char *updates[] = {
+"ALTER TABLE recordedprogram CHANGE COLUMN videoprop videoprop "
+"    SET('HDTV', 'WIDESCREEN', 'AVC', '720', '1080', 'DAMAGED') NOT NULL; ",
+NULL
+};
+        if (!performActualUpdate(updates, "1289", dbver))
+            return false;
+    }
+
+    if (dbver == "1289")
+    {
+        const char *updates[] = {
+"DROP TABLE IF EXISTS netvisionrssitems;",
+"DROP TABLE IF EXISTS netvisionsearchgrabbers;",
+"DROP TABLE IF EXISTS netvisionsites;",
+"DROP TABLE IF EXISTS netvisiontreegrabbers;",
+"DROP TABLE IF EXISTS netvisiontreeitems;",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1290", dbver))
+            return false;
+    }
+
+    if (dbver == "1290")
+    {
+        const char *updates[] = {
+"ALTER TABLE logging "
+" ALTER COLUMN host SET DEFAULT '', "
+" ALTER COLUMN application SET DEFAULT '', "
+" ALTER COLUMN pid SET DEFAULT '0', "
+" ALTER COLUMN thread SET DEFAULT '', "
+" ALTER COLUMN level SET DEFAULT '0';",
+"ALTER TABLE logging "
+" ADD COLUMN tid INT(11) NOT NULL DEFAULT '0' AFTER pid, "
+" ADD COLUMN filename VARCHAR(255) NOT NULL DEFAULT '' AFTER thread, "
+" ADD COLUMN line INT(11) NOT NULL DEFAULT '0' AFTER filename, "
+" ADD COLUMN function VARCHAR(255) NOT NULL DEFAULT '' AFTER line;",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1291", dbver))
+            return false;
+    }
+
+    if (dbver == "1291")
+    {
+        const char *updates[] = {
+"UPDATE recorded r, recordedprogram rp SET r.duplicate=0 "
+"   WHERE r.chanid=rp.chanid AND r.progstart=rp.starttime AND "
+"      FIND_IN_SET('DAMAGED', rp.videoprop);",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1292", dbver))
+            return false;
+    }
+
+    if (dbver == "1292")
+    {
+        const char *updates[] = {
+"ALTER TABLE cardinput "
+"  ADD COLUMN schedorder INT(10) UNSIGNED NOT NULL DEFAULT '0', "
+"  ADD COLUMN livetvorder INT(10) UNSIGNED NOT NULL DEFAULT '0';",
+"UPDATE cardinput SET schedorder = cardinputid;",
+"UPDATE cardinput SET livetvorder = cardid;",
+NULL
+};
+
+        if (gCoreContext->GetNumSetting("LastFreeCard", 0))
+        {
+            updates[2] = 
+                "UPDATE cardinput SET livetvorder = "
+                "  (SELECT MAX(cardid) FROM capturecard) - cardid + 1;";
+        }
+
+        if (!performActualUpdate(updates, "1293", dbver))
             return false;
     }
 
