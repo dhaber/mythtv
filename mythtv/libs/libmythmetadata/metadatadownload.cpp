@@ -147,6 +147,11 @@ void MetadataDownload::run()
         }
         else
         {
+
+        LOG(VB_GENERAL, LOG_INFO,
+                QString("Result Else: %1")
+                    .arg(list.count()));
+
             list.append(lookup);
             QCoreApplication::postEvent(m_parent,
                 new MetadataLookupFailure(list));
