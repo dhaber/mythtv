@@ -805,7 +805,7 @@ void TVRec::FinishedRecording(RecordingInfo *curRec, RecordingQuality *recq)
     bool is_good = true;
     if (recq)
     {
-        LOG((recq->IsDamaged()) ? VB_RECORD : VB_GENERAL, LOG_INFO,
+        LOG((recq->IsDamaged()) ? VB_GENERAL : VB_RECORD, LOG_INFO,
             QString("TVRec::FinishedRecording(%1) %2 recq:%3\n")
             .arg(curRec->GetTitle())
             .arg((recq->IsDamaged()) ? "damaged" : "good")
@@ -2552,8 +2552,9 @@ void TVRec::SpawnLiveTV(LiveTVChain *newchain, bool pip, QString startchan)
     tvchain = newchain;
     tvchain->ReloadAll();
 
-    QString hostprefix = gCoreContext->GenMythURL(gCoreContext->GetSetting("BackendServerIP"),
-                                                  gCoreContext->GetSetting("BackendServerPort").toInt());
+    QString hostprefix = gCoreContext->GenMythURL(
+                    gCoreContext->GetBackendServerIP(),
+                    gCoreContext->GetSetting("BackendServerPort").toInt());
 
     tvchain->SetHostPrefix(hostprefix);
     tvchain->SetCardType(genOpt.cardtype);

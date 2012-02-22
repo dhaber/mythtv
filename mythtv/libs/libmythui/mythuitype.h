@@ -116,7 +116,7 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     virtual QSize GetMinSize(void) const;
     virtual void SetArea(const MythRect &rect);
     virtual void AdjustMinArea(int delta_x, int delta_y,
-			       int delta_w, int delta_h);
+                               int delta_w, int delta_h);
     virtual void VanishSibling(void);
     virtual void SetMinAreaParent(MythRect actual_area, MythRect full_area,
                                   MythUIType *child);
@@ -148,6 +148,10 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     void SetHelpText(const QString &text) { m_helptext = text; }
     QString GetHelpText(void) const { return m_helptext; }
 
+    void SetXMLLocation(const QString &filename, int where)
+    { m_xmlLocation = QString("%1:%2").arg(filename).arg(where); }
+    QString GetXMLLocation(void) const { return m_xmlLocation; }
+
     bool IsDeferredLoading(bool recurse = false) const;
     void SetDeferLoad(bool defer) { m_deferload = defer; }
     virtual void LoadNow(void);
@@ -162,6 +166,10 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     void SetHorizontalZoom(float zoom);
     void SetVerticalZoom(float zoom);
     void SetAngle(float angle);
+    void SetDependIsDefault(bool isDefault);
+    void SetReverseDependence(bool reverse);
+    void SetDependsMap(QMap<QString, QString> dependsMap);
+    QMap<QString, QString> GetDependsMap() const { return m_dependsMap; }
 
   protected:
     virtual void customEvent(QEvent *);
@@ -173,6 +181,7 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     void Hide(void);
     void Show(void);
     void Refresh(void);
+    void UpdateDependState(bool isDefault);
 
   signals:
     void RequestUpdate();
@@ -186,6 +195,7 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     void Disabling();
     void FinishedMoving();
     void FinishedFading();
+    void DependChanged(bool isDefault);
 
   protected:
     virtual void DrawSelf(MythPainter *p, int xoffset, int yoffset,
@@ -200,6 +210,8 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     int NormX(const int width);
     int NormY(const int height);
 
+    void ConnectDependants(bool recurse = false);
+
     virtual bool ParseElement(
         const QString &filename, QDomElement &element, bool showWarnings);
     virtual void CopyFrom(MythUIType *base);
@@ -207,6 +219,7 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     virtual void Finalize(void);
 
     QList<MythUIType *> m_ChildrenList;
+    QMap<QString, QString> m_dependsMap;
 
     bool m_Visible;
     bool m_HasFocus;
@@ -216,6 +229,8 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
     bool m_Initiator;
     bool m_Vanish;
     bool m_Vanished;
+    bool m_IsDependDefault;
+    bool m_ReverseDepend;
 
     int m_focusOrder;
 
@@ -245,6 +260,7 @@ class MUI_PUBLIC MythUIType : public QObject, public XMLParseBase
 
     QList<MythUIAnimation*> m_animations;
     QString m_helptext;
+    QString m_xmlLocation;
 
     bool m_deferload;
 

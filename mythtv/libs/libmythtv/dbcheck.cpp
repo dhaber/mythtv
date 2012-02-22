@@ -6110,6 +6110,157 @@ NULL
             return false;
     }
 
+    if (dbver == "1293")
+    {
+        const char *updates[] = {
+"TRUNCATE TABLE recordmatch",
+"ALTER TABLE recordmatch DROP INDEX recordid",
+"ALTER TABLE recordmatch ADD UNIQUE INDEX (recordid, chanid, starttime)",
+"UPDATE recordfilter SET description='Prime time' WHERE filterid=3",
+"UPDATE recordfilter SET description='This episode' WHERE filterid=6",
+"REPLACE INTO recordfilter (filterid, description, clause, newruledefault) "
+"    VALUES (7, 'This series', '(RECTABLE.seriesid <> '''' AND program.seriesid = RECTABLE.seriesid)', 0);",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1294", dbver))
+            return false;
+    }
+
+    if (dbver == "1294")
+    {
+        const char *updates[] = {
+"CREATE TABLE videocollection ("
+"  intid int(10) unsigned NOT NULL AUTO_INCREMENT,"
+"  title varchar(256) NOT NULL,"
+"  contenttype set('MOVIE', 'TELEVISION', 'ADULT', 'MUSICVIDEO', 'HOMEVIDEO') NOT NULL default '',"
+"  plot text,"
+"  network varchar(128) DEFAULT NULL,"
+"  inetref varchar(128) NOT NULL,"
+"  certification varchar(128) DEFAULT NULL,"
+"  genre int(10) unsigned DEFAULT '0',"
+"  releasedate date DEFAULT NULL,"
+"  language varchar(10) DEFAULT NULL,"
+"  status varchar(64) DEFAULT NULL,"
+"  rating float DEFAULT 0,"
+"  ratingcount int(10) DEFAULT 0,"
+"  runtime smallint(5) unsigned DEFAULT '0',"
+"  banner text,"
+"  fanart text,"
+"  coverart text,"
+"  PRIMARY KEY (intid),"
+"  KEY title (title)"
+") ENGINE=MyISAM DEFAULT CHARSET=utf8;",
+"CREATE TABLE videopathinfo ("
+"  intid int(10) unsigned NOT NULL AUTO_INCREMENT,"
+"  path text,"
+"  contenttype set('MOVIE', 'TELEVISION', 'ADULT', 'MUSICVIDEO', 'HOMEVIDEO') NOT NULL default '',"
+"  collectionref int(10) default '0',"
+"  recurse tinyint(1) default '0',"
+"  PRIMARY KEY (intid)"
+") ENGINE=MyISAM DEFAULT CHARSET=utf8;",
+"ALTER TABLE videometadata ADD collectionref int(10) NOT NULL DEFAULT '0' AFTER inetref;",
+"ALTER TABLE videometadata ADD playcount int(10) NOT NULL DEFAULT '0' AFTER length;",
+"ALTER TABLE videometadata ADD contenttype set('MOVIE', 'TELEVISION', 'ADULT', 'MUSICVIDEO', 'HOMEVIDEO') NOT NULL default ''",
+"UPDATE videometadata SET contenttype = 'MOVIE';",
+"UPDATE videometadata SET contenttype = 'TELEVISION' WHERE season > 0 OR episode > 0;",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1295", dbver))
+            return false;
+    }
+
+    if (dbver == "1295")
+    {
+        MSqlQuery query(MSqlQuery::InitCon());
+        query.prepare("SELECT data, hostname "
+                      "FROM settings "
+                      "WHERE value='BackendServerIP'");
+        if (!query.exec())
+        {
+            LOG(VB_GENERAL, LOG_ERR,
+                "Unable to repair IP addresses for IPv4/IPv6 split.");
+            return false;
+        }
+
+        MSqlQuery update(MSqlQuery::InitCon()), insert(MSqlQuery::InitCon());
+        update.prepare("UPDATE settings "
+                          "SET data=:IP4ADDY "
+                       "WHERE value='BackendServerIP' "
+                      "AND hostname=:HOSTNAME");
+        insert.prepare("INSERT INTO settings "
+                       "SET value='BackendServerIP6',"
+                            "data=:IP6ADDY,"
+                        "hostname=:HOSTNAME");
+        while (query.next())
+        {
+            QHostAddress oldaddr(query.value(0).toString());
+            QString hostname = query.value(1).toString();
+
+            update.bindValue(":HOSTNAME", hostname);
+            insert.bindValue(":HOSTNAME", hostname);
+
+            if (oldaddr.protocol() == QAbstractSocket::IPv6Protocol)
+            {
+                update.bindValue(":IP4ADDY", "127.0.0.1");
+                insert.bindValue(":IP6ADDY", query.value(0).toString());
+            }
+            else if (oldaddr.protocol() == QAbstractSocket::IPv4Protocol)
+            {
+                update.bindValue(":IP4ADDY", query.value(0).toString());
+                insert.bindValue(":IP6ADDY", "::1");
+            }
+            else
+            {
+                update.bindValue(":IP4ADDY", "127.0.0.1");
+                insert.bindValue(":IP6ADDY", "::1");
+                LOG(VB_GENERAL, LOG_CRIT,
+                    QString("Invalid address string '%1' found on %2. "
+                            "Reverting to localhost defaults.")
+                        .arg(query.value(0).toString()).arg(hostname));
+            }
+
+            if (!update.exec() || !insert.exec())
+            {
+                LOG(VB_GENERAL, LOG_ERR, QString("Failed to separate IPv4 "
+                          "and IPv6 addresses for %1").arg(hostname));
+                return false;
+            }
+
+        }
+
+        if (!UpdateDBVersionNumber("1296", dbver))
+            return false;
+    }
+
+    if (dbver == "1296")
+    {
+        const char *updates[] = {
+"ALTER TABLE videocollection CHANGE inetref collectionref "
+"VARCHAR(128) CHARACTER SET utf8 COLLATE utf8_general_ci "
+"NOT NULL",
+"ALTER TABLE videocollection CHANGE genre genre VARCHAR(128) NULL DEFAULT ''",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1297", dbver))
+            return false;
+    }
+
+    if (dbver == "1297")
+    {
+        const char *updates[] = {
+"ALTER TABLE videometadata CHANGE collectionref collectionref INT(10) "
+"NOT NULL DEFAULT -1",
+"UPDATE videometadata SET collectionref = '-1'",
+NULL
+};
+
+        if (!performActualUpdate(updates, "1298", dbver))
+            return false;
+    }
+
     return true;
 }
 

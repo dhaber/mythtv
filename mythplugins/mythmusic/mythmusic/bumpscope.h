@@ -26,14 +26,14 @@ private:
     void generate_cmap(unsigned int color);
     void generate_phongdat(void);
 
-    void translate(int x, int y, int *xo, int *yo, int *xd, int *yd, 
+    void translate(int x, int y, int *xo, int *yo, int *xd, int *yd,
                    int *angle);
 
     inline void draw_vert_line(unsigned char *buffer, int x, int y1, int y2);
     void render_light(int lx, int ly);
 
-    void rgb_to_hsv(unsigned int color, double *h, double *s, double *v);
-    void hsv_to_rgb(double h, double s, double v, unsigned int *color);
+    static void rgb_to_hsv(unsigned int color, double *h, double *s, double *v);
+    static void hsv_to_rgb(double h, double s, double v, unsigned int *color);
 
     QImage *m_image;
 
@@ -48,7 +48,7 @@ private:
 
     bool m_color_cycle;
     bool m_moving_light;
-    bool m_diamond;
+    //bool m_diamond;
 
     int m_bpl;
 

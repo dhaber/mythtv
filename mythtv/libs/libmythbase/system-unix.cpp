@@ -80,6 +80,7 @@ MythSystemIOHandler::MythSystemIOHandler(bool read) :
     m_pWaitLock(), m_pWait(), m_pLock(), m_pMap(PMap_t()), m_maxfd(-1),
     m_read(read)
 {
+    m_readbuf[0] = '\0';
 }
 
 void MythSystemIOHandler::run(void)
@@ -780,6 +781,28 @@ void MythSystemUnix::Fork(time_t timeout)
                 _exit(GENERIC_EXIT_PIPE_FAILURE);
             }
         }
+        else
+        {
+            /* We aren't sucking this down, redirect stdout to /dev/null */
+            int fd = open("/dev/null", O_WRONLY);
+            if( fd >= 0 )
+            {
+                if( dup2(fd, 1) < 0)
+                {
+                    cerr << locerr
+                         << "Cannot redirect standard output to /dev/null,"
+                            "\n\t\t\tfailed to duplicate file descriptor: " 
+                         << strerror(errno) << endl;
+                }
+            }
+            else
+            {
+                cerr << locerr
+                     << "Cannot redirect standard output to /dev/null, "
+                        "failed to open: "
+                     << strerror(errno) << endl;
+            }
+        }
 
         /* handle standard err */
         if( p_stderr[1] >= 0 )
@@ -791,6 +814,28 @@ void MythSystemUnix::Fork(time_t timeout)
                      << "Cannot redirect error pipe to standard error: " 
                      << strerror(errno) << endl;
                 _exit(GENERIC_EXIT_PIPE_FAILURE);
+            }
+        }
+        else
+        {
+            /* We aren't sucking this down, redirect stderr to /dev/null */
+            int fd = open("/dev/null", O_WRONLY);
+            if( fd >= 0 )
+            {
+                if( dup2(fd, 2) < 0)
+                {
+                    cerr << locerr
+                         << "Cannot redirect standard error to /dev/null,"
+                            "\n\t\t\tfailed to duplicate file descriptor: " 
+                         << strerror(errno) << endl;
+                }
+            }
+            else
+            {
+                cerr << locerr
+                     << "Cannot redirect standard error to /dev/null, "
+                        "failed to open: "
+                     << strerror(errno) << endl;
             }
         }
 
