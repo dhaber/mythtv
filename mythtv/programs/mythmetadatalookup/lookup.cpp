@@ -343,8 +343,9 @@ void LookerUpper::customEvent(QEvent *levent)
             if (rule)
             {
                 rule->LoadByProgram(pginfo);
-                if (rule->m_inetref.isEmpty() &&
-                    (rule->m_searchType == kNoSearch))
+                if (rule->m_inetref.isEmpty())
+//                if (rule->m_inetref.isEmpty() &&
+//                    (rule->m_searchType == kNoSearch))
                 {
                     rule->m_inetref = lookup->GetInetref();
                 }
