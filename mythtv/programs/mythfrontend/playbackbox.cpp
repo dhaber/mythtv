@@ -34,7 +34,7 @@
 #include "netutils.h"
 #include "mythdirs.h"
 #include "mythdb.h"
-#include "util.h"
+#include "mythmiscutil.h"
 #include "tv.h"
 
 //  Mythfrontend
@@ -393,8 +393,8 @@ PlaybackBox::PlaybackBox(MythScreenStack *parent, QString name, BoxType ltype,
       m_viewMask(VIEW_TITLES),
 
       // General m_popupMenu support
-      m_popupMenu(NULL),
       m_menuDialog(NULL),
+      m_popupMenu(NULL),
       m_doToggleMenu(true),
       // Main Recording List support
       m_progsInDB(0),
@@ -4043,7 +4043,7 @@ void PlaybackBox::customEvent(QEvent *event)
         }
         else if (message == "AVAILABILITY" && me->ExtraDataCount() == 8)
         {
-            const uint kMaxUIWaitTime = 100; // ms
+            const uint kMaxUIWaitTime = 10000; // ms
             QStringList list = me->ExtraDataList();
             QString key = list[0];
             CheckAvailabilityType cat =
@@ -4154,6 +4154,10 @@ void PlaybackBox::customEvent(QEvent *event)
                 m_artImage[(uint)type]->SetFilename(fn);
                 m_artTimer[(uint)type]->start(s_artDelay[(uint)type]);
             }
+        }
+        else if (message == "EXIT_TO_MENU")
+        {
+            m_playListPlay.clear();
         }
     }
     else

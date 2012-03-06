@@ -42,7 +42,7 @@ using namespace std;
 #include "mythcorecontext.h"
 #include "fifowriter.h"
 #include "filtermanager.h"
-#include "util.h"
+#include "mythmiscutil.h"
 #include "livetvchain.h"
 #include "decoderbase.h"
 #include "nuppeldecoder.h"
@@ -4000,12 +4000,19 @@ void MythPlayer::HandleArbSeek(bool right)
     {
         if (right)
         {
+#if 0
+            // 2012-02-29.  This logic doesn't seem to make sense for
+            // the current code.  Clean it out later if no one raises
+            // an issue with the replacement code.  Refs #10389.
+
             // editKeyFrameDist is a workaround for when keyframe distance
             // is set to one, and keyframe detection is disabled because
             // the position map uses MARK_GOP_BYFRAME. (see DecoderBase)
             float editKeyFrameDist = keyframedist <= 2 ? 18 : keyframedist;
 
             DoFastForward((long long)(editKeyFrameDist * 1.1), true, false);
+#endif // 0
+            DoFastForward(2, true, false);
         }
         else
         {

@@ -36,7 +36,6 @@ using namespace std;
 #include "globalsettings.h"
 #include "audiogeneralsettings.h"
 #include "grabbersettings.h"
-#include "profilegroup.h"
 #include "playgroup.h"
 #include "networkcontrol.h"
 #include "dvdringbuffer.h"
@@ -910,11 +909,6 @@ static void TVMenuCallback(void *data, QString &selection)
     {
         startKeysSetup();
     }
-    else if (sel == "settings recording")
-    {
-        ProfileGroupEditor editor;
-        editor.exec();
-    }
     else if (sel == "settings playgroup")
     {
         PlayGroupEditor editor;
@@ -1679,7 +1673,7 @@ int main(int argc, char **argv)
     {
         int port = gCoreContext->GetNumSetting("NetworkControlPort", 6546);
         networkControl = new NetworkControl();
-        if (!networkControl->listen(gCoreContext->MythHostAddress(), port))
+        if (!networkControl->listen(port))
             LOG(VB_GENERAL, LOG_ERR,
                 QString("NetworkControl failed to bind to port %1.")
                    .arg(port));

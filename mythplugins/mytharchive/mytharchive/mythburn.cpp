@@ -25,7 +25,7 @@
 #include <mythuicheckbox.h>
 #include <mythuibuttonlist.h>
 #include <mythuiprogressbar.h>
-#include <util.h>
+#include <mythmiscutil.h>
 #include <mythsystem.h>
 #include <exitcodes.h>
 
@@ -827,7 +827,6 @@ void MythBurn::showMenu()
     menuPopup->AddButton(tr("Edit Details"), SLOT(editDetails()));
     menuPopup->AddButton(tr("Change Encoding Profile"), SLOT(changeProfile()));
     menuPopup->AddButton(tr("Edit Thumbnails"), SLOT(editThumbnails()));
-    menuPopup->AddButton(tr("Cancel"), NULL);
 }
 
 void MythBurn::removeItem()
@@ -1174,7 +1173,6 @@ void BurnMenu::start(void)
     menuPopup->AddButton(QObject::tr("Burn DVD"));
     menuPopup->AddButton(QObject::tr("Burn DVD Rewritable"));
     menuPopup->AddButton(QObject::tr("Burn DVD Rewritable (Force Erase)"));
-    menuPopup->AddButton(QObject::tr("Cancel"));
 }
 
 void BurnMenu::customEvent(QEvent *event)
