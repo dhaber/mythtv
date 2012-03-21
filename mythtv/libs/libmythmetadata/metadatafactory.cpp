@@ -597,7 +597,7 @@ void MetadataFactory::customEvent(QEvent *levent)
             {
                 VideoMetadata *metadata = m_mlm->byID(*it).get();
 
-                if (metadata);
+                if (metadata)
                     Lookup(metadata, true, true);
             }
         }
