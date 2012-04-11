@@ -29,8 +29,6 @@ class AudioSetupWizard : public MythScreenType
 
     void save(void);
 
-    void Close(void);
-
   private:
     virtual void Load(void);
     virtual void Init(void);
@@ -53,8 +51,14 @@ class AudioSetupWizard : public MythScreenType
 
     MythUIButton        *m_nextButton;
     MythUIButton        *m_prevButton;
+    int                  m_maxspeakers;
+    QString              m_lastAudioDevice;
 
   private slots:
+    AudioOutputSettings UpdateCapabilities(bool restore = true,
+                                           bool AC3 = false);
+    AudioOutputSettings UpdateCapabilities(MythUIButtonListItem*);
+    AudioOutputSettings UpdateCapabilitiesAC3(void);
     void slotNext(void);
     void slotPrevious(void);
 
