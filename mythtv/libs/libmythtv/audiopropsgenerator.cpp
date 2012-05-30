@@ -113,8 +113,9 @@ bool AudioPropsGenerator::UpdateAudioProps(void)
     LOG(VB_AUDIO, LOG_DEBUG, QString("Setting player"));
     ctx->SetRingBuffer(rbuf);
     ctx->SetPlayingInfo(&programInfo);
-    ctx->SetPlayer(new MythPlayer());
-    ctx->player->SetPlayerInfo(NULL, NULL, true, ctx);
+    ctx->SetPlayer(new MythPlayer((PlayerFlags)(kVideoIsNull)));
+    ctx->player->SetPlayerInfo(NULL, NULL, ctx);
+
 
     LOG(VB_AUDIO, LOG_DEBUG, QString("Getting audio props"));
     int audioprops  = ctx->player->GetAudioProperties();
