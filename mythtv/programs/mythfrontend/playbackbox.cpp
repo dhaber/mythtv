@@ -20,6 +20,7 @@
 #include "mythuispinbox.h"
 #include "mythdialogbox.h"
 #include "recordinginfo.h"
+#include "recordingrule.h"
 #include "mythuihelper.h"
 #include "storagegroup.h"
 #include "mythuibutton.h"
@@ -542,6 +543,8 @@ bool PlaybackBox::Create()
             SLOT(PlayFromBookmark(MythUIButtonListItem*)));
     connect(m_recordingList, SIGNAL(itemVisible(MythUIButtonListItem*)),
             SLOT(ItemVisible(MythUIButtonListItem*)));
+    connect(m_recordingList, SIGNAL(itemLoaded(MythUIButtonListItem*)),
+            SLOT(ItemLoaded(MythUIButtonListItem*)));
 
     // connect up timers...
     connect(m_artTimer[kArtworkFanart],   SIGNAL(timeout()), SLOT(fanartLoad()));
@@ -890,10 +893,86 @@ void PlaybackBox::UpdateUIListItem(MythUIButtonListItem *item,
     }
 }
 
+void PlaybackBox::ItemLoaded(MythUIButtonListItem *item)
+{
+    ProgramInfo *pginfo = qVariantValue<ProgramInfo*>(item->GetData());
+    if (item->GetText("is_item_initialized").isNull())
+    {
+        QMap<AudioProps, QString> audioFlags;
+        audioFlags[AUD_DOLBY] = "dolby";
+        audioFlags[AUD_SURROUND] = "surround";
+        audioFlags[AUD_STEREO] = "stereo";
+        audioFlags[AUD_MONO] = "mono";
+
+        QMap<VideoProps, QString> videoFlags;
+        videoFlags[VID_1080] = "hd1080";
+        videoFlags[VID_720] = "hd720";
+        videoFlags[VID_HDTV] = "hdtv";
+        videoFlags[VID_WIDESCREEN] = "widescreen";
+
+        QMap<SubtitleTypes, QString> subtitleFlags;
+        subtitleFlags[SUB_SIGNED] = "deafsigned";
+        subtitleFlags[SUB_ONSCREEN] = "onscreensub";
+        subtitleFlags[SUB_NORMAL] = "subtitles";
+        subtitleFlags[SUB_HARDHEAR] = "cc";
+
+        QString groupname =
+            m_groupList->GetItemCurrent()->GetData().toString();
+
+        QString state = extract_main_state(*pginfo, m_player);
+
+        item->SetFontState(state);
+
+        InfoMap infoMap;
+        pginfo->ToMap(infoMap);
+        item->SetTextFromMap(infoMap);
+
+        QString tempSubTitle  = extract_subtitle(*pginfo, groupname);
+
+        if (groupname == pginfo->GetTitle().toLower())
+            item->SetText(tempSubTitle, "titlesubtitle");
+
+        item->DisplayState(state, "status");
+
+        item->DisplayState(QString::number(pginfo->GetStars(10)),
+                           "ratingstate");
+
+        SetItemIcons(item, pginfo);
+
+        QMap<AudioProps, QString>::iterator ait;
+        for (ait = audioFlags.begin(); ait != audioFlags.end(); ++ait)
+        {
+            if (pginfo->GetAudioProperties() & ait.key())
+                item->DisplayState(ait.value(), "audioprops");
+        }
+
+        QMap<VideoProps, QString>::iterator vit;
+        for (vit = videoFlags.begin(); vit != videoFlags.end(); ++vit)
+        {
+            if (pginfo->GetVideoProperties() & vit.key())
+                item->DisplayState(vit.value(), "videoprops");
+        }
+
+        QMap<SubtitleTypes, QString>::iterator sit;
+        for (sit = subtitleFlags.begin(); sit != subtitleFlags.end(); ++sit)
+        {
+            if (pginfo->GetSubtitleType() & sit.key())
+                item->DisplayState(sit.value(), "subtitletypes");
+        }
+
+        item->DisplayState(pginfo->GetCategoryType(), "categorytype");
+
+        // Mark this button list item as initialized.
+        item->SetText("yes", "is_item_initialized");
+    }
+
+}
+
 void PlaybackBox::ItemVisible(MythUIButtonListItem *item)
 {
     ProgramInfo *pginfo = qVariantValue<ProgramInfo*>(item->GetData());
 
+    ItemLoaded(item);
     // Job status (recording, transcoding, flagging)
     QString job = extract_job_state(*pginfo);
     item->DisplayState(job, "jobstate");
@@ -902,7 +981,7 @@ void PlaybackBox::ItemVisible(MythUIButtonListItem *item)
     item->DisplayState(extract_commflag_state(*pginfo), "commflagged");
 
     MythUIButtonListItem *sel_item = item->parent()->GetItemCurrent();
-    if ((item != sel_item) && pginfo && item->GetImage("preview").isEmpty() &&
+    if ((item != sel_item) && item->GetImage("preview").isEmpty() &&
         (asAvailable == pginfo->GetAvailableStatus()))
     {
         QString token = m_helper.GetPreviewImage(*pginfo, true);
@@ -1316,24 +1395,6 @@ void PlaybackBox::updateRecList(MythUIButtonListItem *sel_item)
 
     ProgramList &progList = *pmit;
 
-    QMap<AudioProps, QString> audioFlags;
-    audioFlags[AUD_DOLBY] = "dolby";
-    audioFlags[AUD_SURROUND] = "surround";
-    audioFlags[AUD_STEREO] = "stereo";
-    audioFlags[AUD_MONO] = "mono";
-
-    QMap<VideoProps, QString> videoFlags;
-    videoFlags[VID_1080] = "hd1080";
-    videoFlags[VID_720] = "hd720";
-    videoFlags[VID_HDTV] = "hdtv";
-    videoFlags[VID_WIDESCREEN] = "widescreen";
-
-    QMap<SubtitleTypes, QString> subtitleFlags;
-    subtitleFlags[SUB_SIGNED] = "deafsigned";
-    subtitleFlags[SUB_ONSCREEN] = "onscreensub";
-    subtitleFlags[SUB_NORMAL] = "subtitles";
-    subtitleFlags[SUB_HARDHEAR] = "cc";
-
     ProgramList::iterator it = progList.begin();
     for (; it != progList.end(); ++it)
     {
@@ -1341,51 +1402,9 @@ void PlaybackBox::updateRecList(MythUIButtonListItem *sel_item)
             (*it)->GetAvailableStatus() == asDeleted)
             continue;
 
-        MythUIButtonListItem *item =
-            new PlaybackBoxListItem(this, m_recordingList, *it);
-
-        QString state = extract_main_state(**it, m_player);
-
-        item->SetFontState(state);
-
-        InfoMap infoMap;
-        (*it)->ToMap(infoMap);
-        item->SetTextFromMap(infoMap);
-
-        QString tempSubTitle  = extract_subtitle(**it, groupname);
-
-        if (groupname == (*it)->GetTitle().toLower())
-            item->SetText(tempSubTitle,       "titlesubtitle");
-
-        item->DisplayState(state, "status");
-
-        item->DisplayState(QString::number((*it)->GetStars(10)), "ratingstate");
-
-        SetItemIcons(item, (*it));
-
-        QMap<AudioProps, QString>::iterator ait;
-        for (ait = audioFlags.begin(); ait != audioFlags.end(); ++ait)
-        {
-            if ((*it)->GetAudioProperties() & ait.key())
-                item->DisplayState(ait.value(), "audioprops");
-        }
-
-        QMap<VideoProps, QString>::iterator vit;
-        for (vit = videoFlags.begin(); vit != videoFlags.end(); ++vit)
-        {
-            if ((*it)->GetVideoProperties() & vit.key())
-                item->DisplayState(vit.value(), "videoprops");
-        }
-
-        QMap<SubtitleTypes, QString>::iterator sit;
-        for (sit = subtitleFlags.begin(); sit != subtitleFlags.end(); ++sit)
-        {
-            if ((*it)->GetSubtitleType() & sit.key())
-                item->DisplayState(sit.value(), "subtitletypes");
-        }
-
-        item->DisplayState((*it)->GetCategoryType(), "categorytype");
+        new PlaybackBoxListItem(this, m_recordingList, *it);
     }
+    m_recordingList->LoadInBackground();
 
     if (m_noRecordingsText)
     {
@@ -2418,6 +2437,7 @@ bool PlaybackBox::Play(
     ProgramInfo tvrec(rec);
 
     m_playingSomething = true;
+    int initIndex = m_recordingList->StopLoad();
 
     uint flags =
         (inPlaylist          ? kStartTVInPlayList       : kStartTVNoFlags) |
@@ -2427,6 +2447,7 @@ bool PlaybackBox::Play(
     playCompleted = TV::StartTV(&tvrec, flags);
 
     m_playingSomething = false;
+    m_recordingList->LoadInBackground(initIndex);
 
     if (inPlaylist && !m_playListPlay.empty())
     {
@@ -2628,6 +2649,7 @@ void PlaybackBox::ShowAvailabilityPopup(const ProgramInfo &pginfo)
             ShowOkPopup(tr("Recording Unavailable\n") + msg +
                         tr("This recording is currently being "
                            "deleted and is unavailable"));
+            break;
         case asDeleted:
             ShowOkPopup(tr("Recording Unavailable\n") + msg +
                         tr("This recording has been "
@@ -4155,7 +4177,8 @@ void PlaybackBox::customEvent(QEvent *event)
                 m_artTimer[(uint)type]->start(s_artDelay[(uint)type]);
             }
         }
-        else if (message == "EXIT_TO_MENU")
+        else if (message == "EXIT_TO_MENU" ||
+                 message == "CANCEL_PLAYLIST")
         {
             m_playListPlay.clear();
         }
@@ -4254,7 +4277,8 @@ void PlaybackBox::HandleUpdateProgramInfoEvent(const ProgramInfo &evinfo)
     QString old_recgroup = m_programInfoCache.GetRecGroup(
         evinfo.GetChanID(), evinfo.GetRecordingStartTime());
 
-    m_programInfoCache.Update(evinfo);
+    if (!m_programInfoCache.Update(evinfo))
+        return;
 
     // If the recording group has changed, reload lists from the recently
     // updated cache; if not, only update UI for the updated item
@@ -4771,8 +4795,9 @@ void PlaybackBox::setRecGroup(QString newRecGroup)
         return;
     }
 
-    uint defaultAutoExpire =
-        gCoreContext->GetNumSetting("AutoExpireDefault", 0);
+    RecordingRule record;
+    record.LoadTemplate("Default");
+    uint defaultAutoExpire = record.m_autoExpire;
 
     if (m_op_on_playlist)
     {
