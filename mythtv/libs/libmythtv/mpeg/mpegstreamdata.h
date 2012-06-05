@@ -14,7 +14,7 @@ using namespace std;
 #include <QMap>
 
 #include "tspacket.h"
-#include "mythmiscutil.h"
+#include "mythtimer.h"
 #include "streamlisteners.h"
 #include "eitscanner.h"
 #include "mythtvexp.h"
@@ -353,8 +353,6 @@ class MTV_PUBLIC MPEGStreamData : public EITSource
     QString                   _sistandard;
 
     bool                      _have_CRC_bug;
-
-    int                       _local_utc_offset;
 
     mutable QMutex            _si_time_lock;
     uint                      _si_time_offset_cnt;

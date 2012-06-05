@@ -21,6 +21,7 @@ using namespace std;
 #include <mythuispinbox.h>
 #include <mythuicheckbox.h>
 #include <mythdialogbox.h>
+#include <mythdate.h>
 
 // mythmusic
 #include "smartplaylist.h"
@@ -119,7 +120,7 @@ static QString evaluateDateValue(QString sDate)
 {
     if (sDate.startsWith("$DATE"))
     {
-        QDate date = QDate::currentDate();
+        QDate date = MythDate::current().toLocalTime().date();
 
         if (sDate.length() > 9)
         {

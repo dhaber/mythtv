@@ -146,7 +146,7 @@ DTC::ProgramList* Dvr::GetFilteredRecordedList( bool           bDescending,
     pPrograms->setStartIndex    ( nStartIndex     );
     pPrograms->setCount         ( nCount          );
     pPrograms->setTotalAvailable( nAvailable      );
-    pPrograms->setAsOf          ( QDateTime::currentDateTime() );
+    pPrograms->setAsOf          ( MythDate::current() );
     pPrograms->setVersion       ( MYTH_BINARY_VERSION );
     pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
 
@@ -157,16 +157,15 @@ DTC::ProgramList* Dvr::GetFilteredRecordedList( bool           bDescending,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::Program* Dvr::GetRecorded( int              nChanId,
-                                const QDateTime &dStartTime  )
+DTC::Program* Dvr::GetRecorded(int chanid, const QDateTime &recstarttsRaw)
 {
-    if (nChanId <= 0 || !dStartTime.isValid())
-        throw( QString("Channel ID or StartTime appears invalid."));
+    if (chanid <= 0 || !recstarttsRaw.isValid())
+        throw QString("Channel ID or StartTime appears invalid.");
 
-    ProgramInfo pInfo(nChanId, dStartTime);
+    ProgramInfo pi(chanid, recstarttsRaw.toUTC());
 
     DTC::Program *pProgram = new DTC::Program();
-    FillProgramInfo( pProgram, &pInfo, true );
+    FillProgramInfo( pProgram, &pi, true );
 
     return pProgram;
 }
@@ -175,28 +174,25 @@ DTC::Program* Dvr::GetRecorded( int              nChanId,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Dvr::RemoveRecorded( int              nChanId,
-                          const QDateTime &dStartTime  )
+bool Dvr::RemoveRecorded(int chanid, const QDateTime &recstarttsRaw)
 {
-    if (nChanId <= 0 || !dStartTime.isValid())
-        throw( QString("Channel ID or StartTime appears invalid."));
+    if (chanid <= 0 || !recstarttsRaw.isValid())
+        throw QString("Channel ID or StartTime appears invalid.");
 
-    bool bResult = false;
+    ProgramInfo pi(chanid, recstarttsRaw.toUTC());
 
-    ProgramInfo pInfo(nChanId, dStartTime);
-
-    QString cmd = QString("DELETE_RECORDING %1 %2")
-                .arg(nChanId)
-                .arg(dStartTime.toString(Qt::ISODate));
-    MythEvent me(cmd);
-
-    if (pInfo.HasPathname())
+    if (pi.GetChanID() && pi.HasPathname())
     {
+        QString cmd = QString("DELETE_RECORDING %1 %2")
+            .arg(pi.GetChanID())
+            .arg(pi.GetRecordingStartTime(MythDate::ISODate));
+        MythEvent me(cmd);
+
         gCoreContext->dispatch(me);
-        bResult = true;
+        return true;
     }
 
-    return bResult;
+    return false;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -240,7 +236,7 @@ DTC::ProgramList* Dvr::GetExpiringList( int nStartIndex,
     pPrograms->setStartIndex    ( nStartIndex     );
     pPrograms->setCount         ( nCount          );
     pPrograms->setTotalAvailable( infoList.size() );
-    pPrograms->setAsOf          ( QDateTime::currentDateTime() );
+    pPrograms->setAsOf          ( MythDate::current() );
     pPrograms->setVersion       ( MYTH_BINARY_VERSION );
     pPrograms->setProtoVer      ( MYTH_PROTO_VERSION  );
 
@@ -421,8 +417,8 @@ DTC::ProgramList* Dvr::GetConflictList( int  nStartIndex,
     return pPrograms;
 }
 
-int Dvr::AddRecordSchedule   ( int       nChanId,
-                               QDateTime dStartTime,
+int Dvr::AddRecordSchedule   ( int       chanid,
+                               QDateTime recstarttsRaw,
                                int       nParentId,
                                bool      bInactive,
                                uint      nSeason,
@@ -454,8 +450,10 @@ int Dvr::AddRecordSchedule   ( int       nChanId,
                                bool      bAutoUserJob4,
                                int       nTranscoder)
 {
-    RecordingInfo info(nChanId, dStartTime, false);
+    QDateTime recstartts = recstarttsRaw.toUTC();
+    RecordingInfo info(chanid, recstartts, false);
     RecordingRule *rule = info.GetRecordingRule();
+    // ^ rule is owned by info and deleted when it leaves scope
 
     if (sType.isEmpty())
         sType = "single";

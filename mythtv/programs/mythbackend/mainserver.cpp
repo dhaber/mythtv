@@ -39,6 +39,8 @@ using namespace std;
 #include <QNetworkProxy>
 
 #include "previewgeneratorqueue.h"
+#include "mythmiscutil.h"
+#include "mythsystem.h"
 #include "exitcodes.h"
 #include "mythcontext.h"
 #include "mythversion.h"
@@ -49,6 +51,7 @@ using namespace std;
 #include "scheduler.h"
 #include "backendutil.h"
 #include "programinfo.h"
+#include "mythtimezone.h"
 #include "recordinginfo.h"
 #include "recordingrule.h"
 #include "scheduledrecording.h"
@@ -924,7 +927,7 @@ void MainServer::customEvent(QEvent *e)
                 return;
             }
 
-            QDateTime startts = QDateTime::fromString(tokens[2], Qt::ISODate);
+            QDateTime startts = MythDate::fromString(tokens[2]);
             RecordingInfo recInfo(tokens[1].toUInt(), startts);
 
             if (recInfo.GetChanID())
@@ -982,7 +985,7 @@ void MainServer::customEvent(QEvent *e)
                 return;
             }
 
-            QDateTime startts = QDateTime::fromString(tokens[2], Qt::ISODate);
+            QDateTime startts = MythDate::fromString(tokens[2]);
             RecordingInfo recInfo(tokens[1].toUInt(), startts);
 
             if (recInfo.GetChanID())
@@ -1035,9 +1038,9 @@ void MainServer::customEvent(QEvent *e)
 
             uint cardid = tokens[1].toUInt();
             uint chanid = tokens[2].toUInt();
-            QDateTime startts = QDateTime::fromString(tokens[3], Qt::ISODate);
+            QDateTime startts = MythDate::fromString(tokens[3]);
             RecStatusType recstatus = RecStatusType(tokens[4].toInt());
-            QDateTime recendts = QDateTime::fromString(tokens[5], Qt::ISODate);
+            QDateTime recendts = MythDate::fromString(tokens[5]);
             m_sched->UpdateRecStatus(cardid, chanid, startts,
                                      recstatus, recendts);
             return;
@@ -1077,13 +1080,13 @@ void MainServer::customEvent(QEvent *e)
             if (tokens.size() >= 3)
             {
                 chanid     = tokens[1].toUInt();
-                recstartts = QDateTime::fromString(tokens[2], Qt::ISODate);
+                recstartts = MythDate::fromString(tokens[2]);
             }
 
             ProgramInfo evinfo(chanid, recstartts);
             if (evinfo.GetChanID())
             {
-                QDateTime rectime = QDateTime::currentDateTime().addSecs(
+                QDateTime rectime = MythDate::current().addSecs(
                     -gCoreContext->GetNumSetting("RecordOverTime"));
 
                 if (m_sched && evinfo.GetRecordingEndTime() > rectime)
@@ -1710,7 +1713,7 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
                     {
                         proginfo->SetFilesize(checkFile.size());
                         if (proginfo->GetRecordingEndTime() <
-                            QDateTime::currentDateTime())
+                            MythDate::current())
                         {
                             proginfo->SaveFilesize(proginfo->GetFilesize());
                         }
@@ -1746,7 +1749,7 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
                 else
                 {
                     if (proginfo->GetRecordingEndTime() <
-                        QDateTime::currentDateTime())
+                        MythDate::current())
                     {
                         proginfo->SaveFilesize(proginfo->GetFilesize());
                     }
@@ -1807,7 +1810,7 @@ void MainServer::HandleQueryRecording(QStringList &slist, PlaybackSock *pbs)
             return;
         }
 
-        QDateTime recstartts = myth_dt_from_string(slist[3]);
+        QDateTime recstartts = MythDate::fromString(slist[3]);
         pginfo = new ProgramInfo(slist[2].toUInt(), recstartts);
     }
 
@@ -1876,8 +1879,8 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
     deletelock.lock();
 
     QString logInfo = QString("chanid %1 at %2")
-                              .arg(ds->m_chanid)
-                              .arg(ds->m_recstartts.toString());
+        .arg(ds->m_chanid)
+        .arg(ds->m_recstartts.toString(Qt::ISODate));
 
     QString name = QString("deleteThread%1%2").arg(getpid()).arg(random());
     QFile checkFile(ds->m_filename);
@@ -1887,8 +1890,8 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
         QString msg = QString("ERROR opening database connection for Delete "
                               "Thread for chanid %1 recorded at %2.  Program "
                               "will NOT be deleted.")
-                              .arg(ds->m_chanid)
-                              .arg(ds->m_recstartts.toString());
+            .arg(ds->m_chanid)
+            .arg(ds->m_recstartts.toString(Qt::ISODate));
         LOG(VB_GENERAL, LOG_ERR, msg);
 
         deletelock.unlock();
@@ -1902,8 +1905,8 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
         QString msg = QString("ERROR retrieving program info when trying to "
                               "delete program for chanid %1 recorded at %2. "
                               "Recording will NOT be deleted.")
-                              .arg(ds->m_chanid)
-                              .arg(ds->m_recstartts.toString());
+            .arg(ds->m_chanid)
+            .arg(ds->m_recstartts.toString(Qt::ISODate));
         LOG(VB_GENERAL, LOG_ERR, msg);
 
         deletelock.unlock();
@@ -2002,7 +2005,7 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
 void MainServer::DeleteRecordedFiles(DeleteStruct *ds)
 {
     QString logInfo = QString("chanid %1 at %2")
-        .arg(ds->m_chanid).arg(ds->m_recstartts.toString());
+        .arg(ds->m_chanid).arg(ds->m_recstartts.toString(Qt::ISODate));
 
     MSqlQuery update(MSqlQuery::InitCon());
     MSqlQuery query(MSqlQuery::InitCon());
@@ -2081,7 +2084,7 @@ void MainServer::DeleteRecordedFiles(DeleteStruct *ds)
 void MainServer::DoDeleteInDB(DeleteStruct *ds)
 {
     QString logInfo = QString("chanid %1 at %2")
-        .arg(ds->m_chanid).arg(ds->m_recstartts.toString());
+        .arg(ds->m_chanid).arg(ds->m_recstartts.toString(Qt::ISODate));
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("DELETE FROM recorded WHERE chanid = :CHANID AND "
@@ -2433,7 +2436,7 @@ void MainServer::HandleDeleteRecording(QString &chanid, QString &starttime,
                                        bool forceMetadataDelete,
                                        bool forgetHistory)
 {
-    QDateTime recstartts = myth_dt_from_string(starttime);
+    QDateTime recstartts = MythDate::fromString(starttime);
     RecordingInfo recinfo(chanid.toUInt(), recstartts);
 
     if (!recinfo.GetChanID())
@@ -2591,8 +2594,8 @@ void MainServer::DoHandleDeleteRecording(
     {
         gCoreContext->SendSystemEvent(
             QString("REC_DELETED CHANID %1 STARTTIME %2")
-                    .arg(recinfo.GetChanID())
-                    .arg(recinfo.GetRecordingStartTime(ISODate)));
+            .arg(recinfo.GetChanID())
+            .arg(recinfo.GetRecordingStartTime(MythDate::ISODate)));
 
         recinfo.SendDeletedEvent();
     }
@@ -2603,7 +2606,7 @@ void MainServer::HandleUndeleteRecording(QStringList &slist, PlaybackSock *pbs)
     if (slist.size() == 3)
     {
         RecordingInfo recinfo(
-            slist[1].toUInt(), QDateTime::fromString(slist[2], Qt::ISODate));
+            slist[1].toUInt(), MythDate::fromString(slist[2]));
         if (recinfo.GetChanID())
             DoHandleUndeleteRecording(recinfo, pbs);
     }
@@ -2878,8 +2881,9 @@ void MainServer::HandleQueryTimeZone(PlaybackSock *pbs)
 {
     MythSocket *pbssock = pbs->getSocket();
     QStringList strlist;
-    strlist << getTimeZoneID() << QString::number(calc_utc_offset())
-            << mythCurrentDateTime().toString(Qt::ISODate);
+    strlist << MythTZ::getTimeZoneID()
+            << QString::number(MythTZ::calc_utc_offset())
+            << MythDate::current_iso_string(true);
 
     SendResponse(pbssock, strlist);
 }
@@ -3089,8 +3093,7 @@ void MainServer::getGuideDataThrough(QDateTime &GuideDataThrough)
 
     if (query.exec() && query.next())
     {
-        GuideDataThrough = QDateTime::fromString(
-            query.value(0).toString(), Qt::ISODate);
+        GuideDataThrough = MythDate::fromString(query.value(0).toString());
     }
 }
 
@@ -4719,8 +4722,7 @@ void MainServer::HandleCutMapQuery(const QString &chanid,
 
     frm_dir_map_t markMap;
     frm_dir_map_t::const_iterator it;
-    QDateTime recstartdt;
-    recstartdt.setTime_t(starttime.toULongLong());
+    QDateTime recstartdt = MythDate::fromTime_t(starttime.toULongLong());
     QStringList retlist;
     int rowcnt = 0;
 
@@ -4798,8 +4800,7 @@ void MainServer::HandleBookmarkQuery(const QString &chanid,
     if (pbs)
         pbssock = pbs->getSocket();
 
-    QDateTime recstartts;
-    recstartts.setTime_t(starttime.toULongLong());
+    QDateTime recstartts = MythDate::fromTime_t(starttime.toULongLong());
 
     uint64_t bookmark = ProgramInfo::QueryBookmark(
         chanid.toUInt(), recstartts);
@@ -4832,8 +4833,7 @@ void MainServer::HandleSetBookmark(QStringList &tokens,
     QString starttime = tokens[2];
     long long bookmark = tokens[3].toLongLong();
 
-    QDateTime recstartts;
-    recstartts.setTime_t(starttime.toULongLong());
+    QDateTime recstartts = MythDate::fromTime_t(starttime.toULongLong());
     QStringList retlist;
 
     ProgramInfo pginfo(chanid.toUInt(), recstartts);
@@ -5507,7 +5507,7 @@ void MainServer::HandlePixmapGetIfModified(
 
     QDateTime cachemodified;
     if (slist[1].toInt() != -1)
-        cachemodified.setTime_t(slist[1].toInt());
+        cachemodified = MythDate::fromTime_t(slist[1].toInt());
 
     int max_file_size = slist[2].toInt();
 
@@ -5640,7 +5640,7 @@ void MainServer::deferredDeleteSlot(void)
         return;
 
     DeferredDeleteStruct dds = deferredDeleteList.front();
-    while (dds.ts.secsTo(QDateTime::currentDateTime()) > 30)
+    while (dds.ts.secsTo(MythDate::current()) > 30)
     {
         delete dds.sock;
         deferredDeleteList.pop_front();
@@ -5654,7 +5654,7 @@ void MainServer::DeletePBS(PlaybackSock *sock)
 {
     DeferredDeleteStruct dds;
     dds.sock = sock;
-    dds.ts = QDateTime::currentDateTime();
+    dds.ts = MythDate::current();
 
     QMutexLocker lock(&deferredDeleteLock);
     deferredDeleteList.push_back(dds);

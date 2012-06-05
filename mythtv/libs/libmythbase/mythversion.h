@@ -35,8 +35,8 @@
  *       mythtv/bindings/python/MythTV/static.py (version number)
  *       mythtv/bindings/python/MythTV/mythproto.py (layout)
  */
-#define MYTH_PROTO_VERSION "74"
-#define MYTH_PROTO_TOKEN "SingingPotato"
+#define MYTH_PROTO_VERSION "75"
+#define MYTH_PROTO_TOKEN "SweetRock"
 
 /** \brief Increment this whenever the MythTV core database schema changes.
  *
@@ -57,7 +57,7 @@
  *      mythtv/bindings/php/MythBackend.php
 #endif
 
-#define MYTH_DATABASE_VERSION "1302"
+#define MYTH_DATABASE_VERSION "1303"
 
 
  MBASE_PUBLIC  const char *GetMythSourceVersion();

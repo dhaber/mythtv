@@ -16,7 +16,7 @@
 #include "upnpcdstv.h"
 #include "httprequest.h"
 #include "storagegroup.h"
-#include "mythmiscutil.h"
+#include "mythdate.h"
 #include "mythcorecontext.h"
 
 
@@ -422,7 +422,7 @@ void UPnpCDSTv::AddItem( const UPnpCDSRequest    *pRequest,
     query2.prepare( "SELECT data FROM recordedmarkup WHERE chanid=:CHANID AND "
                     "starttime=:STARTTIME AND type = 33" );
     query2.bindValue(":CHANID", (int)nChanid);
-    query2.bindValue(":STARTTIME", dtProgStart.toString("yyyy/MM/dd hh:mm:ss"));
+    query2.bindValue(":STARTTIME", dtProgStart);
     if (query2.exec() && query2.next())
         uiDur = query2.value(0).toUInt() / 1000;
 
