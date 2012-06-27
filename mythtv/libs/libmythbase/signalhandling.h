@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QSocketNotifier>
 #include <QList>
+#include <QMap>
 
 #include <stdint.h>
 #include <signal.h>
@@ -23,6 +24,8 @@ class MBASE_PUBLIC SignalHandler: public QObject
 
     void AddHandler(int signal, void (*handler)(void));
 
+    static bool IsExiting(void) { return s_exit_program; }
+
     // Unix signal handler.
     static void signalHandler(int signum);
 
@@ -32,10 +35,11 @@ class MBASE_PUBLIC SignalHandler: public QObject
 
   private:
     static int sigFd[2];
+    static volatile bool s_exit_program;
     QSocketNotifier *m_notifier;
 
-    void (*m_usr1Handler)(void);
-    void (*m_usr2Handler)(void);
+    QMap<int, void (*)(void)> m_sigMap;
+    static QList<int> s_defaultHandlerList;
 };
 
 #endif

@@ -10,7 +10,6 @@
 #include <QStringList>
 #include <QMap>
 #include <QRegExp>
-#include <QTimer>
 #include <QSocketNotifier>
 #include <iostream>
 
@@ -22,6 +21,7 @@ using namespace std;
 #include "mythconfig.h"
 #include "mythdb.h"
 #include "mythcorecontext.h"
+#include "mythsignalingtimer.h"
 #include "dbutil.h"
 #include "exitcodes.h"
 #include "compat.h"
@@ -95,12 +95,6 @@ static QAtomicInt                   msgsSinceHeartbeat;
 #define TIMESTAMP_MAX 30
 #define MAX_STRING_LENGTH (LOGLINE_MAX+120)
 
-#ifndef _WIN32
-static int sighupFd[2];
-void logSighup(int signum);
-#endif
-
-
 /// \brief LoggerBase class constructor.  Adds the new logger instance to the
 ///        loggerMap.
 /// \param string a C-string of the handle for this instance (NULL if unused)
@@ -161,6 +155,33 @@ FileLogger::~FileLogger()
     m_zmqSock->disconnect(this);
     m_zmqSock->close();
     m_zmqSock->deleteLater();
+}
+
+FileLogger *FileLogger::create(QString filename, QMutex *mutex)
+{
+    QByteArray ba = filename.toLocal8Bit();
+    const char *file = ba.constData();
+    FileLogger *logger =
+        dynamic_cast<FileLogger *>(loggerMap.value(filename, NULL));
+
+    if (logger)
+        return logger;
+
+    // Need to add a new FileLogger
+    mutex->unlock();
+    // inserts into loggerMap
+    logger = new FileLogger(file);
+    mutex->lock();
+
+    if (!logger->setupZMQSocket())
+    {
+        delete logger;
+        return NULL;
+    }
+
+    ClientList *clients = new ClientList;
+    logRevClientMap.insert(logger, clients);
+    return logger;
 }
 
 /// \brief Reopen the logfile after a SIGHUP.  Log files only (no console).
@@ -232,15 +253,26 @@ bool FileLogger::logmsg(LoggingItem *item)
     return true;
 }
 
-void FileLogger::setupZMQSocket(void)
+bool FileLogger::setupZMQSocket(void)
 {
-    nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
-    m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
-    connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
-            this, SLOT(receivedMessage(const QList<QByteArray>&)),
-            Qt::QueuedConnection);
-    m_zmqSock->subscribeTo(QByteArray(""));
-    m_zmqSock->connectTo("inproc://loggers");
+    try
+    {
+        nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
+        m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
+        connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
+                this, SLOT(receivedMessage(const QList<QByteArray>&)),
+                Qt::QueuedConnection);
+        m_zmqSock->subscribeTo(QByteArray(""));
+        m_zmqSock->connectTo("inproc://loggers");
+    }
+    catch (nzmqt::ZMQException &e)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Exception during socket setup: %1")
+            .arg(e.what()));
+        m_zmqSock = NULL;
+        return false;
+    }
+    return true;
 }
 
 
@@ -269,6 +301,31 @@ SyslogLogger::~SyslogLogger()
     m_zmqSock->deleteLater();
 }
 
+SyslogLogger *SyslogLogger::create(QMutex *mutex)
+{
+    SyslogLogger *logger =
+        dynamic_cast<SyslogLogger *>(loggerMap.value("", NULL));
+
+    if (logger)
+        return logger;
+
+    // Need to add a new FileLogger
+    mutex->unlock();
+    // inserts into loggerMap
+    logger = new SyslogLogger;
+    mutex->lock();
+
+    if (!logger->setupZMQSocket())
+    {
+        delete logger;
+        return NULL;
+    }
+
+    ClientList *clients = new ClientList;
+    logRevClientMap.insert(logger, clients);
+    return logger;
+}
+
 
 /// \brief Process a log message, logging to syslog
 /// \param item LoggingItem containing the log message to process
@@ -295,15 +352,26 @@ bool SyslogLogger::logmsg(LoggingItem *item)
     return true;
 }
 
-void SyslogLogger::setupZMQSocket(void)
+bool SyslogLogger::setupZMQSocket(void)
 {
-    nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
-    m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
-    connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
-            this, SLOT(receivedMessage(const QList<QByteArray>&)),
-            Qt::QueuedConnection);
-    m_zmqSock->subscribeTo(QByteArray(""));
-    m_zmqSock->connectTo("inproc://loggers");
+    try
+    {
+        nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
+        m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
+        connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
+                this, SLOT(receivedMessage(const QList<QByteArray>&)),
+                Qt::QueuedConnection);
+        m_zmqSock->subscribeTo(QByteArray(""));
+        m_zmqSock->connectTo("inproc://loggers");
+    }
+    catch (nzmqt::ZMQException &e)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Exception during socket setup: %1")
+            .arg(e.what()));
+        m_zmqSock = NULL;
+        return false;
+    }
+    return true;
 }
 #else
 
@@ -318,14 +386,20 @@ SyslogLogger::~SyslogLogger()
 {
 }
 
+SyslogLogger *SyslogLogger::create(QMutex *mutex)
+{
+    return NULL;
+}
+
 bool SyslogLogger::logmsg(LoggingItem *item)
 {
     (void)item;
     return false;
 }
 
-void SyslogLogger::setupZMQSocket(void)
+bool SyslogLogger::setupZMQSocket(void)
 {
+    return false;
 }
 
 #endif
@@ -368,6 +442,33 @@ DatabaseLogger::~DatabaseLogger()
     m_zmqSock->disconnect(this);
     m_zmqSock->close();
     m_zmqSock->deleteLater();
+}
+
+DatabaseLogger *DatabaseLogger::create(QString table, QMutex *mutex)
+{
+    QByteArray ba = table.toLocal8Bit();
+    const char *tble = ba.constData();
+    DatabaseLogger *logger =
+        dynamic_cast<DatabaseLogger *>(loggerMap.value(table, NULL));
+
+    if (logger)
+        return logger;
+
+    // Need to add a new FileLogger
+    mutex->unlock();
+    // inserts into loggerMap
+    logger = new DatabaseLogger(tble);
+    mutex->lock();
+
+    if (!logger->setupZMQSocket())
+    {
+        delete logger;
+        return NULL;
+    }
+
+    ClientList *clients = new ClientList;
+    logRevClientMap.insert(logger, clients);
+    return logger;
 }
 
 /// \brief Stop logging to the database and wait for the thread to stop.
@@ -421,15 +522,26 @@ bool DatabaseLogger::logmsg(LoggingItem *item)
     return true;
 }
 
-void DatabaseLogger::setupZMQSocket(void)
+bool DatabaseLogger::setupZMQSocket(void)
 {
-    nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
-    m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
-    connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
-            this, SLOT(receivedMessage(const QList<QByteArray>&)),
-            Qt::QueuedConnection);
-    m_zmqSock->subscribeTo(QByteArray(""));
-    m_zmqSock->connectTo("inproc://loggers");
+    try
+    {
+        nzmqt::ZMQContext *ctx = logForwardThread->getZMQContext();
+        m_zmqSock = ctx->createSocket(nzmqt::ZMQSocket::TYP_SUB, this);
+        connect(m_zmqSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
+                this, SLOT(receivedMessage(const QList<QByteArray>&)),
+                Qt::QueuedConnection);
+        m_zmqSock->subscribeTo(QByteArray(""));
+        m_zmqSock->connectTo("inproc://loggers");
+    }
+    catch (nzmqt::ZMQException &e)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Exception during socket setup: %1")
+            .arg(e.what()));
+        m_zmqSock = NULL;
+        return false;
+    }
+    return true;
 }
 
 
@@ -640,15 +752,18 @@ void DBLoggerThread::stop(void)
 
 
 #ifndef _WIN32
-/// \brief UNIX-side SIGHUP signal handler.  Hand it off to the Qt-size via
-///        a socketpair so Qt code can safely be used.
+/// \brief Signal handler for SIGHUP.  This passes it to the LogForwardThread
+///        for processing.
 
-void logSighup(int signum)
+void logSigHup(void)
 {
-    (void)signum;
-    char a = 1;
-    int ret = ::write(sighupFd[0], &a, sizeof(a));
-    (void)ret;
+    if (!logForwardThread)
+        return;
+
+    // This will be running in the thread that's used by SignalHandler
+    // Emit the signal which is connected to a slot that runs in the actual
+    // handling thread.
+    emit logForwardThread->incomingSigHup();
 }
 #endif
 
@@ -686,12 +801,22 @@ void LogServerThread::run(void)
     ctx->setInterval(100);
     ctx->start();
 
-    m_zmqInSock = m_zmqContext->createSocket(nzmqt::ZMQSocket::TYP_ROUTER);
-    connect(m_zmqInSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
-            this, SLOT(receivedMessage(const QList<QByteArray>&)),
-            Qt::QueuedConnection);
-    m_zmqInSock->bindTo("tcp://127.0.0.1:35327");
-    m_zmqInSock->bindTo("inproc://mylogs");
+    try
+    {
+        m_zmqInSock = m_zmqContext->createSocket(nzmqt::ZMQSocket::TYP_ROUTER);
+        connect(m_zmqInSock, SIGNAL(messageReceived(const QList<QByteArray>&)),
+                this, SLOT(receivedMessage(const QList<QByteArray>&)),
+                Qt::QueuedConnection);
+        m_zmqInSock->bindTo("tcp://127.0.0.1:35327");
+        m_zmqInSock->bindTo("inproc://mylogs");
+    }
+    catch (nzmqt::ZMQException &e)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Exception during socket setup: %1")
+            .arg(e.what()));
+        qApp->quit();
+    }
+
 
     logForwardThread = new LogForwardThread();
     logForwardThread->start();
@@ -705,9 +830,7 @@ void LogServerThread::run(void)
     // cerr << "unlock" << endl;
  
     msgsSinceHeartbeat = 0;
-    m_heartbeatTimer = new QTimer(this);
-    connect(m_heartbeatTimer, SIGNAL(timeout()), this, SLOT(checkHeartBeats()),
-            Qt::QueuedConnection);
+    m_heartbeatTimer = new MythSignalingTimer(this, SLOT(checkHeartBeats()));
     m_heartbeatTimer->start(1000);
 
     exec();
@@ -750,7 +873,9 @@ void LogServerThread::checkHeartBeats(void)
 {
     qlonglong epoch;
 
+    // cout << "pre-lock 1" << endl;
     QMutexLocker lock(&logClientMapMutex);
+    // cout << "pre-lock 2" << endl;
     QMutexLocker lock2(&logClientToDelMutex);
     loggingGetTimeStamp(&epoch, NULL);
 
@@ -936,7 +1061,7 @@ void DatabaseLogger::receivedMessage(const QList<QByteArray> &msg)
 /// \brief LogForwardThread constructor.
 LogForwardThread::LogForwardThread() :
     MThread("LogForward"), m_aborted(false), m_zmqContext(NULL),
-    m_zmqPubSock(NULL), m_sighupNotifier(NULL), m_shutdownTimer(NULL)
+    m_zmqPubSock(NULL), m_shutdownTimer(NULL)
 {
     moveToThread(qthread());
 }
@@ -955,25 +1080,8 @@ void LogForwardThread::run(void)
 {
     RunProlog();
 
-#ifndef _WIN32
-    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sighupFd))
-    {
-        LOG(VB_GENERAL, LOG_ERR, "Couldn't create HUP socketpair");
-        qApp->quit();
-    }
-    m_sighupNotifier = new QSocketNotifier(sighupFd[1], QSocketNotifier::Read,
-                                           this);
-    connect(m_sighupNotifier, SIGNAL(activated(int)),
-            this, SLOT(handleSigHup()));
-
-    /* Setup SIGHUP */
-    LOG(VB_GENERAL, LOG_INFO, "Setup SIGHUP handler");
-    struct sigaction sa;
-    sa.sa_handler = logSighup;
-    sigemptyset( &sa.sa_mask );
-    sa.sa_flags = SA_RESTART;
-    sigaction( SIGHUP, &sa, NULL );
-#endif
+    connect(this, SIGNAL(incomingSigHup(void)), this, SLOT(handleSigHup(void)),
+            Qt::QueuedConnection);
 
     qRegisterMetaType<QList<QByteArray> >("QList<QByteArray>");
 
@@ -985,10 +1093,8 @@ void LogForwardThread::run(void)
     m_zmqPubSock = m_zmqContext->createSocket(nzmqt::ZMQSocket::TYP_PUB, this);
     m_zmqPubSock->bindTo("inproc://loggers");
 
-    m_shutdownTimer = new QTimer(this);
-    m_shutdownTimer->setSingleShot(true);
-    connect(m_shutdownTimer, SIGNAL(timeout()),
-            this, SLOT(shutdownTimerExpired()), Qt::QueuedConnection);
+    m_shutdownTimer = new MythSignalingTimer(this,
+                                             SLOT(shutdownTimerExpired()));
     LOG(VB_GENERAL, LOG_INFO, "Starting 5min shutdown timer");
     m_shutdownTimer->start(5*60*1000);
 
@@ -1015,7 +1121,7 @@ void LogForwardThread::run(void)
 
                 // Force a processEvents every 128 messages so a busy queue
                 // doesn't preclude timer notifications, etc.
-                if (processed & 127 == 0)
+                if ((processed & 127) == 0)
                     qApp->processEvents(QEventLoop::AllEvents, 10);
 
                 lock.relock();
@@ -1024,19 +1130,6 @@ void LogForwardThread::run(void)
 
         expireClients();
     }
-
-    delete m_sighupNotifier;
-
-#ifndef _WIN32
-    ::close(sighupFd[0]);
-    ::close(sighupFd[1]);
-
-    /* Tear down SIGHUP */
-    sa.sa_handler = SIG_DFL;
-    sigemptyset( &sa.sa_mask );
-    sa.sa_flags = SA_RESTART;
-    sigaction( SIGHUP, &sa, NULL );
-#endif
 
     m_zmqPubSock->setLinger(0);
     m_zmqPubSock->close();
@@ -1095,6 +1188,8 @@ void LogForwardThread::expireClients(void)
         LOG(VB_GENERAL, LOG_INFO, QString("Expiring client %1 (#%2)")
             .arg(clientId).arg(logClientCount));
         LoggerListItem *item = logClientMap.take(clientId);
+        if (!item)
+            continue;
         LoggerList *list = item->list;
         delete item;
 
@@ -1130,12 +1225,6 @@ void LogForwardThread::expireClients(void)
 void LogForwardThread::handleSigHup(void)
 {
 #ifndef _WIN32
-    m_sighupNotifier->setEnabled(false);
-
-    char tmp;
-    int ret = ::read(sighupFd[1], &tmp, sizeof(tmp));
-    (void)ret;
-
     LOG(VB_GENERAL, LOG_INFO, "SIGHUP received, rolling log files.");
 
     /* SIGHUP was sent.  Close and reopen debug logfiles */
@@ -1145,8 +1234,6 @@ void LogForwardThread::handleSigHup(void)
     {
         it.value()->reopen();
     }
-
-    m_sighupNotifier->setEnabled(true);
 #endif
 }
 
@@ -1175,8 +1262,9 @@ void LogForwardThread::forwardMessage(LogMessage *msg)
     if (json.size() == 0)
     {
         // This is either a ping response or a first gasp
-        QMutexLocker lock(&logClientMapMutex);
+        logClientMapMutex.lock();
         LoggerListItem *logItem = logClientMap.value(clientId, NULL);
+        logClientMapMutex.unlock();
         if (!logItem)
         {
             // Send an initial ping so the client knows we are in the house
@@ -1190,151 +1278,91 @@ void LogForwardThread::forwardMessage(LogMessage *msg)
         return;
     }
 
-    try
+    QMutexLocker lock(&logClientMapMutex);
+    LoggerListItem *logItem = logClientMap.value(clientId, NULL);
+
+    // cout << "msg  " << clientId.toLocal8Bit().constData() << endl;
+    if (logItem)
     {
-        QMutexLocker lock(&logClientMapMutex);
-        LoggerListItem *logItem = logClientMap.value(clientId, NULL);
+        loggingGetTimeStamp(&logItem->epoch, NULL);
+    }
+    else
+    {
+        LoggingItem *item = LoggingItem::create(json);
 
-        // cout << "msg  " << clientId.toLocal8Bit().constData() << endl;
-        if (logItem)
+        logClientCount.ref();
+        LOG(VB_GENERAL, LOG_INFO, QString("New Client: %1 (#%2)")
+            .arg(clientId).arg(logClientCount));
+
+        if (logClientCount > 1 && m_shutdownTimer &&
+            m_shutdownTimer->isActive())
         {
-            loggingGetTimeStamp(&logItem->epoch, NULL);
+            LOG(VB_GENERAL, LOG_INFO, "Aborting shutdown timer");
+            m_shutdownTimer->stop();
         }
-        else
+
+        QMutexLocker lock2(&loggerMapMutex);
+        QMutexLocker lock3(&logRevClientMapMutex);
+
+        // Need to find or create the loggers
+        LoggerList *loggers = new LoggerList;
+        LoggerBase *logger;
+
+        // FileLogger from logFile
+        QString logfile = item->logFile();
+        logfile.detach();
+        if (!logfile.isEmpty())
         {
-            LoggingItem *item = LoggingItem::create(json);
+            logger = FileLogger::create(logfile, lock2.mutex());
 
-            logClientCount.ref();
-            LOG(VB_GENERAL, LOG_INFO, QString("New Client: %1 (#%2)")
-                .arg(clientId).arg(logClientCount));
+            ClientList *clients = logRevClientMap.value(logger);
 
-            if (logClientCount > 1 && m_shutdownTimer &&
-                m_shutdownTimer->isActive())
-            {
-                LOG(VB_GENERAL, LOG_INFO, "Aborting shutdown timer");
-                m_shutdownTimer->stop();
-            }
-
-            QMutexLocker lock2(&loggerMapMutex);
-            QMutexLocker lock3(&logRevClientMapMutex);
-
-            // Need to find or create the loggers
-            LoggerList *loggers = new LoggerList;
-            LoggerBase *logger;
-
-            // FileLogger from logFile
-            QString logfile = item->logFile();
-            logfile.detach();
-            if (!logfile.isEmpty())
-            {
-                ClientList *clients;
-                logger = loggerMap.value(logfile, NULL);
-                if (!logger)
-                {
-                    // Need to add a new FileLogger
-                    lock2.unlock();
-                    // inserts into loggerMap
-                    logger = new FileLogger(logfile.toLocal8Bit().constData());
-                    //logger->moveToThread(logForwardThread->qthread());
-                    lock2.relock();
-                    logger->setupZMQSocket();
-
-                    clients = new ClientList;
-                    logRevClientMap.insert(logger, clients);
-                }
-                else
-                {
-                    clients = logRevClientMap.value(logger);
-                    if (!clients)
-                    {
-                        clients = new ClientList;
-                        logRevClientMap.insert(logger, clients);
-                    }
-                }
+            if (clients)
                 clients->insert(0, clientId);
+
+            if (logger && loggers)
                 loggers->insert(0, logger);
-            }
+        }
 
 #ifndef _WIN32
-            // SyslogLogger from facility
-            int facility = item->facility();
-            if (facility > 0)
-            {
-                ClientList *clients;
-                logger = loggerMap.value(QString(""), NULL);
-                if (!logger)
-                {
-                    // Need to add a new SyslogLogger
-                    lock2.unlock();
-                    logger = new SyslogLogger; // inserts into loggerMap
-                    //logger->moveToThread(logForwardThread->qthread());
-                    lock2.relock();
-                    logger->setupZMQSocket();
+        // SyslogLogger from facility
+        int facility = item->facility();
+        if (facility > 0)
+        {
+            logger = SyslogLogger::create(lock2.mutex());
 
-                    clients = new ClientList;
-                    logRevClientMap.insert(logger, clients);
-                }
-                else
-                {
-                    clients = logRevClientMap.value(logger);
-                    if (!clients)
-                    {
-                        clients = new ClientList;
-                        logRevClientMap.insert(logger, clients);
-                    }
-                }
+            ClientList *clients = logRevClientMap.value(logger);
+
+            if (clients)
                 clients->insert(0, clientId);
+
+            if (logger && loggers)
                 loggers->insert(0, logger);
-            }
+        }
 #endif
 
-            // DatabaseLogger from table
-            QString table = item->table();
-            if (!table.isEmpty())
-            {
-                ClientList *clients;
-                logger = loggerMap.value(table, NULL);
-                if (!logger)
-                {
-                    // Need to add a new DatabaseLogger
-                    lock2.unlock();
-                    // inserts into loggerMap
-                    logger =
-                        new DatabaseLogger(table.toLocal8Bit().constData());
-                    //logger->moveToThread(logForwardThread->qthread());
-                    lock2.relock();
-                    logger->setupZMQSocket();
+        // DatabaseLogger from table
+        QString table = item->table();
+        if (!table.isEmpty())
+        {
+            logger = DatabaseLogger::create(table, lock2.mutex());
 
-                    clients = new ClientList;
-                    logRevClientMap.insert(logger, clients);
-                }
-                else
-                {
-                    clients = logRevClientMap.value(logger);
-                    if (!clients)
-                    {
-                        clients = new ClientList;
-                        logRevClientMap.insert(logger, clients);
-                    }
-                }
+            ClientList *clients = logRevClientMap.value(logger);
+
+            if (clients)
                 clients->insert(0, clientId);
+
+            if (logger && loggers)
                 loggers->insert(0, logger);
-            }
-
-            logItem = new LoggerListItem;
-            loggingGetTimeStamp(&logItem->epoch, NULL);
-            logItem->list = loggers;
-            logClientMap.insert(clientId, logItem);
-
-            item->deleteItem();
         }
-    }
-    catch (nzmqt::ZMQException e)
-    {
-        LOG(VB_GENERAL, LOG_ERR, QString("Exception during socket setup: %1")
-            .arg(e.what()));
-    }
 
+        logItem = new LoggerListItem;
+        loggingGetTimeStamp(&logItem->epoch, NULL);
+        logItem->list = loggers;
+        logClientMap.insert(clientId, logItem);
+
+        item->deleteItem();
+    }
 
     m_zmqPubSock->sendMessage(*msg);
 }
