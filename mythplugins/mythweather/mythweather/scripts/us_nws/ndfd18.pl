@@ -18,16 +18,17 @@ use Date::Manip;
 our ($opt_v, $opt_t, $opt_T, $opt_l, $opt_u, $opt_d); 
 
 my $name = 'NDFD-18_Hour';
-my $version = 0.2;
-my $author = 'Lucien Dunning';
-my $email = 'ldunning@gmail.com';
+my $version = 0.5;
+my $author = 'Gavin Hurlbut / Lucien Dunning';
+my $email = 'gjhurlbu@gmail.com / ldunning@gmail.com';
 my $updateTimeout = 15*60;
 my $retrieveTimeout = 30;
 my @types = ('18hrlocation',  'updatetime', 
         'temp-0', 'temp-1', 'temp-2', 'temp-3', 'temp-4', 'temp-5',
         '18icon-0', '18icon-1', '18icon-2', '18icon-3', '18icon-4', '18icon-5',
         'pop-0', 'pop-1', 'pop-2', 'pop-3', 'pop-4', 'pop-5',
-        'time-0', 'time-1', 'time-2', 'time-3', 'time-4', 'time-5', 'copyright');
+        'time-0', 'time-1', 'time-2', 'time-3', 'time-4', 'time-5',
+        'copyright', 'copyrightlogo');
 my $dir = './';
 my $icon_file = dirname(abs_path($0 or $PROGRAM_NAME)) . "/icons";
 
@@ -116,7 +117,8 @@ if (open (CACHE, "$dir/ndfd18_cache_${latitude}_${longitude}")) {
 } 
 
 if ($getData) {
-    ($result, $creationdate) = NDFDParser::doParse($latitude, $longitude, $d1, $d2, $param);
+    my $unit = ($units eq "SI" ? "m" : "e");
+    ($result, $creationdate) = NDFDParser::doParse($latitude, $longitude, $d1, $d2, $unit, $param);
     # output cache
     open(CACHE, ">$dir/ndfd18_cache_${latitude}_${longitude}") or 
         die "cannot open cache ($dir/ndfd18_cache_${latitude}_${longitude}) for writing";
@@ -140,7 +142,8 @@ my $index = 0;
 my $icon;
 printf "updatetime::Last Updated on %s\n", 
        UnixDate($creationdate, "%b %d, %I:%M %p %Z");
-printf "copyright::National Digital Forecast Database\n";
+print "copyright::National Digital Forecast Database\n";
+print "copyrightlogo::none\n";
 my $pop12;
 foreach my $time (sort keys %$result) {
     if (defined $result->{$time}->{'probability-of-precipitation_12 hour'}) {
@@ -149,10 +152,6 @@ foreach my $time (sort keys %$result) {
     }
 
     print "time-${index}::" . UnixDate($time, "%i %p\n");
-    if ($units eq 'SI') {
-        $result->{$time}->{temperature_hourly} =
-            int( (5/9) * ($result->{$time}->{temperature_hourly}-32));
-    }
     print "temp-${index}::$result->{$time}->{temperature_hourly}\n";
     print "pop-${index}::$pop12 %\n";
     $icon = $result->{$time}->{'conditions-icon_forecast-NWS'};

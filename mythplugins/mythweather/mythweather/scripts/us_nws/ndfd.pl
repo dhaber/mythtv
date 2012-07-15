@@ -22,16 +22,17 @@ use Getopt::Std;
 our ($opt_v, $opt_t, $opt_T, $opt_l, $opt_u, $opt_d); 
 
 my $name = 'NDFD-6_day';
-my $version = 0.3;
-my $author = 'Lucien Dunning';
-my $email = 'ldunning@gmail.com';
+my $version = 0.6;
+my $author = 'Gavin Hurlbut / Lucien Dunning';
+my $email = 'gjhurlbu@gmail.com / ldunning@gmail.com';
 my $updateTimeout = 15*60;
 my $retrieveTimeout = 30;
 my @types = ('3dlocation', '6dlocation',  'updatetime', 
         'high-0', 'high-1', 'high-2', 'high-3', 'high-4', 'high-5',
         'low-0', 'low-1', 'low-2', 'low-3', 'low-4', 'low-5',
         'icon-0', 'icon-1', 'icon-2', 'icon-3', 'icon-4', 'icon-5',
-        'date-0', 'date-1', 'date-2', 'date-3', 'date-4', 'date-5', 'copyright');
+        'date-0', 'date-1', 'date-2', 'date-3', 'date-4', 'date-5',
+        'copyright', 'copyrightlogo');
 my $dir = './';
 my $icon_file = dirname(abs_path($0 or $PROGRAM_NAME)) . "/icons";
 
@@ -119,7 +120,8 @@ if (open (CACHE, "$dir/ndfd_cache_${latitude}_${longitude}")) {
 } 
 
 if ($getData) {
-    ($result, $creationdate) = NDFDParser::doParse($latitude, $longitude, $d1, $d2, $param);
+    my $unit = ($units eq "SI" ? "m" : "e");
+    ($result, $creationdate) = NDFDParser::doParse($latitude, $longitude, $d1, $d2, $unit, $param);
     # output cache
     open(CACHE, ">$dir/ndfd_cache_${latitude}_${longitude}") or 
         die "cannot open cache ($dir/ndfd_cache_${latitude}_${longitude}) for writing";
@@ -150,8 +152,8 @@ my $date;
 
 printf "updatetime::Last Updated on %s\n", 
        UnixDate($creationdate, "%b %d, %I:%M %p %Z");
-
-printf "copyright::National Digital Forecast Database\n";
+print "copyright::National Digital Forecast Database\n";
+print "copyrightlogo::none\n";
 
 foreach $time (sort(keys(%$result))) {
     my $date;
@@ -171,17 +173,9 @@ foreach $time (sort(keys(%$result))) {
     }
     my $geticon = 0;
     if ($lowindex <= 5 && $result->{$time}->{temperature_minimum}) { 
-        if ($units eq 'SI') {
-            $result->{$time}->{temperature_minimum} =
-                int ( (5/9) * ($result->{$time}->{temperature_minimum}-32));
-        }
         print "low-${lowindex}::$result->{$time}->{temperature_minimum}\n";
         $lowindex++;
     } elsif ($hiindex <= 5 && $result->{$time}->{temperature_maximum}) {
-        if ($units eq 'SI') {
-            $result->{$time}->{temperature_maximum} =
-                int ( (5/9) * ($result->{$time}->{temperature_maximum}-32));
-        }
         print "high-${hiindex}::$result->{$time}->{temperature_maximum}\n";
         $hiindex++;
         $geticon = 1;

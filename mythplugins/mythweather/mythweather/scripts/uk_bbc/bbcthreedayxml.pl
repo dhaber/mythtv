@@ -26,15 +26,16 @@ use BBCLocation;
 our ($opt_v, $opt_t, $opt_T, $opt_l, $opt_u, $opt_d, $opt_D);
 
 my $name = 'BBC-3day-XML';
-my $version = 0.3;
+my $version = 0.5;
 my $author = 'Gavin Hurlbut / Stuart Morgan';
 my $email = 'gjhurlbu@gmail.com / stuart@tase.co.uk';
 my $updateTimeout = 360*60; # 6 Hours
 my $retrieveTimeout = 30;
-my @types = ('3dlocation', 'station_id', 'copyright', 'weather_icon',
-        'date-0', 'icon-0', 'low-0', 'high-0',
-        'date-1', 'icon-1', 'low-1', 'high-1',
-        'date-2', 'icon-2', 'low-2', 'high-2', 'updatetime');
+my @types = ('3dlocation', 'station_id', 'copyright', 'copyrightlogo',
+             'weather_icon',
+             'date-0', 'icon-0', 'low-0', 'high-0',
+             'date-1', 'icon-1', 'low-1', 'high-1',
+             'date-2', 'icon-2', 'low-2', 'high-2', 'updatetime');
 my $dir = "/tmp/uk_bbc";
 my $logdir = "/tmp/uk_bbc";
 
@@ -114,12 +115,13 @@ if (!$xml) {
     die "Not xml";
 }
 
-printf "copyright::From bbc.co.uk\n";
-printf "station_id::" . $locid . "\n";
+print "copyright::bbc.co.uk - ©2012 BBC\n";
+print "copyrightlogo::none\n";
+print "station_id::" . $locid . "\n";
 my $location = $xml->{channel}->{title};
 $location =~ s/.*?Forecast for (.*)$/$1/s;
-printf "3dlocation::" . $location . "\n";
-printf "updatetime::Updated " . localtime() . "\n";
+print "3dlocation::" . $location . "\n";
+print "updatetime::Updated " . localtime() . "\n";
 
 my $i = 0;
 my $item;

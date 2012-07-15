@@ -128,6 +128,13 @@ bool WeatherScreen::prepareScreen(bool checkOnly)
                         .arg(m_name));
                 return false;
             }
+            else if (name == "copyrightlogo")
+            {
+                LOG(VB_GENERAL, LOG_WARNING,
+                    QString("No copyrightlogo widget found, skipping screen %1.")
+                        .arg(m_name));
+                return false;
+            }
         }
 
         if( !widget || checkOnly )
@@ -228,6 +235,9 @@ QString WeatherScreen::formatDataItem(const QString &key, const QString &value)
             }
         }
     }
+
+    if (key == "copyrightlogo" && value == "none")
+        return QString();
 
     return value;
 }
