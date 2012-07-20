@@ -4,6 +4,8 @@
 #include "filewriterbase.h"
 #include "avfringbuffer.h"
 
+#include <QList>
+
 #undef HAVE_AV_CONFIG_H
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -20,10 +22,10 @@ class MTV_PUBLIC AVFormatWriter : public FileWriterBase
     bool OpenFile(void);
     bool CloseFile(void);
 
-    bool WriteVideoFrame(VideoFrame *frame);
-    bool WriteAudioFrame(unsigned char *buf, int fnum, int timecode);
-    bool WriteTextFrame(int vbimode, unsigned char *buf, int len,
-                        int timecode, int pagenr);
+    int  WriteVideoFrame(VideoFrame *frame);
+    int  WriteAudioFrame(unsigned char *buf, int fnum, long long &timecode);
+    int  WriteTextFrame(int vbimode, unsigned char *buf, int len,
+                        long long timecode, int pagenr);
 
     bool NextFrameIsKeyFrame(void);
     bool ReOpen(QString filename);
@@ -52,11 +54,13 @@ class MTV_PUBLIC AVFormatWriter : public FileWriterBase
     AVFrame               *m_audPicture;
     AVPacket              *m_audPkt;
     unsigned char         *m_videoOutBuf;
-    int                    m_videoOutBufSize;
-    unsigned int          *m_audioSamples;
     unsigned char         *m_audioOutBuf;
     int                    m_audioOutBufSize;
-    int                    m_audioInputFrameSize;
+    float                 *m_audioFltBuf;
+
+    QList<long long>       m_bufferedVideoFrameTimes;
+    QList<int>             m_bufferedVideoFrameTypes;
+    QList<long long>       m_bufferedAudioFrameTimes;
 };
 
 #endif

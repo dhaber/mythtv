@@ -11,6 +11,8 @@
 #include <openssl/pem.h>
 #include <openssl/aes.h>
 
+#include "mythtvexp.h"
+
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
@@ -38,30 +40,31 @@ struct AudioPacket
     QList<AudioData> *data;
 };
 
-class MythRAOPConnection : public QObject
+class MTV_PUBLIC MythRAOPConnection : public QObject
 {
     Q_OBJECT
 
     friend class MythRAOPDevice;
 
   public:
-    MythRAOPConnection(QObject *parent, QTcpSocket* socket, QByteArray id,
+    MythRAOPConnection(QObject *parent, QTcpSocket *socket, QByteArray id,
                        int port);
    ~MythRAOPConnection();
     bool Init(void);
-    QTcpSocket* GetSocket()   { return m_socket;   }
+    QTcpSocket *GetSocket()   { return m_socket;   }
     int         GetDataPort() { return m_dataPort; }
     bool        HasAudio()    { return m_audio;    }
     static QMap<QString,QString> decodeDMAP(const QByteArray &dmap);
+    static RSA *LoadKey(void);
+    static QString RSALastError(void) { return g_rsaLastError; }
 
-  public slots:
+  private slots:
     void readClient(void);
     void udpDataReady(QByteArray buf, QHostAddress peer, quint16 port);
     void timeout(void);
     void audioRetry(void);
-
-  protected:
-    static RSA* LoadKey(void);
+    void newEventClient(QTcpSocket *client);
+    void deleteEventClient();
 
   private:
     void     ProcessSync(const QByteArray &buf);
@@ -74,10 +77,11 @@ class MythRAOPConnection : public QObject
     void     ResetAudio(void);
     void     ProcessRequest(const QStringList &header,
                             const QByteArray &content);
-    void     StartResponse(NetStream *stream,
-                           QString &option, QString &cseq);
     void     FinishResponse(NetStream *stream, QTcpSocket *socket,
                             QString &option, QString &cseq);
+    void     FinishAuthenticationResponse(NetStream *stream, QTcpSocket *socket,
+                                          QString &cseq);
+
     RawHash  FindTags(const QStringList &lines);
     bool     CreateDecoder(void);
     void     DestroyDecoder(void);
@@ -85,6 +89,7 @@ class MythRAOPConnection : public QObject
     void     CloseAudioDevice(void);
     void     StartAudioTimer(void);
     void     StopAudioTimer(void);
+    void     CleanUp(void);
 
     // time sync
     void     SendTimeRequest(void);
@@ -117,6 +122,9 @@ class MythRAOPConnection : public QObject
     int             m_clientControlPort;
     ServerPool     *m_clientTimingSocket;
     int             m_clientTimingPort;
+    ServerPool     *m_eventServer;
+    int             m_eventPort;
+    QList<QTcpSocket *> m_eventClients;
 
     // incoming audio
     QMap<uint16_t,uint64_t> m_resends;
@@ -124,6 +132,7 @@ class MythRAOPConnection : public QObject
     QByteArray      m_AESIV;
     AES_KEY         m_aesKey;
     static RSA     *g_rsa;
+    static QString  g_rsaLastError;
     // audio out
     AudioOutput    *m_audio;
     AVCodec        *m_codec;
@@ -169,6 +178,9 @@ class MythRAOPConnection : public QObject
     uint32_t        m_progressEnd;
     QByteArray      m_artwork;
     QByteArray      m_dmap;
+
+    //Authentication
+    QString         m_nonce;
 
   private slots:
     void ProcessAudio(void);
