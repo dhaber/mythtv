@@ -39,6 +39,7 @@ PlayerContext::PlayerContext(const QString &inUseID) :
     fftime(0), rewtime(0),
     jumptime(0), ts_normal(1.0f), ts_alt(1.5f),
     overrideMode(kAspect_Off), adjustFillMode(kAdjustFill_Off),
+    zoomUp(false),
     // locks
     playingInfoLock(QMutex::Recursive), deletePlayerLock(QMutex::Recursive),
     stateLock(QMutex::Recursive),
@@ -881,6 +882,10 @@ void PlayerContext::SetPlayGroup(const QString &group)
     ts_alt       = (ts_normal == 1.0f) ? 1.5f : 1.0f;
     overrideMode = (AspectOverrideMode) PlayGroup::GetSetting(group, "aspectoverridemode", kAspect_Off);
     adjustFillMode = (AdjustFillMode) PlayGroup::GetSetting(group, "adjustfillmode", kAdjustFill_Off);
+
+    zoomUp = (bool)PlayGroup::GetSetting(group,"zoomup",false);
+    LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("zoomUp: %1").arg(zoomUp));
 }
 
 void PlayerContext::SetPseudoLiveTV(

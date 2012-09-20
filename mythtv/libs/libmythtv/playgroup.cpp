@@ -189,6 +189,18 @@ class AdjustFillModeSetting : public ComboBoxSetting, public PlayGroupDBStorage
 
 };
 
+class ZoomUpSetting : public CheckBoxSetting, public PlayGroupDBStorage
+{
+ public:
+    ZoomUpSetting(const PlayGroupConfig& _parent) :
+	CheckBoxSetting(this),
+	PlayGroupDBStorage(this, _parent, "zoomup")
+    {
+	setLabel(QObject::tr("Zoom Up"));
+	setHelpText(QObject::tr("Move image up slightly"));
+    }
+
+};
 
 
 PlayGroupConfig::PlayGroupConfig(QString _name) : name(_name)
@@ -204,6 +216,7 @@ PlayGroupConfig::PlayGroupConfig(QString _name) : name(_name)
     cgroup->addChild(new TimeStretch(*this));
     cgroup->addChild(new AspectOverrideModeSetting(*this));
     cgroup->addChild(new AdjustFillModeSetting(*this));
+    cgroup->addChild(new ZoomUpSetting(*this));
 
     addChild(cgroup);
 };

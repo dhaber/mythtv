@@ -5238,6 +5238,12 @@ bool TV::StartPlayer(PlayerContext *mctx, PlayerContext *ctx,
     if (ctx->player) {
          ctx->player->ToggleAspectOverride(ctx->overrideMode);
          ctx->player->ToggleAdjustFill(ctx->adjustFillMode);
+
+	// ZoomDown actually shifts the screen up, whatevs
+	 if (ctx->zoomUp) {
+	   LOG(VB_GENERAL, LOG_INFO, LOC  + "zooming");
+	   ctx->player->Zoom(kZoomDown);
+         }
     }
     LOG(VB_PLAYBACK, LOG_INFO, LOC +
         QString("StartPlayer(%1, %2, %3) -- end %4")

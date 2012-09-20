@@ -188,6 +188,7 @@ class MTV_PUBLIC PlayerContext
     float               ts_alt;
     AspectOverrideMode  overrideMode;
     AdjustFillMode      adjustFillMode;
+    bool		zoomUp;
 
     mutable QMutex      playingInfoLock;
     mutable QMutex      deletePlayerLock;
