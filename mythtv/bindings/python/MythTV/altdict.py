@@ -100,17 +100,19 @@ class DictData( OrdDict ):
                 locale.atof,
                 bool,
                 lambda x: x,
-                lambda x: datetime.fromTimestamp(x, datetime.UTCTZ()),
+                lambda x: datetime.fromtimestamp(x, datetime.UTCTZ())\
+                                  .astimezone(datetime.localTZ()),
                 lambda x: date(*[int(y) for y in x.split('-')]),
-                lambda x: datetime.fromRfc(x)]
+                lambda x: datetime.fromRfc(x, datetime.UTCTZ())\
+                                  .astimezone(datetime.localTZ())]
     _inv_trans = [  str,
                     lambda x: locale.format("%0.6f", x),
                     lambda x: str(int(x)),
                     lambda x: x,
-                    lambda x: str(x.timestamp()),
+                    lambda x: str(int(x.timestamp())),
                     lambda x: x.isoformat(),
-                    lambda x: x.rfcformat()]
-                    
+                    lambda x: x.utcrfcformat()]
+
     def __setattr__(self, name, value):
         if name in self._localvars:
             self.__dict__[name] = value
@@ -125,6 +127,10 @@ class DictData( OrdDict ):
     def __setitem__(self, key, value):
         if key not in self._field_order:
                 raise KeyError(str(key))
+        if self._field_type != 'Pass':
+            ind = self._field_order.index(key)
+            if self._field_type[ind] in (4,6):
+                value = datetime.duck(value)
         dict.__setitem__(self, key, value)
 
     def __delattr__(self, name):

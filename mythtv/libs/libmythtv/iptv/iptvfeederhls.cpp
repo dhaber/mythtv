@@ -6,6 +6,8 @@
 //  Copyright (c) 2012 Bubblestuff Pty Ltd. All rights reserved.
 //
 
+#include <unistd.h>
+
 #include "iptvfeederhls.h"
 
 // MythTV headers
@@ -23,7 +25,7 @@
 
 IPTVFeederHLS::IPTVFeederHLS() :
     m_buffer(new uint8_t[BUFFER_SIZE]), m_hls(NULL),
-    m_interrupted(false), m_running(false)
+    m_interrupted(false), m_running(false), m_init(false)
 {
 }
 
@@ -58,7 +60,8 @@ bool IPTVFeederHLS::Open(const QString &url)
         return true;
     }
 
-    m_hls = new HLSRingBuffer(url);
+    m_url = url;
+    m_hls = new HLSRingBuffer(url, false);
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Open() -- end");
 
@@ -72,12 +75,30 @@ void IPTVFeederHLS::Run(void)
     m_interrupted = false;
     m_lock.unlock();
 
-    while (!m_interrupted)
+    m_hls->Continue();
+    if (!m_init)
+    {
+        m_init = m_hls->OpenFile(m_url);
+    }
+
+    while (!m_interrupted && m_init)
     {
         if (m_hls == NULL)
             break;
+        if (_listeners.empty())
+        {
+            // No-one is listening, no point emptying the HLS buffer
+            usleep(50000);
+            continue;
+        }
         m_lock.lock();
         uint size = m_hls->Read((void *)m_buffer, BUFFER_SIZE);
+        if (size < 0)
+        {
+            m_lock.unlock();
+            break;
+        }
+
         if (m_buffer[0] != 0x47)
         {
             LOG(VB_RECORD, LOG_INFO, LOC +
@@ -103,7 +124,11 @@ void IPTVFeederHLS::Stop(void)
 {
     LOG(VB_RECORD, LOG_INFO, LOC + "Stop() -- begin");
     QMutexLocker locker(&m_lock);
+
     m_interrupted = true;
+
+    if (m_hls)
+        m_hls->Interrupt();
 
     while (m_running)
         m_waitcond.wait(&m_lock, 500);
@@ -119,6 +144,7 @@ void IPTVFeederHLS::Close(void)
     QMutexLocker lock(&m_lock);
     delete m_hls;
     m_hls = NULL;
+    m_init = false;
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Close() -- end");
 }

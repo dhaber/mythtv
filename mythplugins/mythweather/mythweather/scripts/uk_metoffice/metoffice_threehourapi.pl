@@ -22,6 +22,7 @@ use Switch;
 
 use Date::Parse;
 use Date::Calc qw(Day_of_Week);
+use DateTime;
 use DateTime::Format::ISO8601;
 use File::Basename;
 use lib dirname($0);
@@ -127,21 +128,31 @@ if (!$xml) {
 }
 
 printf "copyright::" . $MetOffCommon::copyright_str . "\n";
-printf "copyrightlogo::" . $MetOffCommon::copyright_logo . "\n";
+#printf "copyrightlogo::" . $MetOffCommon::copyright_logo . "\n";
 printf "station_id::" . $locid . "\n";
 my $location = $xml->{DV}->{Location}->{name};
 printf "18hrlocation::" . $location . "\n";
 printf "updatetime::" . localtime() . "\n";
 
-my $item;
+my $period;
 my $i = 0;
 
-foreach $item (@{$xml->{DV}->{Location}->{Period}}) {
+foreach $period (@{$xml->{DV}->{Location}->{Period}}) {
 
-    foreach my $rep (@{$item->{Rep}}) {
+    if (ref($period->{Rep}) ne 'ARRAY') {
+        next;
+    }
 
-        my $datetime = DateTime::Format::ISO8601->parse_datetime(substr($item->{val}, 0, -1));
+    foreach my $rep (@{$period->{Rep}}) {
+
+        my $datetime = DateTime::Format::ISO8601->parse_datetime(substr($period->{value}, 0, -1));
         $datetime->add( minutes => $rep->{content} );
+        
+        if ($datetime <= DateTime->now()->subtract( hours => 3 )) # Ignore periods in past
+        {
+            next;
+        }
+        
         printf "time-" . $i . "::" .  MetOffCommon::format_date($datetime->epoch) . "\n";
         my $iconname = "unknown";
         switch ($rep->{W}) { # Weather Type

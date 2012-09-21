@@ -69,13 +69,13 @@ static int BuildKeyframeIndex(MPEG2fixup *m2f, QString &infile,
     {
         if (jobID >= 0)
             JobQueue::ChangeJobComment(jobID,
-                QString(QObject::tr("Generating Keyframe Index")));
+                                       QObject::tr("Generating Keyframe Index"));
         int err = m2f->BuildKeyframeIndex(infile, posMap);
         if (err)
             return err;
         if (jobID >= 0)
             JobQueue::ChangeJobComment(jobID,
-                QString(QObject::tr("Transcode Completed")));
+                                       QObject::tr("Transcode Completed"));
     }
     return 0;
 }
@@ -128,7 +128,7 @@ namespace
     {
         delete gContext;
         gContext = NULL;
-
+        SignalHandler::Done();
     }
 
     class CleanupGuard
@@ -378,7 +378,7 @@ int main(int argc, char *argv[])
     QList<int> signallist;
     signallist << SIGINT << SIGTERM << SIGSEGV << SIGABRT << SIGBUS << SIGFPE
                << SIGILL;
-    SignalHandler handler(signallist);
+    SignalHandler::Init(signallist);
     signal(SIGHUP, SIG_IGN);
 #endif
 
@@ -826,7 +826,7 @@ static void CompleteJob(int jobID, ProgramInfo *pginfo, bool useCutlist,
     if (!pginfo)
     {
         JobQueue::ChangeJobStatus(jobID, JOB_ERRORED,
-                  "Job errored, unable to find Program Info for job");
+            QObject::tr("Job errored, unable to find Program Info for job"));
         return;
     }
 
@@ -1055,12 +1055,13 @@ static void CompleteJob(int jobID, ProgramInfo *pginfo, bool useCutlist,
         unlink(fname_map.constData());
 
         if (status == JOB_ABORTING)                     // Stop command was sent
-            JobQueue::ChangeJobStatus(jobID, JOB_ABORTED, "Job Aborted");
+            JobQueue::ChangeJobStatus(jobID, JOB_ABORTED,
+                                      QObject::tr("Job Aborted"));
         else if (status != JOB_ERRORING)                // Recoverable error
             resultCode = GENERIC_EXIT_RESTART;
         else                                            // Unrecoverable error
             JobQueue::ChangeJobStatus(jobID, JOB_ERRORED,
-                                      "Unrecoverable error");
+                                      QObject::tr("Unrecoverable error"));
     }
 }
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

@@ -52,7 +52,7 @@ static QString load_profile(QString,void*,RecordingInfo*,RecordingProfile&);
 static int init_jobs(const RecordingInfo *rec, RecordingProfile &profile,
                      bool on_host, bool transcode_bfr_comm, bool on_line_comm);
 static void apply_broken_dvb_driver_crc_hack(ChannelBase*, MPEGStreamData*);
-
+static int eit_start_rand(uint cardid, int eitTransportTimeout);
 
 /** \class TVRec
  *  \brief This is the coordinating class of the \ref recorder_subsystem.
@@ -161,7 +161,8 @@ bool TVRec::Init(void)
         gCoreContext->GetNumSetting("AutoTranscodeBeforeAutoCommflag", 0);
     earlyCommFlag     = gCoreContext->GetNumSetting("AutoCommflagWhileRecording", 0);
     runJobOnHostOnly  = gCoreContext->GetNumSetting("JobsRunOnRecordHost", 0);
-    eitTransportTimeout=gCoreContext->GetNumSetting("EITTransportTimeout", 5) * 60;
+    eitTransportTimeout =
+        max(gCoreContext->GetNumSetting("EITTransportTimeout", 5) * 60, 6);
     eitCrawlIdleStart = gCoreContext->GetNumSetting("EITCrawIdleStart", 60);
     audioSampleRateDB = gCoreContext->GetNumSetting("AudioSampleRate");
     overRecordSecNrml = gCoreContext->GetNumSetting("RecordOverTime");
@@ -260,7 +261,7 @@ ProgramInfo *TVRec::GetRecording(void)
     return tmppginfo;
 }
 
-/** \fn TVRec::RecordPending(const ProgramInfo*, int, bool)
+/** \fn TVRec::RecordPending(const RecordingInfo*, int, bool)
  *  \brief Tells TVRec "rcinfo" is the next pending recording.
  *
  *   When there is a pending recording and the frontend is in "Live TV"
@@ -324,12 +325,12 @@ void TVRec::RecordPending(const ProgramInfo *rcinfo, int secsleft,
     pendlock.relock();
 }
 
-/** \fn TVRec::SetPseudoLiveTVRecording(ProgramInfo*)
- *  \brief Sets the pseudo LiveTV ProgramInfo
+/** \fn TVRec::SetPseudoLiveTVRecording(RecordingInfo*)
+ *  \brief Sets the pseudo LiveTV RecordingInfo
  */
-void TVRec::SetPseudoLiveTVRecording(ProgramInfo *pi)
+void TVRec::SetPseudoLiveTVRecording(RecordingInfo *pi)
 {
-    ProgramInfo *old_rec = pseudoLiveTVRecording;
+    RecordingInfo *old_rec = pseudoLiveTVRecording;
     pseudoLiveTVRecording = pi;
     if (old_rec)
         delete old_rec;
@@ -401,8 +402,13 @@ void TVRec::CancelNextRecording(bool cancel)
  *  \sa EncoderLink::StartRecording(const ProgramInfo*)
  *      RecordPending(const ProgramInfo*, int, bool), StopRecording()
  */
-RecStatusType TVRec::StartRecording(const ProgramInfo *rcinfo)
+RecStatusType TVRec::StartRecording(const ProgramInfo *pginfo)
 {
+    RecordingInfo ri(*pginfo);
+    ri.SetDesiredStartTime(ri.GetRecordingStartTime());
+    ri.SetDesiredEndTime(ri.GetRecordingEndTime());
+    RecordingInfo *rcinfo = &ri;
+
     LOG(VB_RECORD, LOG_INFO, LOC + QString("StartRecording(%1)")
             .arg(rcinfo->toString(ProgramInfo::kTitleSubtitle)));
 
@@ -599,7 +605,7 @@ RecStatusType TVRec::StartRecording(const ProgramInfo *rcinfo)
     }
     else if (!cancelNext && (GetState() == kState_WatchingLiveTV))
     {
-        SetPseudoLiveTVRecording(new ProgramInfo(*rcinfo));
+        SetPseudoLiveTVRecording(new RecordingInfo(*rcinfo));
         recordEndTime = GetRecordEndTime(rcinfo);
         SetRecordingStatus(rsRecording, __LINE__);
 
@@ -693,6 +699,8 @@ void TVRec::SetRecordingStatus(
 
 /** \fn TVRec::StopRecording(bool killFile)
  *  \brief Changes from a recording state to kState_None.
+ *  \note For the sake of recording quality measurements this is
+ *        treated as the desired end point of the recording.
  *  \sa StartRecording(const ProgramInfo *rec), FinishRecording()
  */
 void TVRec::StopRecording(bool killFile)
@@ -702,6 +710,12 @@ void TVRec::StopRecording(bool killFile)
         QMutexLocker lock(&stateChangeLock);
         if (killFile)
             SetFlags(kFlagKillRec);
+        else if (curRecording)
+        {
+            QDateTime now = MythDate::current(true);
+            if (now < curRecording->GetDesiredEndTime())
+                curRecording->SetDesiredEndTime(now);
+        }
         ChangeState(RemoveRecording(GetState()));
         // wait for state change to take effect
         WaitForEventThreadSleep();
@@ -795,7 +809,7 @@ void TVRec::StartedRecording(RecordingInfo *curRec)
  *         programs. If the recording type is kFindOneRecord this find
  *         is removed.
  *  \sa ProgramInfo::FinishedRecording(bool prematurestop)
- *  \param curRec ProgramInfo or recording to mark as done
+ *  \param curRec RecordingInfo or recording to mark as done
  */
 void TVRec::FinishedRecording(RecordingInfo *curRec, RecordingQuality *recq)
 {
@@ -1034,7 +1048,10 @@ void TVRec::HandleStateChange(void)
 
     eitScanStartTime = MythDate::current();
     if (scanner && (internalState == kState_None))
-        eitScanStartTime = eitScanStartTime.addSecs(eitCrawlIdleStart);
+    {
+        eitScanStartTime = eitScanStartTime.addSecs(
+            eitCrawlIdleStart + eit_start_rand(cardid, eitTransportTimeout));
+    }
     else
         eitScanStartTime = eitScanStartTime.addYears(1);
 }
@@ -1087,7 +1104,7 @@ void TVRec::TeardownRecorder(uint request_flags)
         if (GetV4LChannel())
             channel->SetFd(-1);
 
-        recq = recorder->GetRecordingQuality();
+        recq = recorder->GetRecordingQuality(curRecording);
 
         QMutexLocker locker(&stateChangeLock);
         delete recorder;
@@ -1213,6 +1230,19 @@ static int no_capturecards(uint cardid)
     return -1;
 }
 
+static int eit_start_rand(uint cardid, int eitTransportTimeout)
+{
+    // randomize start time a bit
+    int timeout = random() % (eitTransportTimeout / 3);
+    // get the number of capture cards and the position of the current card
+    // to distribute the the scan start evenly over eitTransportTimeout
+    int card_pos = no_capturecards(cardid);
+    int no_cards = no_capturecards(0);
+    if (no_cards > 0 && card_pos >= 0)
+        timeout += eitTransportTimeout * card_pos / no_cards;
+    return timeout;
+}
+
 /// \brief Event handling method, contains event loop.
 void TVRec::run(void)
 {
@@ -1227,17 +1257,8 @@ void TVRec::run(void)
         (dvbOpt.dvb_eitscan || get_use_eit(cardid)))
     {
         scanner = new EITScanner(cardid);
-        uint timeout = eitCrawlIdleStart;
-        // get the number of capture cards and the position of the current card
-        // to distribute the the scan start evenly over eitTransportTimeout
-        int card_pos = no_capturecards(cardid);
-        int no_cards = no_capturecards(0);
-        if (no_cards > 0 && card_pos >= 0)
-            timeout += eitTransportTimeout * card_pos / no_cards;
-        else
-            timeout += random() % eitTransportTimeout;
-
-        eitScanStartTime = eitScanStartTime.addSecs(timeout);
+        eitScanStartTime = eitScanStartTime.addSecs(
+            eitCrawlIdleStart + eit_start_rand(cardid, eitTransportTimeout));
     }
     else
         eitScanStartTime = eitScanStartTime.addYears(1);
@@ -2621,7 +2642,7 @@ void TVRec::CheckForRecGroupChange(void)
     if (recgrp != "LiveTV" && !pseudoLiveTVRecording)
     {
         // User wants this recording to continue
-        SetPseudoLiveTVRecording(new ProgramInfo(*curRecording));
+        SetPseudoLiveTVRecording(new RecordingInfo(*curRecording));
     }
     else if (recgrp == "LiveTV" && pseudoLiveTVRecording)
     {
@@ -3039,20 +3060,8 @@ QString TVRec::SetInput(QString input, uint requestType)
  */
 void TVRec::SetChannel(QString name, uint requestType)
 {
-    if (TVRec::kFlagEITScan == requestType)
-    {
-        if (!stateChangeLock.tryLock())
-        {
-            LOG(VB_CHANNEL, LOG_INFO, LOC +
-                QString("SetChannel(%1, kFlagEITScan) -- "
-                        "couldn't get lock aborting").arg(name));
-            return;
-        }
-    }
-    else
-    {
-        stateChangeLock.lock();
-    }
+    QMutexLocker locker1(&setChannelLock);
+    QMutexLocker locker2(&stateChangeLock);
 
     LOG(VB_CHANNEL, LOG_INFO, LOC +
         QString("SetChannel(%1) -- begin").arg(name));
@@ -3067,6 +3076,16 @@ void TVRec::SetChannel(QString name, uint requestType)
     // Clear the RingBuffer reset flag, in case we wait for a reset below
     ClearFlags(kFlagRingBufferReady);
 
+    // Clear out any EITScan channel change requests
+    TuningQueue::iterator it = tuningRequests.begin();
+    while (it != tuningRequests.end())
+    {
+        if ((*it).flags & kFlagEITScan)
+            it = tuningRequests.erase(it);
+        else
+            ++it;
+    }
+
     // Actually add the tuning request to the queue, and
     // then wait for it to start tuning
     tuningRequests.enqueue(TuningRequest(requestType, name));
@@ -3079,7 +3098,39 @@ void TVRec::SetChannel(QString name, uint requestType)
             WaitForEventThreadSleep();
     }
     LOG(VB_CHANNEL, LOG_INFO, LOC + QString("SetChannel(%1) -- end").arg(name));
-    stateChangeLock.unlock();
+}
+
+/** \brief Queues up a channel change for the EITScanner.
+ *
+ *   Unlike the normal SetChannel() this does not block until
+ *   the channel change occurs to avoid a deadlock if
+ *   EITScanner::StopActiveScan() is called with the stateChangeLock
+ *   held while the EITScanner is calling TVRec::SetChannel().
+ */
+bool TVRec::QueueEITChannelChange(const QString &name)
+{
+    LOG(VB_CHANNEL, LOG_INFO, LOC +
+        QString("QueueEITChannelChange(%1) -- begin").arg(name));
+
+    bool ok = false;
+    if (setChannelLock.tryLock())
+    {
+        if (stateChangeLock.tryLock())
+        {
+            if (tuningRequests.empty())
+            {
+                tuningRequests.enqueue(TuningRequest(kFlagEITScan, name));
+                ok = true;
+            }
+            stateChangeLock.unlock();
+        }
+        setChannelLock.unlock();
+    }
+
+    LOG(VB_CHANNEL, LOG_INFO, LOC +
+        QString("QueueEITChannelChange(%1) -- end --> %2").arg(name).arg(ok));
+
+    return ok;
 }
 
 void TVRec::GetNextProgram(BrowseDirection direction,
@@ -3303,7 +3354,7 @@ void TVRec::SetRingBuffer(RingBuffer *rb)
 }
 
 void TVRec::RingBufferChanged(
-    RingBuffer *rb, ProgramInfo *pginfo, RecordingQuality *recq)
+    RingBuffer *rb, RecordingInfo *pginfo, RecordingQuality *recq)
 {
     LOG(VB_GENERAL, LOG_INFO, LOC + "RingBufferChanged()");
 
@@ -3718,7 +3769,7 @@ void TVRec::TuningFrequency(const TuningRequest &request)
     {
         // We need there to be a ringbuffer for these modes
         bool ok;
-        ProgramInfo *tmp = pseudoLiveTVRecording;
+        RecordingInfo *tmp = pseudoLiveTVRecording;
         pseudoLiveTVRecording = NULL;
 
         tvchain->SetCardType("DUMMY");
@@ -4148,8 +4199,9 @@ void TVRec::TuningRestartRecorder(void)
     {
         recorder->SetRingBuffer(ringBuffer);
         ProgramInfo *progInfo = tvchain->GetProgramAt(-1);
-        recorder->SetRecording(progInfo);
+        RecordingInfo recinfo(*progInfo);
         delete progInfo;
+        recorder->SetRecording(&recinfo);
     }
     recorder->Reset();
 
@@ -4385,6 +4437,9 @@ bool TVRec::GetProgramRingBufferForLiveTV(RecordingInfo **pginfo,
         StorageGroup sgroup("LiveTV", gCoreContext->GetHostName());
         prog->SetPathname(sgroup.FindNextDirMostFree());
     }
+
+    if (!pseudoLiveTVRecording)
+        prog->ApplyRecordRecGroupChange("LiveTV");
 
     StartedRecording(prog);
 

@@ -50,14 +50,14 @@ class DTVRecorder :
     void Initialize(void) {;}
     int GetVideoFd(void) { return _stream_fd; }
 
-    virtual void SetNextRecording(const ProgramInfo*, RingBuffer*);
+    virtual void SetNextRecording(const RecordingInfo*, RingBuffer*);
     virtual void SetStreamData(void);
     void SetStreamData(MPEGStreamData* sd);
     MPEGStreamData *GetStreamData(void) const { return _stream_data; }
 
     virtual void Reset(void);
     virtual void ClearStatistics(void);
-    virtual RecordingQuality *GetRecordingQuality(void) const;
+    virtual RecordingQuality *GetRecordingQuality(const RecordingInfo*) const;
 
     // MPEG Stream Listener
     void HandlePAT(const ProgramAssociationTable*);

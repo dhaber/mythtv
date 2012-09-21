@@ -467,17 +467,17 @@ void ViewScheduled::FillList()
                 ProgramInfo &p = **it;
                 if (p.GetRecordingStatus() == rsConflict)
                 {
-                    m_conflictDate = p.GetRecordingStartTime().date();
+                    m_conflictDate = p.GetRecordingStartTime()
+                        .toLocalTime().date();
                     break;
                 }
             }
 
             // TODO: This can be templated instead of hardcoding
             //       Conflict/No Conflict
-            QString cstring = QString(tr("Conflict %1"))
-                .arg(MythDate::toString(
-                         m_conflictDate,
-                         MythDate::kDateFull | MythDate::kSimplify));
+            QString cstring = tr("Conflict %1")
+                                .arg(MythDate::toString(m_conflictDate,
+                                     MythDate::kDateFull | MythDate::kSimplify));
 
             statusText->SetText(cstring);
         }

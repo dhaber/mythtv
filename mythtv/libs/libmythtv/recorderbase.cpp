@@ -82,7 +82,7 @@ void RecorderBase::SetRingBuffer(RingBuffer *rbuf)
     weMadeBuffer = false;
 }
 
-void RecorderBase::SetRecording(const ProgramInfo *pginfo)
+void RecorderBase::SetRecording(const RecordingInfo *pginfo)
 {
     if (pginfo)
         LOG(VB_RECORD, LOG_INFO, LOC + QString("SetRecording(0x%1) title(%2)")
@@ -92,7 +92,7 @@ void RecorderBase::SetRecording(const ProgramInfo *pginfo)
 
     ProgramInfo *oldrec = curRecording;
     if (pginfo)
-        curRecording = new ProgramInfo(*pginfo);
+        curRecording = new RecordingInfo(*pginfo);
     else
         curRecording = NULL;
 
@@ -308,7 +308,7 @@ void RecorderBase::CheckForRingBufferSwitch(void)
     {
         FinishRecording();
 
-        recq = GetRecordingQuality();
+        recq = GetRecordingQuality(NULL);
 
         ResetForNewFile();
 
@@ -340,9 +340,16 @@ void RecorderBase::ClearStatistics(void)
     recordingGaps.clear();
 }
 
-RecordingQuality *RecorderBase::GetRecordingQuality(void) const
+RecordingQuality *RecorderBase::GetRecordingQuality(
+    const RecordingInfo *r) const
 {
     QMutexLocker locker(&statisticsLock);
+    if (r && curRecording &&
+        (r->MakeUniqueKey() == curRecording->MakeUniqueKey()))
+    {
+        curRecording->SetDesiredStartTime(r->GetDesiredStartTime());
+        curRecording->SetDesiredEndTime(r->GetDesiredEndTime());
+    }
     return new RecordingQuality(
         curRecording, recordingGaps,
         timeOfFirstData, timeOfLatestData);

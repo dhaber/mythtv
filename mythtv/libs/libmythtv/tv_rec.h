@@ -21,8 +21,8 @@
 #include "mythconfig.h"
 
 // locking order
-// stateChangeLock -> triggerEventLoopLock
-//                 -> pendingRecLock
+// setChannelLock -> stateChangeLock -> triggerEventLoopLock
+//                                   -> pendingRecLock
 
 class RingBuffer;
 class EITScanner;
@@ -198,6 +198,7 @@ class MTV_PUBLIC TVRec : public SignalMonitorListener, public QRunnable
     void ChangeChannel(ChannelChangeDirection dir)
         { SetChannel(QString("NextChannel %1").arg((int)dir)); }
     void SetChannel(QString name, uint requestType = kFlagDetect);
+    bool QueueEITChannelChange(const QString &name);
 
     int SetSignalMonitoringRate(int msec, int notifyFrontend = 1);
     int  GetPictureAttribute(PictureAttribute attr);
@@ -225,7 +226,7 @@ class MTV_PUBLIC TVRec : public SignalMonitorListener, public QRunnable
     /// \brief Returns true is "errored" is true, false otherwise.
     bool IsErrored(void)  const { return HasFlags(kFlagErrored); }
 
-    void RingBufferChanged(RingBuffer*, ProgramInfo*, RecordingQuality*);
+    void RingBufferChanged(RingBuffer*, RecordingInfo*, RecordingQuality*);
     void RecorderPaused(void);
 
     void SetNextLiveTVDir(QString dir);
@@ -245,7 +246,7 @@ class MTV_PUBLIC TVRec : public SignalMonitorListener, public QRunnable
 
   private:
     void SetRingBuffer(RingBuffer *);
-    void SetPseudoLiveTVRecording(ProgramInfo*);
+    void SetPseudoLiveTVRecording(RecordingInfo*);
     void TeardownAll(void);
     void WakeEventLoop(void);
 
@@ -353,6 +354,7 @@ class MTV_PUBLIC TVRec : public SignalMonitorListener, public QRunnable
     FireWireDBOptions  fwOpt;
 
     // State variables
+    mutable QMutex setChannelLock;
     mutable QMutex stateChangeLock;
     mutable QMutex pendingRecLock;
     TVState        internalState;
@@ -382,7 +384,7 @@ class MTV_PUBLIC TVRec : public SignalMonitorListener, public QRunnable
     PendingMap   pendingRecordings;
 
     // Pseudo LiveTV recording
-    ProgramInfo *pseudoLiveTVRecording;
+    RecordingInfo *pseudoLiveTVRecording;
     QString      nextLiveTVDir;
     QMutex       nextLiveTVDirLock;
     QWaitCondition triggerLiveTVDir;
