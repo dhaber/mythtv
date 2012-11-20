@@ -137,6 +137,8 @@ class TimeStretch : public SpinBoxSetting, public PlayGroupDBStorage
         }
         PlayGroupDBStorage::Save();
     }
+
+    virtual void Save(QString /*destination*/) { Save(); }
 };
 
 class AspectOverrideModeSetting : public ComboBoxSetting, public PlayGroupDBStorage

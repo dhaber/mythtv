@@ -227,7 +227,7 @@ MainServer::MainServer(bool master, int port,
                        QMap<int, EncoderLink *> *tvList,
                        Scheduler *sched, AutoExpire *expirer) :
     encoderList(tvList), mythserver(NULL),
-    masterFreeSpaceListUpdater((master) ? new FreeSpaceUpdater(*this) : NULL),
+    masterFreeSpaceListUpdater(NULL),
     masterServerReconnect(NULL),
     masterServer(NULL), ismaster(master), threadPool("ProcessRequestPool"),
     masterBackendOverride(false),
@@ -323,6 +323,8 @@ MainServer::MainServer(bool master, int port,
     masterFreeSpaceList << "0";
     masterFreeSpaceList << "0";
     masterFreeSpaceList << "0";
+    
+    masterFreeSpaceListUpdater = (master ? new FreeSpaceUpdater(*this) : NULL);
     if (masterFreeSpaceListUpdater)
     {
         MThreadPool::globalInstance()->startReserved(
@@ -2680,6 +2682,8 @@ void MainServer::DoHandleUndeleteRecording(
         recinfo.ApplyRecordRecGroupChange("Default");
         recinfo.UpdateLastDelete(false);
         recinfo.SaveAutoExpire(kDisableAutoExpire);
+        if (m_sched)
+            m_sched->RescheduleCheck(recinfo, "DoHandleUndelete");
         ret = 0;
 #if 0
     }

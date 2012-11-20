@@ -24,9 +24,6 @@ static FT_Library ft_library;
 #define FONT_TO_USE "FreeSans.ttf" // Tiresias Screenfont.ttf is mandated
 
 
-#define SCALED_X(arg1) (int)(((float)arg1 * m_xScale) + 0.5f)
-#define SCALED_Y(arg1) (int)(((float)arg1 * m_yScale) + 0.5f)
-
 // LifecycleExtension tuneinfo:
 const unsigned kTuneQuietly   = 1U<<0; // b0 tune quietly
 const unsigned kTuneKeepApp   = 1U<<1; // b1 keep app running
@@ -47,27 +44,22 @@ class MHIImageData
     QImage m_image;
     int    m_x;
     int    m_y;
+    bool   m_bUnder;
 };
 
 // Special value for the NetworkBootInfo version.  Real values are a byte.
 #define NBI_VERSION_UNSET       257
 
 MHIContext::MHIContext(InteractiveTV *parent)
-    : m_parent(parent),     m_dsmcc(NULL),
+    : m_parent(parent),     m_dsmcc(new Dsmcc()),
       m_keyProfile(0),
-      m_engine(NULL),       m_stop(false),
+      m_engine(MHCreateEngine(this)), m_stop(false),
       m_updated(false),
-      m_displayWidth(StdDisplayWidth), m_displayHeight(StdDisplayHeight),
       m_face_loaded(false), m_engineThread(NULL), m_currentChannel(-1),
       m_currentStream(-1),  m_isLive(false),      m_currentSource(-1),
       m_audioTag(-1),       m_videoTag(-1),
-      m_lastNbiVersion(NBI_VERSION_UNSET),
-      m_videoRect(0, 0, StdDisplayWidth, StdDisplayHeight),
-      m_displayRect(0, 0, StdDisplayWidth, StdDisplayHeight)
+      m_lastNbiVersion(NBI_VERSION_UNSET)
 {
-    m_xScale = (float)m_displayWidth / (float)MHIContext::StdDisplayWidth;
-    m_yScale = (float)m_displayHeight / (float)MHIContext::StdDisplayHeight;
-
     if (!ft_loaded)
     {
         FT_Error error = FT_Init_FreeType(&ft_library);
@@ -125,14 +117,17 @@ MHIContext::~MHIContext()
     ClearQueue();
 }
 
+// NB caller must hold m_display_lock
 void MHIContext::ClearDisplay(void)
 {
     list<MHIImageData*>::iterator it = m_display.begin();
     for (; it != m_display.end(); ++it)
         delete *it;
     m_display.clear();
+    m_videoDisplayRect = QRect();
 }
 
+// NB caller must hold m_dsmccLock
 void MHIContext::ClearQueue(void)
 {
     MythDeque<DSMCCPacket*>::iterator it = m_dsmccQueue.begin();
@@ -178,8 +173,6 @@ void MHIContext::Restart(int chanid, int sourceid, bool isLive)
         // Leave the MHEG engine running but restart the DSMCC carousel.
         // This is a bit of a mess but it's the only way to be able to
         // select streams from a different channel.
-        if (!m_dsmcc)
-            m_dsmcc = new Dsmcc();
         {
             QMutexLocker locker(&m_dsmccLock);
             if (tuneinfo & kTuneCarReset)
@@ -188,7 +181,10 @@ void MHIContext::Restart(int chanid, int sourceid, bool isLive)
         }
 
         if (tuneinfo & (kTuneCarReset|kTuneCarId))
+        {
+            QMutexLocker locker(&m_runLock);
             m_engine->EngineEvent(10); // NonDestructiveTuneOK
+        }
     }
     else
     {
@@ -196,9 +192,6 @@ void MHIContext::Restart(int chanid, int sourceid, bool isLive)
 
         m_audioTag = -1;
         m_videoTag = -1;
-
-        if (!m_dsmcc)
-            m_dsmcc = new Dsmcc();
 
         {
             QMutexLocker locker(&m_dsmccLock);
@@ -210,9 +203,6 @@ void MHIContext::Restart(int chanid, int sourceid, bool isLive)
             QMutexLocker locker(&m_keyLock);
             m_keyQueue.clear();
         }
-
-        if (!m_engine)
-            m_engine = MHCreateEngine(this);
 
         m_engine->SetBooting();
         ClearDisplay();
@@ -233,8 +223,6 @@ void MHIContext::run(void)
     QTime t; t.start();
     while (!m_stop)
     {
-        locker.unlock();
-
         int toWait;
         // Dequeue and process any key presses.
         int key = 0;
@@ -258,7 +246,6 @@ void MHIContext::run(void)
 
         toWait = (toWait > 1000 || toWait <= 0) ? 1000 : toWait;
 
-        locker.relock();
         if (!m_stop && (toWait > 0))
             m_engine_wait.wait(locker.mutex(), toWait);
     }
@@ -270,11 +257,8 @@ void MHIContext::ProcessDSMCCQueue(void)
     DSMCCPacket *packet = NULL;
     do
     {
-        {
-            QMutexLocker locker(&m_dsmccLock);
-            packet = m_dsmccQueue.dequeue();
-        }
-
+        QMutexLocker locker(&m_dsmccLock);
+        packet = m_dsmccQueue.dequeue();
         if (packet)
         {
             m_dsmcc->ProcessSection(
@@ -318,6 +302,9 @@ void MHIContext::SetNetBootInfo(const unsigned char *data, uint length)
         .arg(data[0]).arg(data[1]).arg(length));
 
     QMutexLocker locker(&m_dsmccLock);
+    // The carousel should be reset now as the stream has changed
+    m_dsmcc->Reset();
+    ClearQueue();
     // Save the data from the descriptor.
     m_nbiData.resize(0);
     m_nbiData.reserve(length);
@@ -327,13 +314,10 @@ void MHIContext::SetNetBootInfo(const unsigned char *data, uint length)
     if (m_lastNbiVersion == NBI_VERSION_UNSET)
         m_lastNbiVersion = data[0];
     else
-    {
-        locker.unlock();
-        QMutexLocker locker2(&m_runLock);
         m_engine_wait.wakeAll();
-    }
 }
 
+// Called only by m_engineThread
 void MHIContext::NetworkBootRequested(void)
 {
     QMutexLocker locker(&m_dsmccLock);
@@ -345,8 +329,10 @@ void MHIContext::NetworkBootRequested(void)
         case 1:
             m_dsmcc->Reset();
             m_engine->SetBooting();
+            locker.unlock();
+            {QMutexLocker locker2(&m_display_lock);
             ClearDisplay();
-            m_updated = true;
+            m_updated = true;}
             break;
         case 2:
             m_engine->EngineEvent(9); // NetworkBootInfo EngineEvent
@@ -371,11 +357,13 @@ bool MHIContext::CheckCarouselObject(QString objectPath)
 
     QStringList path = objectPath.split(QChar('/'), QString::SkipEmptyParts);
     QByteArray result; // Unused
+    QMutexLocker locker(&m_dsmccLock);
     int res = m_dsmcc->GetDSMCCObject(path, result);
     return res == 0; // It's available now.
 }
 
 // Called by the engine to request data from the carousel.
+// Caller must hold m_runLock
 bool MHIContext::GetCarouselData(QString objectPath, QByteArray &result)
 {
     bool const isIC = objectPath.startsWith("http:") || objectPath.startsWith("https:");
@@ -387,13 +375,10 @@ bool MHIContext::GetCarouselData(QString objectPath, QByteArray &result)
     // same thread this is safe.  Otherwise we need to make a deep copy of
     // the result.
 
-    QMutexLocker locker(&m_runLock);
     bool bReported = false;
     QTime t; t.start();
     while (!m_stop)
     {
-        locker.unlock();
-
         if (isIC)
         {
             // TODO verify access to server in carousel file auth.servers
@@ -414,6 +399,7 @@ bool MHIContext::GetCarouselData(QString objectPath, QByteArray &result)
         }
         else
         {
+            QMutexLocker locker(&m_dsmccLock);
             int res = m_dsmcc->GetDSMCCObject(path, result);
             if (res == 0)
             {
@@ -437,9 +423,7 @@ bool MHIContext::GetCarouselData(QString objectPath, QByteArray &result)
         // some more packets.  We should eventually find out if this item is
         // present.
         ProcessDSMCCQueue();
-
-        locker.relock();
-        m_engine_wait.wait(locker.mutex(), 300);
+        m_engine_wait.wait(&m_runLock, 300);
     }
     return false; // Stop has been set.  Say the object isn't present.
 }
@@ -546,18 +530,14 @@ bool MHIContext::OfferKey(QString key)
         .arg(key).arg(action).arg(m_keyQueue.size()) );
     { QMutexLocker locker(&m_keyLock);
     m_keyQueue.enqueue(action);}
-    QMutexLocker locker2(&m_runLock);
     m_engine_wait.wakeAll();
     return true;
 }
 
+// Called from MythPlayer::VideoStart and MythPlayer::ReinitOSD
 void MHIContext::Reinit(const QRect &display)
 {
-    m_displayWidth = display.width();
-    m_displayHeight = display.height();
-    m_xScale = (float)m_displayWidth / (float)MHIContext::StdDisplayWidth;
-    m_yScale = (float)m_displayHeight / (float)MHIContext::StdDisplayHeight;
-    m_videoRect   = QRect(QPoint(0,0), display.size());
+    m_videoDisplayRect = m_videoRect = QRect();
     m_displayRect = display;
 }
 
@@ -583,10 +563,50 @@ void MHIContext::UpdateOSD(InteractiveScreen *osdWindow,
         return;
 
     QMutexLocker locker(&m_display_lock);
+
+    // In MHEG the video is just another item in the display stack
+    // but when we create the OSD we overlay everything over the video.
+    // We need to cut out anything belowthe video on the display stack
+    // to leave the video area clear.
+    list<MHIImageData*>::iterator it = m_display.begin();
+    for (; it != m_display.end(); ++it)
+    {
+        MHIImageData *data = *it;
+        if (!data->m_bUnder)
+            continue;
+
+        QRect imageRect(data->m_x, data->m_y,
+                        data->m_image.width(), data->m_image.height());
+        if (!m_videoDisplayRect.intersects(imageRect))
+            continue;
+
+        // Replace this item with a set of cut-outs.
+        it = m_display.erase(it);
+
+        QVector<QRect> rects =
+            (QRegion(imageRect) - QRegion(m_videoDisplayRect)).rects();
+        for (uint j = 0; j < (uint)rects.size(); j++)
+        {
+            QRect &rect = rects[j];
+            QImage image =
+                data->m_image.copy(rect.x()-data->m_x, rect.y()-data->m_y,
+                                   rect.width(), rect.height());
+            MHIImageData *newData = new MHIImageData;
+            newData->m_image = image;
+            newData->m_x = rect.x();
+            newData->m_y = rect.y();
+            newData->m_bUnder = true;
+            it = m_display.insert(it, newData);
+            ++it;
+        }
+        --it;
+        delete data;
+    }
+
     m_updated = false;
     osdWindow->DeleteAllChildren();
     // Copy all the display items into the display.
-    list<MHIImageData*>::iterator it = m_display.begin();
+    it = m_display.begin();
     for (int count = 0; it != m_display.end(); ++it, count++)
     {
         MHIImageData *data = *it;
@@ -630,23 +650,64 @@ void MHIContext::RequireRedraw(const QRegion &)
     m_updated = true;
 }
 
-void MHIContext::AddToDisplay(const QImage &image, int x, int y)
+inline int MHIContext::ScaleX(int n, bool roundup) const
 {
-    MHIImageData *data = new MHIImageData;
-    int dispx = x + m_displayRect.left();
-    int dispy = y + m_displayRect.top();
-
-    data->m_image = image;
-    data->m_x = dispx;
-    data->m_y = dispy;
-    QMutexLocker locker(&m_display_lock);
-    m_display.push_back(data);
+    return (n * m_displayRect.width() + (roundup ? StdDisplayWidth - 1 : 0)) / StdDisplayWidth;
 }
 
-// In MHEG the video is just another item in the display stack
-// but when we create the OSD we overlay everything over the video.
-// We need to cut out anything belowthe video on the display stack
-// to leave the video area clear.
+inline int MHIContext::ScaleY(int n, bool roundup) const
+{
+    return (n * m_displayRect.height() + (roundup ? StdDisplayHeight - 1 : 0)) / StdDisplayHeight;
+}
+
+inline QRect MHIContext::Scale(const QRect &r) const
+{
+    return QRect( m_displayRect.topLeft() +
+        QPoint(ScaleX(r.x()), ScaleY(r.y())),
+        QSize(ScaleX(r.width(), true), ScaleY(r.height(), true)) );
+}
+
+void MHIContext::AddToDisplay(const QImage &image, const QRect &displayRect, bool bUnder /*=false*/)
+{
+    const QRect scaledRect = Scale(displayRect);
+
+    MHIImageData *data = new MHIImageData;
+
+    data->m_image = image.convertToFormat(QImage::Format_ARGB32).scaled(
+        scaledRect.width(), scaledRect.height(),
+        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    data->m_x = scaledRect.x();
+    data->m_y = scaledRect.y();
+    data->m_bUnder = bUnder;
+
+    QMutexLocker locker(&m_display_lock);
+    if (!bUnder)
+        m_display.push_back(data);
+    else
+    {
+        // Replace any existing items under the video with this
+        list<MHIImageData*>::iterator it = m_display.begin();
+        while (it != m_display.end())
+        {
+            MHIImageData *old = *it;
+            if (!old->m_bUnder)
+                ++it;
+            else
+            {
+                it = m_display.erase(it);
+                delete old;
+            }
+        }
+        m_display.push_front(data);
+    }
+}
+
+inline int Roundup(int n, int r)
+{
+    // NB assumes 2's complement arithmetic
+    return n + (-n & (r - 1));
+}
+
 // The videoRect gives the size and position to which the video must be scaled.
 // The displayRect gives the rectangle reserved for the video.
 // e.g. part of the video may be clipped within the displayRect.
@@ -655,51 +716,24 @@ void MHIContext::DrawVideo(const QRect &videoRect, const QRect &dispRect)
     // tell the video player to resize the video stream
     if (m_parent->GetNVP())
     {
-        QRect vidRect(SCALED_X(videoRect.x()),
-                      SCALED_Y(videoRect.y()),
-                      SCALED_X(videoRect.width()),
-                      SCALED_Y(videoRect.height()));
+        QRect vidRect = Scale(videoRect);
+        vidRect.setWidth(Roundup(vidRect.width(), 2));
+        vidRect.setHeight(Roundup(vidRect.height(), 2));
         if (m_videoRect != vidRect)
         {
-            m_parent->GetNVP()->SetVideoResize(vidRect.translated(m_displayRect.topLeft()));
+            m_parent->GetNVP()->SetVideoResize(vidRect);
             m_videoRect = vidRect;
         }
     }
 
-    QMutexLocker locker(&m_display_lock);
-    QRect displayRect(SCALED_X(dispRect.x()),
-                      SCALED_Y(dispRect.y()),
-                      SCALED_X(dispRect.width()),
-                      SCALED_Y(dispRect.height()));
+    m_videoDisplayRect = Scale(dispRect);
 
+    // Mark all existing items in the display stack as under the video
+    QMutexLocker locker(&m_display_lock);
     list<MHIImageData*>::iterator it = m_display.begin();
     for (; it != m_display.end(); ++it)
     {
-        MHIImageData *data = *it;
-        QRect imageRect(data->m_x, data->m_y,
-                        data->m_image.width(), data->m_image.height());
-        if (displayRect.intersects(imageRect))
-        {
-            // Replace this item with a set of cut-outs.
-            it = m_display.erase(it);
-
-            QVector<QRect> rects =
-                (QRegion(imageRect) - QRegion(displayRect)).rects();
-            for (uint j = 0; j < (uint)rects.size(); j++)
-            {
-                QRect &rect = rects[j];
-                QImage image =
-                    data->m_image.copy(rect.x()-data->m_x, rect.y()-data->m_y,
-                                       rect.width(), rect.height());
-                MHIImageData *newData = new MHIImageData;
-                newData->m_image = image;
-                newData->m_x = rect.x();
-                newData->m_y = rect.y();
-                m_display.insert(it, newData);
-                ++it;
-            }
-            delete data;
-        }
+        (*it)->m_bUnder = true;
     }
 }
 
@@ -894,12 +928,13 @@ void MHIContext::EndStream()
 // Callback from MythPlayer when a stream starts or stops
 bool MHIContext::StreamStarted(bool bStarted)
 {
-    if (!m_engine || !m_notify)
+    if (!m_notify)
         return false;
 
     LOG(VB_MHEG, LOG_INFO, QString("[mhi] Stream 0x%1 %2")
         .arg((quintptr)m_notify,0,16).arg(bStarted ? "started" : "stopped"));
 
+    QMutexLocker locker(&m_runLock);
     m_engine->StreamStarted(m_notify, bStarted);
     if (!bStarted)
         m_notify = 0;
@@ -997,22 +1032,10 @@ void MHIContext::DrawRect(int xPos, int yPos, int width, int height,
     if (colour.alpha() == 0 || height == 0 || width == 0)
         return; // Fully transparent
 
-    QRgb qColour = qRgba(colour.red(), colour.green(),
-                         colour.blue(), colour.alpha());
+    QImage qImage(width, height, QImage::Format_ARGB32);
+    qImage.fill(qRgba(colour.red(), colour.green(), colour.blue(), colour.alpha()));
 
-    int scaledWidth  = SCALED_X(width);
-    int scaledHeight = SCALED_Y(height);
-    QImage qImage(scaledWidth, scaledHeight, QImage::Format_ARGB32);
-
-    for (int i = 0; i < scaledHeight; i++)
-    {
-        for (int j = 0; j < scaledWidth; j++)
-        {
-            qImage.setPixel(j, i, qColour);
-        }
-    }
-
-    AddToDisplay(qImage, SCALED_X(xPos), SCALED_Y(yPos));
+    AddToDisplay(qImage, QRect(xPos, yPos, width, height));
 }
 
 // Draw an image at the specified position.
@@ -1021,7 +1044,7 @@ void MHIContext::DrawRect(int xPos, int yPos, int width, int height,
 // and usually that will be the same as the origin of the bounding
 // box (clipRect).
 void MHIContext::DrawImage(int x, int y, const QRect &clipRect,
-                           const QImage &qImage, bool bScaled /* = false */)
+                           const QImage &qImage, bool bScaled, bool bUnder)
 {
     if (qImage.isNull())
         return;
@@ -1031,28 +1054,12 @@ void MHIContext::DrawImage(int x, int y, const QRect &clipRect,
 
     if (bScaled || displayRect == imageRect) // No clipping required
     {
-        QImage q_scaled =
-            qImage.scaled(
-                SCALED_X(displayRect.width()),
-                SCALED_Y(displayRect.height()),
-                Qt::IgnoreAspectRatio,
-                Qt::SmoothTransformation);
-        AddToDisplay(q_scaled.convertToFormat(QImage::Format_ARGB32),
-                     SCALED_X(x), SCALED_Y(y));
+        AddToDisplay(qImage, displayRect, bUnder);
     }
     else if (!displayRect.isEmpty())
     { // We must clip the image.
-        QImage clipped = qImage.convertToFormat(QImage::Format_ARGB32)
-            .copy(displayRect.translated(-x, -y));
-        QImage q_scaled =
-            clipped.scaled(
-                SCALED_X(displayRect.width()),
-                SCALED_Y(displayRect.height()),
-                Qt::IgnoreAspectRatio,
-                Qt::SmoothTransformation);
-        AddToDisplay(q_scaled,
-                     SCALED_X(displayRect.x()),
-                     SCALED_Y(displayRect.y()));
+        QImage clipped = qImage.copy(displayRect.translated(-x, -y));
+        AddToDisplay(clipped, displayRect, bUnder);
     }
     // Otherwise draw nothing.
 }
@@ -1629,7 +1636,7 @@ void MHIDLA::DrawPoly(bool isFilled, int nPoints, const int *xArray, const int *
 }
 
 
-void MHIBitmap::Draw(int x, int y, QRect rect, bool tiled)
+void MHIBitmap::Draw(int x, int y, QRect rect, bool tiled, bool bUnder)
 {
     if (tiled)
     {
@@ -1647,12 +1654,12 @@ void MHIBitmap::Draw(int x, int y, QRect rect, bool tiled)
                 tiledImage.setPixel(i, j, m_image.pixel(i % m_image.width(), j % m_image.height()));
             }
         }
-        m_parent->DrawImage(rect.x(), rect.y(), rect, tiledImage, true);
+        m_parent->DrawImage(rect.x(), rect.y(), rect, tiledImage, true, bUnder);
     }
     else
     {
         // NB THe BBC expects bitmaps to be scaled, not clipped
-        m_parent->DrawImage(x, y, rect, m_image, true);
+        m_parent->DrawImage(x, y, rect, m_image, true, bUnder);
     }
 }
 

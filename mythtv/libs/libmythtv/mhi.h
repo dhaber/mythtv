@@ -16,6 +16,8 @@ using namespace std;
 #include <QString>
 #include <QMutex>
 #include <QImage>
+#include <QList>
+#include <QRect>
 
 // MythTV headers
 #include "../libmythfreemheg/freemheg.h"
@@ -100,7 +102,8 @@ class MHIContext : public MHContext, public QRunnable
     virtual void DrawBackground(const QRegion &reg);
     virtual void DrawVideo(const QRect &videoRect, const QRect &displayRect);
 
-    void DrawImage(int x, int y, const QRect &rect, const QImage &image, bool bScaled = false);
+    void DrawImage(int x, int y, const QRect &rect, const QImage &image,
+        bool bScaled = false, bool bUnder = false);
 
     virtual int GetChannelIndex(const QString &str);
     /// Get netId etc from the channel index.
@@ -142,7 +145,10 @@ class MHIContext : public MHContext, public QRunnable
 
     // Operations used by the display classes
     // Add an item to the display vector
-    void AddToDisplay(const QImage &image, int x, int y);
+    void AddToDisplay(const QImage &image, const QRect &rect, bool bUnder = false);
+    int ScaleX(int, bool roundup = false) const;
+    int ScaleY(int, bool roundup = false) const;
+    QRect Scale(const QRect &r) const;
 
     FT_Face GetFontFace(void) { return m_face; }
     bool IsFaceLoaded(void) { return m_face_loaded; }
@@ -151,8 +157,6 @@ class MHIContext : public MHContext, public QRunnable
 
     static const int StdDisplayWidth = 720;
     static const int StdDisplayHeight = 576;
-    int GetWidth(void) { return m_displayWidth; }
-    int GetHeight(void) { return m_displayHeight; }
 
   protected:
     void run(void); // QRunnable
@@ -181,10 +185,6 @@ class MHIContext : public MHContext, public QRunnable
     bool             m_stop;        // protected by m_runLock
     QMutex           m_display_lock;
     bool             m_updated;
-    int              m_displayWidth;
-    int              m_displayHeight;
-    float            m_xScale;
-    float            m_yScale;
 
     list<MHIImageData*> m_display; // List of items to display
 
@@ -205,7 +205,7 @@ class MHIContext : public MHContext, public QRunnable
     uint             m_lastNbiVersion;
     vector<unsigned char> m_nbiData;
 
-    QRect            m_videoRect;
+    QRect            m_videoRect, m_videoDisplayRect;
     QRect            m_displayRect;
 };
 
@@ -261,7 +261,7 @@ class MHIBitmap : public MHBitmapDisplay
      *  \param y     Vertical position of the image relative to the screen.
      *  \param rect  Bounding box for the image relative to the screen.
      */
-    virtual void Draw(int x, int y, QRect rect, bool tiled);
+    virtual void Draw(int x, int y, QRect rect, bool tiled, bool bUnder);
 
     /// Scale the bitmap.  Only used for image derived from MPEG I-frames.
     virtual void ScaleImage(int newWidth, int newHeight);

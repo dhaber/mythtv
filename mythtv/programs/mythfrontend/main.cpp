@@ -1478,7 +1478,10 @@ int main(int argc, char **argv)
 #ifndef _WIN32
     QList<int> signallist;
     signallist << SIGINT << SIGTERM << SIGSEGV << SIGABRT << SIGBUS << SIGFPE
-               << SIGILL << SIGRTMIN;
+               << SIGILL;
+#if ! CONFIG_DARWIN
+    signallist << SIGRTMIN;
+#endif
     SignalHandler::Init(signallist);
     SignalHandler::SetHandler(SIGUSR1, handleSIGUSR1);
     SignalHandler::SetHandler(SIGUSR2, handleSIGUSR2);
@@ -1653,7 +1656,7 @@ int main(int argc, char **argv)
     setHttpProxy();
 
     pmanager = new MythPluginManager();
-    gContext->SetPluginManager(pmanager);
+    gCoreContext->SetPluginManager(pmanager);
 
     MediaMonitor *mon = MediaMonitor::GetMediaMonitor();
     if (mon)
