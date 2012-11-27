@@ -29,7 +29,6 @@ using namespace std;
 #include "compat.h"
 #include "mythconfig.h"       // for CONFIG_DARWIN
 #include "mythdownloadmanager.h"
-#include "mythsocketthread.h"
 #include "mythcorecontext.h"
 #include "mythsocket.h"
 #include "mythsystem.h"
@@ -117,21 +116,26 @@ MythCoreContextPrivate::MythCoreContextPrivate(MythCoreContext *lparent,
     srandom(MythDate::current().toTime_t() ^ QTime::currentTime().msec());
 }
 
+static void delete_sock(QMutexLocker &locker, MythSocket **s)
+{
+    if (*s)
+    {
+        MythSocket *tmp = *s;
+        *s = NULL;
+        locker.unlock();
+        tmp->DecrRef();
+        locker.relock();
+    }
+}
+
 MythCoreContextPrivate::~MythCoreContextPrivate()
 {
     MThreadPool::StopAllPools();
-    ShutdownRRT();
 
-    QMutexLocker locker(&m_sockLock);
-    if (m_serverSock)
     {
-        m_serverSock->DecrRef();
-        m_serverSock = NULL;
-    }
-    if (m_eventSock)
-    {
-        m_eventSock->DecrRef();
-        m_eventSock = NULL;
+        QMutexLocker locker(&m_sockLock);
+        delete_sock(locker, &m_serverSock);
+        delete_sock(locker, &m_eventSock);
     }
 
     delete m_locale;
@@ -267,15 +271,15 @@ bool MythCoreContext::SetupCommandSocket(MythSocket *serverSock,
 
     QStringList strlist(announcement);
 
-    if (!serverSock->writeStringList(strlist))
+    if (!serverSock->WriteStringList(strlist))
     {
         LOG(VB_GENERAL, LOG_ERR, LOC + "Connecting server socket to "
                                        "master backend, socket write failed");
         return false;
     }
 
-    if (!serverSock->readStringList(strlist, true) || strlist.empty() ||
-        (strlist[0] == "ERROR"))
+    if (!serverSock->ReadStringList(strlist, MythSocket::kShortTimeout) ||
+        strlist.empty() || (strlist[0] == "ERROR"))
     {
         if (!strlist.empty())
             LOG(VB_GENERAL, LOG_ERR, LOC + "Problem connecting "
@@ -307,6 +311,12 @@ bool MythCoreContext::ConnectToMasterServer(bool blockingClient,
     int     port   = GetNumSetting("MasterServerPort", 6543);
     bool    proto_mismatch = false;
 
+    if (d->m_serverSock && !d->m_serverSock->IsConnected())
+    {
+        d->m_serverSock->DecrRef();
+        d->m_serverSock = NULL;
+    }
+
     if (!d->m_serverSock)
     {
         QString ann = QString("ANN %1 %2 %3")
@@ -324,18 +334,27 @@ bool MythCoreContext::ConnectToMasterServer(bool blockingClient,
     if (!openEventSocket)
         return true;
 
-    if (!IsBackend() && !d->m_eventSock)
-        d->m_eventSock = ConnectEventSocket(server, port);
 
-    if (!IsBackend() && !d->m_eventSock)
+    if (!IsBackend())
     {
-        d->m_serverSock->DecrRef();
-        d->m_serverSock = NULL;
+        if (d->m_eventSock && !d->m_eventSock->IsConnected())
+        {
+            d->m_eventSock->DecrRef();
+            d->m_eventSock = NULL;
+        }
+        if (!d->m_eventSock)
+            d->m_eventSock = ConnectEventSocket(server, port);
 
-        QCoreApplication::postEvent(
-            d->m_GUIcontext, new MythEvent("CONNECTION_FAILURE"));
+        if (!d->m_eventSock)
+        {
+            d->m_serverSock->DecrRef();
+            d->m_serverSock = NULL;
 
-        return false;
+            QCoreApplication::postEvent(
+                d->m_GUIcontext, new MythEvent("CONNECTION_FAILURE"));
+
+            return false;
+        }
     }
 
     return true;
@@ -380,7 +399,7 @@ MythSocket *MythCoreContext::ConnectCommandSocket(
         serverSock = new MythSocket();
 
         int sleepms = 0;
-        if (serverSock->connect(hostname, port))
+        if (serverSock->ConnectToHost(hostname, port))
         {
             if (SetupCommandSocket(
                     serverSock, announce, setup_timeout, proto_mismatch))
@@ -459,16 +478,11 @@ MythSocket *MythCoreContext::ConnectCommandSocket(
 MythSocket *MythCoreContext::ConnectEventSocket(const QString &hostname,
                                                 int port)
 {
-    MythSocket *eventSock = new MythSocket();
-
-    while (eventSock->state() != MythSocket::Idle)
-    {
-        usleep(5000);
-    }
+    MythSocket *eventSock = new MythSocket(-1, this);
 
     // Assume that since we _just_ connected the command socket,
     // this one won't need multiple retries to work...
-    if (!eventSock->connect(hostname, port))
+    if (!eventSock->ConnectToHost(hostname, port))
     {
         LOG(VB_GENERAL, LOG_ERR, LOC + "Failed to connect event "
                                        "socket to master backend");
@@ -476,14 +490,12 @@ MythSocket *MythCoreContext::ConnectEventSocket(const QString &hostname,
         return NULL;
     }
 
-    eventSock->Lock();
-
     QString str = QString("ANN Monitor %1 %2")
         .arg(d->m_localHostname).arg(true);
     QStringList strlist(str);
-    eventSock->writeStringList(strlist);
+    eventSock->WriteStringList(strlist);
     bool ok = true;
-    if (!eventSock->readStringList(strlist) || strlist.empty() ||
+    if (!eventSock->ReadStringList(strlist) || strlist.empty() ||
         (strlist[0] == "ERROR"))
     {
         if (!strlist.empty())
@@ -499,13 +511,7 @@ MythSocket *MythCoreContext::ConnectEventSocket(const QString &hostname,
         ok = false;
     }
 
-    eventSock->Unlock();
-
-    if (ok)
-    {
-        eventSock->setCallbacks(this);
-    }
-    else
+    if (!ok)
     {
         eventSock->DecrRef();
         eventSock = NULL;
@@ -529,11 +535,9 @@ void MythCoreContext::BlockShutdown(void)
         return;
 
     strlist << "BLOCK_SHUTDOWN";
-    d->m_serverSock->writeStringList(strlist);
-    d->m_serverSock->readStringList(strlist);
+    d->m_serverSock->SendReceiveStringList(strlist);
 
-    if ((d->m_eventSock == NULL) ||
-        (d->m_eventSock->state() != MythSocket::Connected))
+    if (!d->m_eventSock || !d->m_eventSock->IsConnected())
         return;
 
     d->m_blockingClient = true;
@@ -541,12 +545,7 @@ void MythCoreContext::BlockShutdown(void)
     strlist.clear();
     strlist << "BLOCK_SHUTDOWN";
 
-    d->m_eventSock->Lock();
-
-    d->m_eventSock->writeStringList(strlist);
-    d->m_eventSock->readStringList(strlist);
-
-    d->m_eventSock->Unlock();
+    d->m_eventSock->SendReceiveStringList(strlist);
 }
 
 void MythCoreContext::AllowShutdown(void)
@@ -558,11 +557,9 @@ void MythCoreContext::AllowShutdown(void)
         return;
 
     strlist << "ALLOW_SHUTDOWN";
-    d->m_serverSock->writeStringList(strlist);
-    d->m_serverSock->readStringList(strlist);
+    d->m_serverSock->SendReceiveStringList(strlist);
 
-    if ((d->m_eventSock == NULL) ||
-        (d->m_eventSock->state() != MythSocket::Connected))
+    if (!d->m_eventSock || !d->m_eventSock->IsConnected())
         return;
 
     d->m_blockingClient = false;
@@ -570,12 +567,7 @@ void MythCoreContext::AllowShutdown(void)
     strlist.clear();
     strlist << "ALLOW_SHUTDOWN";
 
-    d->m_eventSock->Lock();
-
-    d->m_eventSock->writeStringList(strlist);
-    d->m_eventSock->readStringList(strlist);
-
-    d->m_eventSock->Unlock();
+    d->m_eventSock->SendReceiveStringList(strlist);
 }
 
 bool MythCoreContext::IsBlockingClient(void) const
@@ -715,7 +707,8 @@ QString MythCoreContext::GetMasterHostPrefix(const QString &storageGroup,
     }
 
     QMutexLocker locker(&d->m_sockLock);
-    if (!d->m_serverSock)
+    if (!d->m_serverSock || !d->m_serverSock->IsConnected() ||
+        !d->m_eventSock || !d->m_eventSock->IsConnected())
     {
         bool blockingClient = GetNumSetting("idleTimeoutSecs",0) > 0;
         ConnectToMasterServer(blockingClient);
@@ -724,12 +717,12 @@ QString MythCoreContext::GetMasterHostPrefix(const QString &storageGroup,
     if (d->m_serverSock)
     {
 
-         ret = GenMythURL(d->m_serverSock->peerAddress().toString(),
-                          d->m_serverSock->peerPort(),
+         ret = GenMythURL(d->m_serverSock->GetPeerAddress().toString(),
+                          d->m_serverSock->GetPeerPort(),
                           path,
                           storageGroup);
     }
-
+    
     return ret;
 }
 
@@ -937,17 +930,17 @@ bool MythCoreContext::IsUIThread(void)
     return is_current_thread(d->m_UIThread);
 }
 
-bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
-                                        bool quickTimeout, bool block)
+bool MythCoreContext::SendReceiveStringList(
+    QStringList &strlist, bool quickTimeout, bool block)
 {
+    QString msg;
     if (HasGUI() && IsUIThread())
     {
-        QString msg = "SendReceiveStringList(";
+        msg = "SendReceiveStringList(";
         for (uint i=0; i<(uint)strlist.size() && i<2; i++)
             msg += (i?",":"") + strlist[i];
         msg += (strlist.size() > 2) ? "...)" : ")";
-        msg += " called from UI thread";
-        LOG(VB_GENERAL, LOG_DEBUG, msg);
+        LOG(VB_GENERAL, LOG_WARNING, msg + " called from UI thread");
     }
 
     QString query_type = "UNKNOWN";
@@ -967,8 +960,9 @@ bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
     if (d->m_serverSock)
     {
         QStringList sendstrlist = strlist;
-        d->m_serverSock->writeStringList(sendstrlist);
-        ok = d->m_serverSock->readStringList(strlist, quickTimeout);
+        uint timeout = quickTimeout ?
+            MythSocket::kShortTimeout : MythSocket::kLongTimeout;
+        ok = d->m_serverSock->SendReceiveStringList(strlist, 0, timeout);
 
         if (!ok)
         {
@@ -988,8 +982,8 @@ bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
 
             if (d->m_serverSock)
             {
-                d->m_serverSock->writeStringList(sendstrlist);
-                ok = d->m_serverSock->readStringList(strlist, quickTimeout);
+                ok = d->m_serverSock->SendReceiveStringList(
+                    strlist, 0, timeout);
             }
         }
 
@@ -1004,7 +998,7 @@ bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
             MythEvent me(message, strlist);
             dispatch(me);
 
-            ok = d->m_serverSock->readStringList(strlist, quickTimeout);
+            ok = d->m_serverSock->ReadStringList(strlist, timeout);
         }
 
         if (!ok)
@@ -1045,18 +1039,40 @@ bool MythCoreContext::SendReceiveStringList(QStringList &strlist,
     return ok;
 }
 
+class SendAsyncMessage : public QRunnable
+{
+  public:
+    SendAsyncMessage(const QString &msg, const QStringList &extra) :
+        m_message(msg), m_extraData(extra)
+    {
+    }
+
+    SendAsyncMessage(const QString &msg) : m_message(msg) { }
+
+    void run(void)
+    {
+        QStringList strlist("MESSAGE");
+        strlist << m_message;
+        strlist << m_extraData;
+        gCoreContext->SendReceiveStringList(strlist);
+    }
+
+  private:
+    QString m_message;
+    QStringList m_extraData;
+};
+
 void MythCoreContext::SendMessage(const QString &message)
 {
     if (IsBackend())
     {
         dispatch(MythEvent(message));
-        return;
     }
-
-    QStringList strlist( "MESSAGE" );
-    strlist << message;
-
-    SendReceiveStringList(strlist);
+    else
+    {
+        MThreadPool::globalInstance()->start(
+            new SendAsyncMessage(message), "SendMessage");
+    }
 }
 
 void MythCoreContext::SendEvent(const MythEvent &event)
@@ -1064,14 +1080,13 @@ void MythCoreContext::SendEvent(const MythEvent &event)
     if (IsBackend())
     {
         dispatch(event);
-        return;
     }
-
-    QStringList strlist( "MESSAGE" );
-    strlist << event.Message();
-    strlist << event.ExtraDataList();
-
-    SendReceiveStringList(strlist);
+    else
+    {
+        MThreadPool::globalInstance()->start(
+            new SendAsyncMessage(event.Message(), event.ExtraDataList()),
+            "SendEvent");
+    }
 }
 
 void MythCoreContext::SendSystemEvent(const QString &msg)
@@ -1093,11 +1108,13 @@ void MythCoreContext::SendHostSystemEvent(const QString &msg,
 
 void MythCoreContext::readyRead(MythSocket *sock)
 {
-    while (sock->state() == MythSocket::Connected &&
-           sock->bytesAvailable() > 0)
+    do
     {
         QStringList strlist;
-        if (!sock->readStringList(strlist))
+        if (!sock->ReadStringList(strlist))
+            continue;
+
+        if (strlist.size() < 2)
             continue;
 
         QString prefix = strlist[0];
@@ -1127,6 +1144,7 @@ void MythCoreContext::readyRead(MythSocket *sock)
             dispatch(me);
         }
     }
+    while (sock->IsDataAvailable());
 }
 
 void MythCoreContext::connectionClosed(MythSocket *sock)
@@ -1136,20 +1154,7 @@ void MythCoreContext::connectionClosed(MythSocket *sock)
     LOG(VB_GENERAL, LOG_NOTICE,
         "Event socket closed.  No connection to the backend.");
 
-    QMutexLocker locker(&d->m_sockLock);
-    if (d->m_serverSock)
-    {
-        d->m_serverSock->DecrRef();
-        d->m_serverSock = NULL;
-    }
-
-    if (d->m_eventSock)
-    {
-        d->m_eventSock->DecrRef();
-        d->m_eventSock = NULL;
-    }
-
-    dispatch(MythEvent(QString("BACKEND_SOCKETS_CLOSED")));
+    dispatch(MythEvent("BACKEND_SOCKETS_CLOSED"));
 }
 
 bool MythCoreContext::CheckProtoVersion(MythSocket *socket, uint timeout_ms,
@@ -1160,9 +1165,9 @@ bool MythCoreContext::CheckProtoVersion(MythSocket *socket, uint timeout_ms,
 
     QStringList strlist(QString("MYTH_PROTO_VERSION %1 %2")
                         .arg(MYTH_PROTO_VERSION).arg(MYTH_PROTO_TOKEN));
-    socket->writeStringList(strlist);
+    socket->WriteStringList(strlist);
 
-    if (!socket->readStringList(strlist, timeout_ms) || strlist.empty())
+    if (!socket->ReadStringList(strlist, timeout_ms) || strlist.empty())
     {
         LOG(VB_GENERAL, LOG_CRIT, "Protocol version check failure.\n\t\t\t"
                 "The response to MYTH_PROTO_VERSION was empty.\n\t\t\t"

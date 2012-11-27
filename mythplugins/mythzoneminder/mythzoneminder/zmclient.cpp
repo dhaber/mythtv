@@ -97,7 +97,7 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
 
         m_socket = new MythSocket();
         //m_socket->setCallbacks(this);
-        if (!m_socket->connect(m_hostname, m_port))
+        if (!m_socket->ConnectToHost(m_hostname, m_port))
         {
             m_socket->DecrRef();
             m_socket = NULL;
@@ -133,12 +133,11 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
 
 bool ZMClient::sendReceiveStringList(QStringList &strList)
 {
+    QStringList origStrList = strList;
+
     bool ok = false;
     if (m_bConnected)
-    {
-        m_socket->writeStringList(strList);
-        ok = m_socket->readStringList(strList, false);
-    }
+        ok = m_socket->SendReceiveStringList(strList);
 
     if (!ok)
     {
@@ -146,13 +145,13 @@ bool ZMClient::sendReceiveStringList(QStringList &strList)
 
         if (!connectToHost(m_hostname, m_port))
         {
-            LOG(VB_GENERAL, LOG_ERR, "Re connection to mythzmserver failed");
+            LOG(VB_GENERAL, LOG_ERR, "Re-connection to mythzmserver failed");
             return false;
         }
 
         // try to resend
-        m_socket->writeStringList(strList);
-        ok = m_socket->readStringList(strList, false);
+        strList = origStrList;
+        ok = m_socket->SendReceiveStringList(strList);
         if (!ok)
         {
             m_bConnected = false;
@@ -245,7 +244,7 @@ void ZMClient::shutdown()
     QMutexLocker locker(&m_socketLock);
 
     if (m_socket)
-        m_socket->close();
+        m_socket->DisconnectFromHost();
 
     m_zmclientReady = false;
     m_bConnected = false;
@@ -504,7 +503,8 @@ bool ZMClient::readData(unsigned char *data, int dataSize)
 
     while (dataSize > 0)
     {
-        qint64 sret = m_socket->readBlock((char*) data + read, dataSize);
+        qint64 sret = m_socket->Read(
+            (char*) data + read, dataSize, 100 /*ms*/);
         if (sret > 0)
         {
             read += sret;
@@ -514,18 +514,17 @@ bool ZMClient::readData(unsigned char *data, int dataSize)
                 timer.start();
             }
         }
-        else if (sret < 0 && m_socket->error() != MSocketDevice::NoError)
+        else if (sret < 0)
         {
-            LOG(VB_GENERAL, LOG_ERR, QString("readData: Error, readBlock %1")
-                    .arg(m_socket->errorToString()));
-            m_socket->close();
+            LOG(VB_GENERAL, LOG_ERR, "readData: Error, readBlock");
+            m_socket->DisconnectFromHost();
             return false;
         }
-        else if (!m_socket->isValid())
+        else if (!m_socket->IsConnected())
         {
             LOG(VB_GENERAL, LOG_ERR,
                 "readData: Error, socket went unconnected");
-            m_socket->close();
+            m_socket->DisconnectFromHost();
             return false;
         }
         else
@@ -547,8 +546,6 @@ bool ZMClient::readData(unsigned char *data, int dataSize)
                 LOG(VB_GENERAL, LOG_ERR, "Error, readData timeout (readBlock)");
                 return false;
             }
-
-            usleep(500);
         }
     }
 
