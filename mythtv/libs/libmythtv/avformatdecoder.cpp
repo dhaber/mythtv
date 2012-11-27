@@ -4493,6 +4493,14 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
                 if (retval == -EAGAIN)
                     continue;
 
+		if (retval == AVERROR_EOF) {
+	            LOG(VB_GENERAL, LOG_ERR, QString("av_read_frame returned AVERROR_EOF; ignoring"));
+//                    pkt = new AVPacket;
+//        	    memset(pkt, 0, sizeof(AVPacket));
+//	            av_init_packet(pkt);
+//                    continue;
+		}
+
                 SetEof(true);
                 delete pkt;
                 errno = -retval;

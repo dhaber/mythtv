@@ -1513,7 +1513,8 @@ int Transcode::TranscodeFile(const QString &inputname,
     if (videoBuffer)
     {
         videoBuffer->stop();
-        delete videoBuffer;
+        //don't delete videobuffer because it is a QRunnable
+	//and will get deleted automatically
     }
 
     av_free(newFrame);
