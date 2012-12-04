@@ -62,7 +62,6 @@ Scheduler::Scheduler(bool runthread, QMap<int, EncoderLink *> *tvList,
     m_queueLock(),
     reclist_changed(false),
     specsched(master_sched),
-    schedMoveHigher(false),
     schedulingEnabled(true),
     m_tvList(tvList),
     m_expirer(NULL),
@@ -253,20 +252,20 @@ static bool comp_overlap(RecordingInfo *a, RecordingInfo *b)
     // won't record except for those from kDontRecord rules.  This
     // will force them to yield to a rule that might record.
     // Otherwise, more specific record type beats less specific.
-    int apri = RecTypePriority(a->GetRecordingRuleType());
+    int aprec = RecTypePrecedence(a->GetRecordingRuleType());
     if (a->GetRecordingStatus() != rsUnknown &&
         a->GetRecordingStatus() != rsDontRecord)
     {
-        apri += 100;
+        aprec += 100;
     }
-    int bpri = RecTypePriority(b->GetRecordingRuleType());
+    int bprec = RecTypePrecedence(b->GetRecordingRuleType());
     if (b->GetRecordingStatus() != rsUnknown &&
         b->GetRecordingStatus() != rsDontRecord)
     {
-        bpri += 100;
+        bprec += 100;
     }
-    if (apri != bpri)
-        return apri < bpri;
+    if (aprec != bprec)
+        return aprec < bprec;
 
     if (a->GetFindID() != b->GetFindID())
         return a->GetFindID() > b->GetFindID();
@@ -335,11 +334,11 @@ static bool comp_priority(RecordingInfo *a, RecordingInfo *b)
     if (apast != bpast)
         return apast < bpast;
 
-    int apri = RecTypePriority(a->GetRecordingRuleType());
-    int bpri = RecTypePriority(b->GetRecordingRuleType());
+    int aprec = RecTypePrecedence(a->GetRecordingRuleType());
+    int bprec = RecTypePrecedence(b->GetRecordingRuleType());
 
-    if (apri != bpri)
-        return apri < bpri;
+    if (aprec != bprec)
+        return aprec < bprec;
 
     if (a->GetRecordingStartTime() != b->GetRecordingStartTime())
     {
@@ -360,7 +359,6 @@ static bool comp_priority(RecordingInfo *a, RecordingInfo *b)
 
 bool Scheduler::FillRecordList(void)
 {
-    schedMoveHigher = (bool)gCoreContext->GetNumSetting("SchedMoveHigher");
     schedTime = MythDate::current();
 
     LOG(VB_SCHEDULE, LOG_INFO, "BuildWorkList...");
@@ -1365,9 +1363,7 @@ void Scheduler::MoveHigherRecords(bool move_this)
         RecConstIter k = conflictlist.begin();
         for ( ; FindNextConflict(conflictlist, p, k); ++k)
         {
-            if ((p->GetRecordingPriority() < (*k)->GetRecordingPriority() &&
-                 !schedMoveHigher && move_this) ||
-                !TryAnotherShowing(*k, false, !move_this))
+            if (!TryAnotherShowing(*k, false, !move_this))
             {
                 RestoreRecStatus();
                 break;
@@ -3852,7 +3848,6 @@ void Scheduler::AddNewRecords(void)
 
     struct timeval dbstart, dbend;
 
-    QMap<RecordingType, int> recTypeRecPriorityMap;
     RecList tmpList;
 
     QMap<int, bool> cardMap;
@@ -4143,14 +4138,8 @@ void Scheduler::AddNewRecords(void)
             p->SetRecordingStatus(p->oldrecstatus);
         }
 
-        if (!recTypeRecPriorityMap.contains(p->GetRecordingRuleType()))
-        {
-            recTypeRecPriorityMap[p->GetRecordingRuleType()] =
-                p->GetRecordingTypeRecPriority(p->GetRecordingRuleType());
-        }
-
         p->SetRecordingPriority(
-            p->GetRecordingPriority() + recTypeRecPriorityMap[p->GetRecordingRuleType()] +
+            p->GetRecordingPriority() +
             result.value(51).toInt() +
             ((autopriority) ?
              autopriority - (result.value(45).toInt() * autostrata / 200) : 0));

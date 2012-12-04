@@ -1596,7 +1596,6 @@ void MythPlayer::EnableForcedSubtitles(bool enable)
 
 void MythPlayer::SetAllowForcedSubtitles(bool allow)
 {
-    bool old = allowForcedSubtitles;
     allowForcedSubtitles = allow;
     SetOSDMessage(allowForcedSubtitles ?
                       tr("Forced Subtitles On") :

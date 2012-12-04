@@ -365,7 +365,7 @@ bool DVDRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
     }
 
     int startTitle = 1;
-    dvdnav_status_t result;
+    dvdnav_status_t result = DVDNAV_STATUS_ERR;
     while (startTitle <= num_titles)
     {
         result = dvdnav_title_play(m_dvdnav, startTitle);
@@ -1481,6 +1481,14 @@ bool DVDRingBuffer::DVDButtonUpdate(bool b_mode)
     {
         m_button_alpha[i] = 0xf & (hl.palette >> (4 * i ));
         m_button_color[i] = 0xf & (hl.palette >> (16+4 *i ));
+    }
+
+    // If the button overlay has already been decoded, make sure
+    // the correct palette for the current highlight is set
+    if (m_dvdMenuButton.rects && (m_dvdMenuButton.num_rects > 1))
+    {
+        guess_palette((uint32_t*)m_dvdMenuButton.rects[1]->pict.data[1],
+                    m_button_color, m_button_alpha);
     }
 
     m_hl_button.setCoords(hl.sx, hl.sy, hl.ex, hl.ey);

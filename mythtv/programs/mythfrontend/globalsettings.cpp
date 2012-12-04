@@ -2072,8 +2072,8 @@ static HostComboBox *MythDateFormatCB()
         QString::fromUtf8("dddd yyyy\u5E74M\u6708d\u65E5")),
         QString::fromUtf8("dddd yyyy\u5E74M\u6708d\u65E5"));
     gc->addSelection(locale.toString(sampdate,
-        QString::fromUtf8("ddd M\u6708d\u65E5")),
-        QString::fromUtf8("ddd M\u6708d\u65E5"));
+        QString::fromUtf8("dddd M\u6708d\u65E5")),
+        QString::fromUtf8("dddd M\u6708d\u65E5"));
     gc->setHelpText(QObject::tr("Your preferred date format.") + ' ' +
                     sampleStr);
     return gc;
@@ -2272,19 +2272,6 @@ class ChannelGroupSettings : public TriggeredConfigurationGroup
 
 // General RecPriorities settings
 
-static GlobalCheckBox *GRSchedMoveHigher()
-{
-    GlobalCheckBox *bc = new GlobalCheckBox("SchedMoveHigher");
-    bc->setLabel(QObject::tr("Reschedule higher priorities"));
-    bc->setHelpText(QObject::tr("Move higher priority programs to other "
-                    "cards and showings when resolving conflicts. This "
-                    "can be used to record lower priority programs that "
-                    "would otherwise not be recorded, but risks missing "
-                    "a higher priority program if the schedule changes."));
-    bc->setValue(true);
-    return bc;
-}
-
 static GlobalComboBox *GRSchedOpenEnd()
 {
     GlobalComboBox *bc = new GlobalComboBox("SchedOpenEnd");
@@ -2396,84 +2383,6 @@ static GlobalSpinBox *GRAudioDescRecPriority()
     bs->setLabel(QObject::tr("Audio described priority"));
     bs->setHelpText(QObject::tr("Additional priority when a showing "
                     "is marked as being Audio Described."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRSingleRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("SingleRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Single recordings priority"));
-    bs->setHelpText(QObject::tr("Single recordings will receive this "
-                    "additional recording priority value."));
-    bs->setValue(1);
-    return bs;
-}
-
-static GlobalSpinBox *GRWeekslotRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("WeekslotRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Weekslot recordings priority"));
-    bs->setHelpText(QObject::tr("Weekslot recordings will receive this "
-                    "additional recording priority value."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRTimeslotRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("TimeslotRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Timeslot recordings priority"));
-    bs->setHelpText(QObject::tr("Timeslot recordings will receive this "
-                    "additional recording priority value."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRChannelRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("ChannelRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Channel recordings priority"));
-    bs->setHelpText(QObject::tr("Channel recordings will receive this "
-                    "additional recording priority value."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRAllRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("AllRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("All recordings priority"));
-    bs->setHelpText(QObject::tr("The 'All' recording type will receive this "
-                    "additional recording priority value."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRFindOneRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("FindOneRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Find one recordings priority"));
-    bs->setHelpText(QObject::tr("Find One, Find Weekly and Find Daily "
-                    "recording types will receive this "
-                    "additional recording priority value."));
-    bs->setValue(-1);
-    return bs;
-}
-
-static GlobalSpinBox *GROverrideRecordRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("OverrideRecordRecPriority",
-                                            -99, 99, 1);
-    bs->setLabel(QObject::tr("Override recordings priority"));
-    bs->setHelpText(QObject::tr("Override recordings will receive this "
-                    "additional recording priority value."));
     bs->setValue(0);
     return bs;
 }
@@ -3540,7 +3449,6 @@ GeneralRecPrioritiesSettings::GeneralRecPrioritiesSettings()
     VerticalConfigurationGroup* sched = new VerticalConfigurationGroup(false);
     sched->setLabel(QObject::tr("Scheduler Options"));
 
-    sched->addChild(GRSchedMoveHigher());
     sched->addChild(GRSchedOpenEnd());
     sched->addChild(GRPrefInputRecPriority());
     sched->addChild(GRHDTVRecPriority());
@@ -3557,18 +3465,6 @@ GeneralRecPrioritiesSettings::GeneralRecPrioritiesSettings()
     access->addChild(GRHardHearRecPriority());
     access->addChild(GRAudioDescRecPriority());
     addChild(access);
-
-    VerticalConfigurationGroup* rtype = new VerticalConfigurationGroup(false);
-    rtype->setLabel(QObject::tr("Recording Type Priority Settings"));
-
-    rtype->addChild(GRSingleRecordRecPriority());
-    rtype->addChild(GROverrideRecordRecPriority());
-    rtype->addChild(GRFindOneRecordRecPriority());
-    rtype->addChild(GRWeekslotRecordRecPriority());
-    rtype->addChild(GRTimeslotRecordRecPriority());
-    rtype->addChild(GRChannelRecordRecPriority());
-    rtype->addChild(GRAllRecordRecPriority());
-    addChild(rtype);
 }
 
 AppearanceSettings::AppearanceSettings()
