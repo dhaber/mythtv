@@ -1058,9 +1058,9 @@ void Scheduler::MarkOtherShowings(RecordingInfo *p)
     showinglist = &titlelistmap[p->GetTitle().toLower()];
     MarkShowingsList(*showinglist, p);
 
-    if (p->GetRecordingRuleType() == kFindOneRecord ||
-        p->GetRecordingRuleType() == kFindDailyRecord ||
-        p->GetRecordingRuleType() == kFindWeeklyRecord)
+    if (p->GetRecordingRuleType() == kOneRecord ||
+        p->GetRecordingRuleType() == kDailyRecord ||
+        p->GetRecordingRuleType() == kWeeklyRecord)
     {
         showinglist = &recordidlistmap[p->GetRecordingRuleID()];
         MarkShowingsList(*showinglist, p);
@@ -3272,14 +3272,14 @@ void Scheduler::UpdateManuals(uint recordid)
         skipdays = 1;
         weekday = false;
         break;
-    case kTimeslotRecord:
+    case kDailyRecord:
         progcount = 13;
         skipdays = 1;
         weekday = (lstartdt.date().dayOfWeek() < 6);
         lstartdt = QDateTime(MythDate::current().toLocalTime().date(),
                             lstartdt.time(), Qt::LocalTime);
         break;
-    case kWeekslotRecord:
+    case kWeeklyRecord:
         progcount = 2;
         skipdays = 7;
         weekday = false;
@@ -3460,7 +3460,7 @@ static QString progdupinit = QString(
 "  ELSE (program.generic - 1) "
 " END) ")
     .arg(kSingleRecord).arg(kOverrideRecord).arg(kDontRecord)
-    .arg(kFindOneRecord).arg(kFindDailyRecord).arg(kFindWeeklyRecord);
+    .arg(kOneRecord).arg(kDailyRecord).arg(kWeeklyRecord);
 
 static QString progfindid = QString(
 "(CASE RECTABLE.type "
@@ -3477,9 +3477,9 @@ static QString progfindid = QString(
 "   THEN RECTABLE.findid "
 "  ELSE 0 "
 " END) ")
-        .arg(kFindOneRecord)
-        .arg(kFindDailyRecord)
-        .arg(kFindWeeklyRecord)
+        .arg(kOneRecord)
+        .arg(kDailyRecord)
+        .arg(kWeeklyRecord)
         .arg(kOverrideRecord);
 
 void Scheduler::UpdateMatches(uint recordid, uint sourceid, uint mplexid,
@@ -3549,7 +3549,7 @@ void Scheduler::UpdateMatches(uint recordid, uint sourceid, uint mplexid,
     // Make sure all FindOne rules have a valid findid before scheduling.
     query.prepare("SELECT NULL from record "
                   "WHERE type = :FINDONE AND findid <= 0;");
-    query.bindValue(":FINDONE", kFindOneRecord);
+    query.bindValue(":FINDONE", kOneRecord);
     if (!query.exec())
     {
         MythDB::DBError("UpdateMatches3", query);
@@ -3563,7 +3563,7 @@ void Scheduler::UpdateMatches(uint recordid, uint sourceid, uint mplexid,
         query.prepare("UPDATE record set findid = :FINDID "
                       "WHERE type = :FINDONE AND findid <= 0;");
         query.bindValue(":FINDID", findtoday);
-        query.bindValue(":FINDONE", kFindOneRecord);
+        query.bindValue(":FINDONE", kOneRecord);
         if (!query.exec())
             MythDB::DBError("UpdateMatches4", query);
     }
@@ -3597,42 +3597,32 @@ void Scheduler::UpdateMatches(uint recordid, uint sourceid, uint mplexid,
     QString(" AND channel.visible = 1 ") +
     filterClause + QString(" AND "
 
-"((RECTABLE.type = %1 " // allrecord
-"OR RECTABLE.type = %2 " // findonerecord
-"OR RECTABLE.type = %3 " // finddailyrecord
-"OR RECTABLE.type = %4) " // findweeklyrecord
+"((RECTABLE.type = %1 " // all record
+"  OR RECTABLE.type = %2 " // one record
+"  OR RECTABLE.type = %3 " // daily record
+"  OR RECTABLE.type = %4) " // weekly record
 " OR "
 " ((RECTABLE.station = channel.callsign) " // channel matches
 "  AND "
-"  ((RECTABLE.type = %5) " // channelrecord
+"  ((RECTABLE.type = %5) " // channel record
 "   OR"
-"   (( TIME(CONVERT_TZ(ADDTIME(RECTABLE.startdate, RECTABLE.starttime), 'UTC', 'SYSTEM')) = TIME(CONVERT_TZ(program.starttime, 'UTC', 'SYSTEM'))) " // timeslot matches
+"   ((ADDTIME(RECTABLE.startdate, RECTABLE.starttime) = program.starttime) " // date/time matches
 "    AND "
-"    ((RECTABLE.type = %6) " // timeslotrecord
-"     OR"
-"     ((DAYOFWEEK(CONVERT_TZ(ADDTIME(RECTABLE.startdate, RECTABLE.starttime), 'UTC', 'SYSTEM')) = DAYOFWEEK(CONVERT_TZ(program.starttime, 'UTC', 'SYSTEM')) "
-"      AND "
-"      ((RECTABLE.type = %7) " // weekslotrecord
-"       OR"
-"       ((ADDTIME(RECTABLE.startdate, RECTABLE.starttime) = program.starttime) " // date/time matches
-"        AND (RECTABLE.type <> %8)" // single,override,don't,etc.
-"        )"
-"       )"
-"      )"
-"     )"
-"    )"
+"    (RECTABLE.type = %6 "
+"     OR RECTABLE.type = %7 "
+"     OR RECTABLE.type = %8)" // single/override/don't record
 "   )"
 "  )"
 " )"
 ") ")
             .arg(kAllRecord)
-            .arg(kFindOneRecord)
-            .arg(kFindDailyRecord)
-            .arg(kFindWeeklyRecord)
+            .arg(kOneRecord)
+            .arg(kDailyRecord)
+            .arg(kWeeklyRecord)
             .arg(kChannelRecord)
-            .arg(kTimeslotRecord)
-            .arg(kWeekslotRecord)
-            .arg(kNotRecording);
+            .arg(kSingleRecord)
+            .arg(kOverrideRecord)
+            .arg(kDontRecord);
 
         query.replace("RECTABLE", recordTable);
 
@@ -3911,14 +3901,11 @@ void Scheduler::AddNewRecords(void)
     prefinputpri        = gCoreContext->GetNumSetting("PrefInputPriority", 2);
     int hdtvpriority    = gCoreContext->GetNumSetting("HDTVRecPriority", 0);
     int wspriority      = gCoreContext->GetNumSetting("WSRecPriority", 0);
-    int autopriority    = gCoreContext->GetNumSetting("AutoRecPriority", 0);
     int slpriority      = gCoreContext->GetNumSetting("SignLangRecPriority", 0);
     int onscrpriority   = gCoreContext->GetNumSetting("OnScrSubRecPriority", 0);
     int ccpriority      = gCoreContext->GetNumSetting("CCRecPriority", 0);
     int hhpriority      = gCoreContext->GetNumSetting("HardHearRecPriority", 0);
     int adpriority      = gCoreContext->GetNumSetting("AudioDescRecPriority", 0);
-
-    int autostrata = autopriority * 2 + 1;
 
     QString pwrpri = "channel.recpriority + cardinput.recpriority";
 
@@ -4004,8 +3991,7 @@ void Scheduler::AddNewRecords(void)
         "    RECTABLE.playgroup, oldrecstatus.recstatus, "//36-37
         "    oldrecstatus.reactivate, p.videoprop+0,     "//38-39
         "    p.subtitletypes+0, p.audioprop+0,   RECTABLE.storagegroup, "//40-42
-        "    capturecard.hostname, recordmatch.oldrecstatus, "
-        "                                           RECTABLE.avg_delay, "//43-45
+        "    capturecard.hostname, recordmatch.oldrecstatus, NULL, "//43-45
         "    oldrecstatus.future, cardinput.schedorder, " //46-47
         "    p.syndicatedepisodenumber, p.partnumber, p.parttotal, ") + //48-50
         pwrpri + QString(
@@ -4138,11 +4124,8 @@ void Scheduler::AddNewRecords(void)
             p->SetRecordingStatus(p->oldrecstatus);
         }
 
-        p->SetRecordingPriority(
-            p->GetRecordingPriority() +
-            result.value(51).toInt() +
-            ((autopriority) ?
-             autopriority - (result.value(45).toInt() * autostrata / 200) : 0));
+        p->SetRecordingPriority(p->GetRecordingPriority() +
+                                result.value(51).toInt());
 
         // Check to see if the program is currently recording and if
         // the end time was changed.  Ideally, checking for a new end
@@ -4266,11 +4249,9 @@ void Scheduler::AddNotListed(void) {
         "FROM RECTABLE "
         "INNER JOIN channel ON (channel.chanid = RECTABLE.chanid) "
         "LEFT JOIN recordmatch on RECTABLE.recordid = recordmatch.recordid "
-        "WHERE (type = %1 OR type = %2 OR type = %3 OR type = %4) AND "
+        "WHERE (type = %1 OR type = %2) AND "
         "      recordmatch.chanid IS NULL")
         .arg(kSingleRecord)
-        .arg(kTimeslotRecord)
-        .arg(kWeekslotRecord)
         .arg(kOverrideRecord);
 
     query.replace("RECTABLE", recordTable);
@@ -4304,33 +4285,6 @@ void Scheduler::AddNotListed(void) {
             result.value(16).toDate(), result.value(17).toTime(), Qt::UTC);
         QDateTime endts(
             result.value(18).toDate(), result.value(19).toTime(), Qt::UTC);
-
-        if (rectype == kTimeslotRecord)
-        {
-            int days = startts.daysTo(now);
-
-            startts = startts.addDays(days);
-            endts   = endts.addDays(days);
-
-            if (endts < now)
-            {
-                startts = startts.addDays(1);
-                endts   = endts.addDays(1);
-            }
-        }
-        else if (rectype == kWeekslotRecord)
-        {
-            int weeks = (startts.daysTo(now) + 6) / 7;
-
-            startts = startts.addDays(weeks * 7);
-            endts   = endts.addDays(weeks * 7);
-
-            if (endts < now)
-            {
-                startts = startts.addDays(7);
-                endts   = endts.addDays(7);
-            }
-        }
 
         QDateTime recstartts = startts.addSecs(result.value(25).toInt() * -60);
         QDateTime recendts   = endts.addSecs(  result.value(26).toInt() * +60);
@@ -4431,27 +4385,16 @@ void Scheduler::GetAllScheduled(RecList &proglist)
     while (result.next())
     {
         RecordingType rectype = RecordingType(result.value(21).toInt());
-        QDateTime startts;
-        QDateTime endts;
-        if (rectype == kSingleRecord   ||
-            rectype == kDontRecord     ||
-            rectype == kOverrideRecord ||
-            rectype == kTimeslotRecord ||
-            rectype == kWeekslotRecord)
-        {
-            startts = QDateTime(result.value(16).toDate(),
-                                result.value(17).toTime(), Qt::UTC);
-            endts = QDateTime(result.value(18).toDate(),
-                              result.value(19).toTime(), Qt::UTC);
-        }
-        else
-        {
-            // put currentDateTime() in time fields to prevent
-            // Invalid date/time warnings later
-            startts = QDateTime(
-                MythDate::current().date(), QTime(0,0), Qt::UTC);
+        QDateTime startts = QDateTime(result.value(16).toDate(),
+                                      result.value(17).toTime(), Qt::UTC);
+        QDateTime endts = QDateTime(result.value(18).toDate(),
+                                    result.value(19).toTime(), Qt::UTC);
+        // Prevent invalid date/time warnings later
+        if (!startts.isValid())
+            startts = QDateTime(MythDate::current().date(), QTime(0,0), 
+                                Qt::UTC);
+        if (!endts.isValid())
             endts = startts;
-        }
 
         proglist.push_back(new RecordingInfo(
             result.value(0).toString(),  result.value(1).toString(),

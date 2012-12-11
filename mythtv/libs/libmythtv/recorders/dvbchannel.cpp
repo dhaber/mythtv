@@ -70,7 +70,7 @@ DVBChannel::DVBChannel(const QString &aDevice, TVRec *parent)
       frontend_name(QString::null),
       // Tuning
       tune_lock(),                  hw_lock(QMutex::Recursive),
-      last_lnb_dev_id(-1),
+      last_lnb_dev_id(~0x0),
       tuning_delay(0),              sigmon_delay(25),
       first_tune(true),
       // Misc
@@ -937,8 +937,6 @@ bool DVBChannel::ProbeTuningParams(DTVMultiplex &tuning) const
  */
 int DVBChannel::GetChanID() const
 {
-    int cardid = GetCardID();
-
     MSqlQuery query(MSqlQuery::InitCon());
 
     query.prepare("SELECT chanid "
@@ -948,7 +946,7 @@ int DVBChannel::GetChanID() const
                   "      cardinput.cardid = :CARDID");
 
     query.bindValue(":CHANNUM", m_curchannelname);
-    query.bindValue(":CARDID",  cardid);
+    query.bindValue(":CARDID", GetCardID());
 
     if (!query.exec() || !query.isActive())
     {

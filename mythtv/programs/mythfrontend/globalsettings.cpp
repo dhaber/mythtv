@@ -130,17 +130,6 @@ static HostCheckBox *RememberRecGroup()
     return gc;
 }
 
-static HostCheckBox *UseGroupNameAsAllPrograms()
-{
-    HostCheckBox *gc = new HostCheckBox("DispRecGroupAsAllProg");
-    gc->setLabel(QObject::tr("Show filter name instead of \"All Programs\""));
-    gc->setValue(false);
-    gc->setHelpText(QObject::tr("If enabled, use the name of the display "
-                    "filter currently applied in place of the term \"All "
-                    "Programs\" in the playback screen."));
-    return gc;
-}
-
 static HostCheckBox *PBBStartInTitle()
 {
     HostCheckBox *gc = new HostCheckBox("PlaybackBoxStartInTitle");
@@ -1238,7 +1227,7 @@ static HostComboBox *PlayBoxEpisodeSort()
     gc->addSelection(QObject::tr("Season/Episode"), "Season");
     gc->addSelection(QObject::tr("Original air date"), "OrigAirDate");
     gc->addSelection(QObject::tr("Program ID"), "Id");
-    gc->setHelpText(QObject::tr("Selects how to sort a shows episodes"));
+    gc->setHelpText(QObject::tr("Selects how to sort a show's episodes"));
     return gc;
 }
 
@@ -1411,7 +1400,7 @@ static HostCheckBox *BrowseAllTuners()
     gc->setValue(false);
     gc->setHelpText(
         QObject::tr(
-            "If enabled, browse mode will shows channels on all "
+            "If enabled, browse mode will show channels on all "
             "available recording devices, instead of showing "
             "channels on just the current recorder."));
     return gc;
@@ -2068,12 +2057,12 @@ static HostComboBox *MythDateFormatCB()
     gc->addSelection(locale.toString(sampdate, "ddd MMM d yyyy"), "ddd MMM d yyyy");
     gc->addSelection(locale.toString(sampdate, "ddd d MMM yyyy"), "ddd d MMM yyyy");
     gc->addSelection(locale.toString(sampdate, "ddd yyyy-MM-dd"), "ddd yyyy-MM-dd");
-    gc->addSelection(locale.toString(sampdate,
-        QString::fromUtf8("dddd yyyy\u5E74M\u6708d\u65E5")),
-        QString::fromUtf8("dddd yyyy\u5E74M\u6708d\u65E5"));
-    gc->addSelection(locale.toString(sampdate,
-        QString::fromUtf8("dddd M\u6708d\u65E5")),
-        QString::fromUtf8("dddd M\u6708d\u65E5"));
+    QString jp_long = QString("dddd yyyy") + QChar(0x5E74) +
+        "M" + QChar(0x6708) + "d"+ QChar(0x65E5); // dddd yyyy年M月d日
+    gc->addSelection(locale.toString(sampdate, jp_long), jp_long);
+    QString jp_med = QString("dddd ") +
+        "M" + QChar(0x6708) + "d"+ QChar(0x65E5); // dddd M月d日
+    gc->addSelection(locale.toString(sampdate, jp_med), jp_med);
     gc->setHelpText(QObject::tr("Your preferred date format.") + ' ' +
                     sampleStr);
     return gc;
@@ -2114,9 +2103,8 @@ static HostComboBox *MythShortDateFormat()
     gc->addSelection(locale.toString(sampdate, "ddd d/M"), "ddd d/M");
     gc->addSelection(locale.toString(sampdate, "M/d ddd"), "M/d ddd");
     gc->addSelection(locale.toString(sampdate, "d/M ddd"), "d/M ddd");
-    gc->addSelection(locale.toString(sampdate,
-        QString::fromUtf8("M\u6708d\u65E5")),
-        QString::fromUtf8("M\u6708d\u65E5"));
+    QString jp = QString("M") + QChar(0x6708) + "d" + QChar(0x65E5); // M月d日
+    gc->addSelection(locale.toString(sampdate, jp), jp);
     gc->setHelpText(QObject::tr("Your preferred short date format.") + ' ' +
                     sampleStr);
     return gc;
@@ -2314,18 +2302,6 @@ static GlobalSpinBox *GRWSRecPriority()
     bs->setLabel(QObject::tr("Widescreen recording priority"));
     bs->setHelpText(QObject::tr("Additional priority when a showing "
                     "is marked as widescreen in the TV listings."));
-    bs->setValue(0);
-    return bs;
-}
-
-static GlobalSpinBox *GRAutoRecPriority()
-{
-    GlobalSpinBox *bs = new GlobalSpinBox("AutoRecPriority", -99, 99, 1);
-    bs->setLabel(QObject::tr("Automatic priority range (+/-)"));
-    bs->setHelpText(QObject::tr("Up to this number of priority points may "
-                    "be added for titles that are usually watched soon after "
-                    "recording or subtracted for titles that are often "
-                    "watched several days or weeks later."));
     bs->setValue(0);
     return bs;
 }
@@ -3298,7 +3274,6 @@ PlaybackSettings::PlaybackSettings()
     pbox2->addChild(DisplayRecGroup());
     pbox2->addChild(QueryInitialFilter());
     pbox2->addChild(RememberRecGroup());
-    pbox2->addChild(UseGroupNameAsAllPrograms());
     addChild(pbox2);
 
     VerticalConfigurationGroup* pbox3 = new VerticalConfigurationGroup(false);
@@ -3453,7 +3428,6 @@ GeneralRecPrioritiesSettings::GeneralRecPrioritiesSettings()
     sched->addChild(GRPrefInputRecPriority());
     sched->addChild(GRHDTVRecPriority());
     sched->addChild(GRWSRecPriority());
-    sched->addChild(GRAutoRecPriority());
     addChild(sched);
 
     VerticalConfigurationGroup* access = new VerticalConfigurationGroup(false);

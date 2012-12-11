@@ -66,6 +66,16 @@ RecorderBase::~RecorderBase(void)
         ringBuffer = NULL;
     }
     SetRecording(NULL);
+    if (nextRingBuffer)
+    {
+        delete nextRingBuffer;
+        nextRingBuffer = NULL;
+    }
+    if (nextRecording)
+    {
+        delete nextRecording;
+        nextRecording = NULL;
+    }
 }
 
 void RecorderBase::SetRingBuffer(RingBuffer *rbuf)
@@ -98,6 +108,36 @@ void RecorderBase::SetRecording(const RecordingInfo *pginfo)
 
     if (oldrec)
         delete oldrec;
+}
+
+void RecorderBase::SetNextRecording(const RecordingInfo *ri, RingBuffer *rb)
+{
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("SetNextRecording(0x%1, 0x%2)")
+        .arg(reinterpret_cast<intptr_t>(ri),0,16)
+        .arg(reinterpret_cast<intptr_t>(rb),0,16));
+
+    // First we do some of the time consuming stuff we can do now
+    SavePositionMap(true);
+    if (ringBuffer)
+    {
+        ringBuffer->WriterFlush();
+        if (curRecording)
+            curRecording->SaveFilesize(ringBuffer->GetRealFileSize());
+    }
+
+    // Then we set the next info
+    QMutexLocker locker(&nextRingBufferLock);
+    if (nextRecording)
+    {
+        delete nextRecording;
+        nextRecording = NULL;
+    }
+    if (ri)
+        nextRecording = new RecordingInfo(*ri);
+
+    if (nextRingBuffer)
+        delete nextRingBuffer;
+    nextRingBuffer = rb;
 }
 
 void RecorderBase::SetOption(const QString &name, const QString &value)

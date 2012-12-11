@@ -2215,10 +2215,10 @@ void NuppelVideoRecorder::WriteSeekTable(void)
     char *seekbuf = new char[frameheader.packetlength];
     int offset = 0;
 
-    vector<struct seektable_entry>::iterator i = seektable->begin();
-    for (; i != seektable->end(); i++)
+    vector<struct seektable_entry>::iterator it = seektable->begin();
+    for (; it != seektable->end(); ++it)
     {
-        memcpy(seekbuf + offset, (const void *)&(*i),
+        memcpy(seekbuf + offset, (const void *)&(*it),
                sizeof(struct seektable_entry));
         offset += sizeof(struct seektable_entry);
     }
@@ -2807,23 +2807,6 @@ void NuppelVideoRecorder::doWriteThread(void)
             }
         }
     }
-}
-
-void NuppelVideoRecorder::SetNextRecording(
-    const RecordingInfo *progInf, RingBuffer *rb)
-{
-    // First we do some of the time consuming stuff we can do now
-    SavePositionMap(true);
-    ringBuffer->WriterFlush();
-    if (curRecording)
-        curRecording->SaveFilesize(ringBuffer->GetRealFileSize());
-
-    // Then we set the next info
-    QMutexLocker locker(&nextRingBufferLock);
-    nextRecording = NULL;
-    if (progInf)
-        nextRecording = new RecordingInfo(*progInf);
-    nextRingBuffer = rb;
 }
 
 void NuppelVideoRecorder::ResetForNewFile(void)
