@@ -5,11 +5,10 @@ TEMPLATE = subdirs
 # Libraries without dependencies
 SUBDIRS += libmythsamplerate
 SUBDIRS += libmythsoundtouch libmythdvdnav
-SUBDIRS += libmythbluray libmythfreesurround libmythbase
+SUBDIRS += libmythfreesurround libmythbase
 SUBDIRS += libmythservicecontracts
 
 using_mheg:SUBDIRS += libmythfreemheg
-using_hdhomerun:SUBDIRS += libmythhdhomerun
 using_x11:SUBDIRS += libmythnvctrl
 !contains( CONFIG_LIBMPEG2EXTERNAL, yes):SUBDIRS += libmythmpeg2
 

@@ -520,15 +520,16 @@ int RTjpeg::s2b(int16_t *data, int8_t *strm, uint8_t bt8, uint32_t *qtbla)
 void RTjpeg::QuantInit(void)
 {
  int i;
- int16_t *qtbl;
+ typedef union { int16_t *int16; int32_t *int32; } P16_32;
+ P16_32 qtbl;
 
- qtbl = (int16_t *)lqt;
+ qtbl.int32 = lqt;
  for (i = 0; i < 64; i++)
-     qtbl[i] = (int16_t)lqt[i];
+     qtbl.int16[i] = static_cast<int16_t>(lqt[i]);
 
- qtbl = (int16_t *)cqt;
+ qtbl.int32 = cqt;
  for (i = 0; i < 64; i++)
-    qtbl[i] = (int16_t)cqt[i];
+    qtbl.int16[i] = static_cast<int16_t>(cqt[i]);
 }
 
 void RTjpeg::Quant(int16_t *block, int32_t *qtbl)
@@ -1540,11 +1541,11 @@ void RTjpeg::Idct(uint8_t *odata, int16_t *data, int rskip)
 {
 #ifdef MMX
 
-static mmx_t fix_141            = { q: (long long)0x5a825a825a825a82LL };
-static mmx_t fix_184n261        = { q: (long long)0xcf04cf04cf04cf04LL };
-static mmx_t fix_184            = { q: (long long)0x7641764176417641LL };
-static mmx_t fix_n184           = { q: (long long)0x896f896f896f896fLL };
-static mmx_t fix_108n184        = { q: (long long)0xcf04cf04cf04cf04LL };
+static mmx_t fix_141;         fix_141.q = (long long)0x5a825a825a825a82LL;
+static mmx_t fix_184n261; fix_184n261.q = (long long)0xcf04cf04cf04cf04LL;
+static mmx_t fix_184;         fix_184.q = (long long)0x7641764176417641LL;
+static mmx_t fix_n184;       fix_n184.q = (long long)0x896f896f896f896fLL;
+static mmx_t fix_108n184; fix_108n184.q = (long long)0xcf04cf04cf04cf04LL;
 
   mmx_t *wsptr = (mmx_t *)ws;
   register mmx_t *dataptr = (mmx_t *)odata;
@@ -3095,7 +3096,7 @@ int RTjpeg::bcomp(int16_t *rblock, int16_t *old, mmx_t *mask)
  mmx_t *mold=(mmx_t *)old;
  mmx_t *mblock=(mmx_t *)rblock;
  volatile mmx_t result;
- static mmx_t neg= { uq: (unsigned long long)0xffffffffffffffffULL };
+ static mmx_t neg= { (unsigned long long)0xffffffffffffffffULL };
 
  movq_m2r(*mask, mm7);
  movq_m2r(neg, mm6);

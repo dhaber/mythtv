@@ -2991,6 +2991,16 @@ QString TVRec::GetInput(void) const
     return QString::null;
 }
 
+/** \fn TVRec::GetSourceID(void) const
+ *  \brief Returns current source id.
+ */
+uint TVRec::GetSourceID(void) const
+{
+    if (channel)
+        return channel->GetCurrentSourceID();
+    return 0;
+}
+
 /** \fn TVRec::SetInput(QString, uint)
  *  \brief Changes to the specified input.
  *
@@ -4212,7 +4222,7 @@ void TVRec::TuningRestartRecorder(void)
     // Some recorders unpause on Reset, others do not...
     recorder->Unpause();
 
-    if (pseudoLiveTVRecording)
+    if (pseudoLiveTVRecording && curRecording)
     {
         ProgramInfo *rcinfo1 = pseudoLiveTVRecording;
         QString msg1 = QString("Recording: %1 %2 %3 %4")
@@ -4469,7 +4479,8 @@ bool TVRec::CreateLiveTVRingBuffer(const QString & channum)
     QString        inputName;
     int            inputID = -1;
 
-    if (!channel->CheckChannel(channum, inputName))
+    if (!channel ||
+        !channel->CheckChannel(channum, inputName))
     {
         ChangeState(kState_None);
         return false;
@@ -4528,7 +4539,8 @@ bool TVRec::SwitchLiveTVRingBuffer(const QString & channum,
     QString        inputName;
     int            inputID = -1;
 
-    if (!channel->CheckChannel(channum, inputName))
+    if (!channel ||
+        !channel->CheckChannel(channum, inputName))
     {
         ChangeState(kState_None);
         return false;

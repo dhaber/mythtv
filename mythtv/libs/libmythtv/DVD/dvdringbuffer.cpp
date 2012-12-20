@@ -130,6 +130,8 @@ DVDRingBuffer::DVDRingBuffer(const QString &lfilename) :
 
 DVDRingBuffer::~DVDRingBuffer()
 {
+    KillReadAheadThread();
+
     CloseDVD();
     m_menuBtnLock.lock();
     ClearMenuSPUParameters();
@@ -657,13 +659,11 @@ int DVDRingBuffer::safe_read(void *data, uint sz)
                     WaitForPlayer();
                 }
 
-                // if the new cell is a still frame, reset the timer
+                // Make sure the still frame timer is updated (if this isn't
+                // a still frame, this will ensure the timer knows about it).
                 if (m_parent)
                 {
-                    if (m_still && (m_still < 0xff))
-                        m_parent->ResetStillFrameTimer();
-                    else
-                        m_parent->SetStillFrameTimeout(0);
+                    m_parent->SetStillFrameTimeout(m_still);
                 }
 
                 // clear menus/still frame selections
@@ -1069,6 +1069,12 @@ void DVDRingBuffer::SkipStillFrame(void)
     QMutexLocker locker(&m_seekLock);
     LOG(VB_PLAYBACK, LOG_INFO, LOC + "Skipping still frame.");
     dvdnav_still_skip(m_dvdnav);
+
+    // Make sure the still frame timer is disabled.
+    if (m_parent)
+    {
+        m_parent->SetStillFrameTimeout(0);
+    }
 }
 
 void DVDRingBuffer::WaitSkip(void)
@@ -1567,7 +1573,7 @@ int DVDRingBuffer::GetAudioTrackNum(uint stream_id)
 
 int DVDRingBuffer::GetAudioTrackType(uint stream_id)
 {
-    AudioTrackType ret = kAudioTypeNormal;
+    int ret = -1;
     audio_attr_t attributes;
     int logicalStreamId = dvdnav_get_audio_logical_stream(m_dvdnav, stream_id);
     if (dvdnav_get_audio_attr(m_dvdnav, logicalStreamId, &attributes) >= 1)
@@ -1576,23 +1582,10 @@ int DVDRingBuffer::GetAudioTrackType(uint stream_id)
                                         "Extension Code - %2")
                                         .arg(stream_id)
                                         .arg(attributes.code_extension));
-        switch (attributes.code_extension)
-        {
-            case 1:
-                ret = kAudioTypeNormal;
-                break;
-            case 2:
-                ret = kAudioTypeAudioDescription;
-                break;
-            case 3: case 4:
-                ret = kAudioTypeCommentary;
-                break;
-            case 0: default:
-                break;
-        }
+        ret = attributes.code_extension;
     }
 
-    return (int)ret;
+    return ret;
 }
 
 /** \brief get the subtitle language from the dvd

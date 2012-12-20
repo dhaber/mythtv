@@ -1641,7 +1641,7 @@ void ProgramInfo::ToMap(InfoMap &progMap,
     QString star_str = (stars != 0.0f) ?
         QObject::tr("%n star(s)", "", GetStars(star_range)) : "";
     progMap["stars"] = star_str;
-    progMap["numstars"] = QString().number(GetStars(star_range));
+    progMap["numstars"] = QString::number(GetStars(star_range));
 
     if (stars != 0.0f && year)
         progMap["yearstars"] = QString("(%1, %2)").arg(year).arg(star_str);
@@ -4411,6 +4411,10 @@ static int init_tr(void)
         QObject::tr("Default",        "Recording Group Default") +
         QObject::tr("Deleted",        "Recording Group Deleted");
 
+    QString special_program_groups =
+        QObject::tr("All Programs - %1",
+                    "Show all programs from a specific recording group");
+
     QString storage_groups =
         QObject::tr("Default",        "Storage Group Name") +
         QObject::tr("Live TV",        "Storage Group Name") +
@@ -4424,6 +4428,7 @@ static int init_tr(void)
     return (rec_profile_names.length() +
             rec_profile_groups.length() +
             display_rec_groups.length() +
+            special_program_groups.length() +
             storage_groups.length() +
             play_groups.length());
 }

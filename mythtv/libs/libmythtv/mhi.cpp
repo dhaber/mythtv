@@ -750,21 +750,21 @@ int MHIContext::GetChannelIndex(const QString &str)
 {
     int nResult = -1;
 
-    do if (str.startsWith("dvb://"))
+    if (str.startsWith("dvb://"))
     {
         QStringList list = str.mid(6).split('.');
         MSqlQuery query(MSqlQuery::InitCon());
         if (list.size() != 3)
-            break; // Malformed.
+            goto get_channel_index_end; // Malformed.
         // The various fields are expressed in hexadecimal.
         // Convert them to decimal for the DB.
         bool ok;
         int netID = list[0].toInt(&ok, 16);
         if (!ok)
-            break;
+            goto get_channel_index_end;
         int serviceID = list[2].toInt(&ok, 16);
         if (!ok)
-            break;
+            goto get_channel_index_end;
         // We only return channels that match the current capture source.
         if (list[1].isEmpty()) // TransportID is not specified
         {
@@ -780,7 +780,7 @@ int MHIContext::GetChannelIndex(const QString &str)
         {
             int transportID = list[1].toInt(&ok, 16);
             if (!ok)
-                break;
+                goto get_channel_index_end;
             query.prepare(
                 "SELECT chanid "
                 "FROM channel, dtv_multiplex "
@@ -803,7 +803,7 @@ int MHIContext::GetChannelIndex(const QString &str)
         bool ok;
         int channelNo = str.mid(14).toInt(&ok); // Decimal integer
         if (!ok)
-            break;
+            goto get_channel_index_end;
         MSqlQuery query(MSqlQuery::InitCon());
         query.prepare("SELECT chanid "
                       "FROM channel "
@@ -818,10 +818,14 @@ int MHIContext::GetChannelIndex(const QString &str)
         nResult = m_currentStream > 0 ? m_currentStream : m_currentChannel;
     else if (str == "rec://svc/def")
         nResult = m_currentChannel;
-    else if (str.startsWith("rec://"))
-        ;
-    while(0);
+    else
+    {
+        LOG(VB_GENERAL, LOG_WARNING,
+            QString("[mhi] GetChannelIndex -- Unrecognized URL %1")
+            .arg(str));
+    }
 
+  get_channel_index_end:
     LOG(VB_MHEG, LOG_INFO, QString("[mhi] GetChannelIndex %1 => %2")
         .arg(str).arg(nResult));
     return nResult;
