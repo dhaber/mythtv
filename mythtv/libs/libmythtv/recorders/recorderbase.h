@@ -173,6 +173,8 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     int64_t GetKeyframePosition(uint64_t desired) const;
     bool GetKeyframePositions(
         int64_t start, int64_t end, frm_pos_map_t&) const;
+    bool GetKeyframeDurations(
+        int64_t start, int64_t end, frm_pos_map_t&) const;
 
     virtual void StopRecording(void);
     virtual bool IsRecording(void);
@@ -187,13 +189,9 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     virtual bool IsPaused(bool holding_lock = false) const;
     virtual bool WaitForPause(int timeout = 1000);
 
-    /** \brief Returns an approximation of the frame rate.
-     *
-     *  \bug This can be off by at least half, our non-frame grabber based
-     *       recorders do not not try to approximate the frame rate. So
-     *       a 720p recording at 60fps will report a frame-rate of 25fps.
+    /** \brief Returns the latest frame rate.
      */
-    double GetFrameRate(void) { return video_frame_rate; }
+    double GetFrameRate(void) { return m_frameRate / 1000; }
 
     /** \brief If requested, switch to new RingBuffer/ProgramInfo objects
      */
@@ -301,6 +299,8 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     mutable QMutex positionMapLock;
     frm_pos_map_t  positionMap;
     frm_pos_map_t  positionMapDelta;
+    frm_pos_map_t  durationMap;
+    frm_pos_map_t  durationMapDelta;
     MythTimer      positionMapTimer;
 
     // Statistics

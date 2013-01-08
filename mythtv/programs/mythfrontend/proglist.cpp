@@ -609,11 +609,7 @@ void ProgLister::RecordSelected(void)
 {
     ProgramInfo *pi = GetCurrent();
     if (pi)
-    {
-        RecordingInfo ri(*pi);
-        ri.ToggleRecord();
-        *pi = ri;
-    }
+        QuickRecord(pi);
 }
 
 void ProgLister::HandleClicked(void)

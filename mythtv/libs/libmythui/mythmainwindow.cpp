@@ -161,7 +161,7 @@ class MythMainWindowPrivate
 
         sysEventHandler(NULL),
 
-        drawInterval(1000 / 70),
+        drawInterval(1000 / MythMainWindow::drawRefresh),
         drawTimer(NULL),
         mainStack(NULL),
 
@@ -1261,7 +1261,7 @@ void MythMainWindow::ReinitDone(void)
     d->paintwin->raise();
     ShowPainterWindow();
 
-    d->drawTimer->start(1000 / 70);
+    d->drawTimer->start(1000 / drawRefresh);
 }
 
 void MythMainWindow::Show(void)
@@ -1298,7 +1298,7 @@ void MythMainWindow::attach(QWidget *child)
         currentWidget()->setEnabled(false);
 
     d->widgetList.push_back(child);
-#ifndef Q_WS_MACX
+#ifndef Q_OS_MAC
     child->winId();
 #endif
     child->raise();
@@ -1391,7 +1391,7 @@ void MythMainWindow::SetDrawEnabled(bool enable)
             QApplication::postEvent(this, new QEvent(QEvent::UpdateRequest), Qt::LowEventPriority);
             d->m_pendingUpdate = false;
         }
-        d->drawTimer->start(1000 / 70);
+        d->drawTimer->start(1000 / drawRefresh);
         ShowPainterWindow();
     }
     else

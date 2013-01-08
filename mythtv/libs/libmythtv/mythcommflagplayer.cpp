@@ -74,6 +74,7 @@ bool MythCommFlagPlayer::RebuildSeekTable(
         player_ctx->playingInfo->ClearPositionMap(MARK_KEYFRAME);
         player_ctx->playingInfo->ClearPositionMap(MARK_GOP_START);
         player_ctx->playingInfo->ClearPositionMap(MARK_GOP_BYFRAME);
+        player_ctx->playingInfo->ClearPositionMap(MARK_DURATION_MS);
     }
     player_ctx->UnlockPlayingInfo(__FILE__, __LINE__);
 
@@ -101,11 +102,13 @@ bool MythCommFlagPlayer::RebuildSeekTable(
 
     DecoderGetFrame(kDecodeNothing,true);
 
+    decoder->TrackTotalDuration(true);
+
     if (showPercentage)
         cout << "\r                         \r" << flush;
 
     int prevperc = -1;
-    while (!GetEof())
+    while (GetEof() == kEofStateNone)
     {
         if (inuse_timer.elapsed() > 2534)
         {

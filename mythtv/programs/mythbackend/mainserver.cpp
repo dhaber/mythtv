@@ -144,8 +144,6 @@ class ProcessRequestRunnable : public QRunnable
 
     virtual void run(void)
     {
-        LOG(VB_GENERAL, LOG_INFO, QString("Processing request for sock %1")
-            .arg(m_sock->GetSocketDescriptor()));
         m_parent.ProcessRequest(m_sock);
         m_sock->DecrRef();
         m_sock = NULL;
@@ -466,9 +464,6 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     line = line.simplified();
     QStringList tokens = line.split(' ', QString::SkipEmptyParts);
     QString command = tokens[0];
-#if 1
-    LOG(VB_GENERAL, LOG_INFO, "PRW: command='" + command + "'");
-#endif
     if (command == "MYTH_PROTO_VERSION")
     {
         if (tokens.size() < 2)
@@ -3865,11 +3860,33 @@ void MainServer::HandleRecorderQuery(QStringList &slist, QStringList &commands,
     }
     else if (command == "FILL_POSITION_MAP")
     {
-        long long start = slist[2].toLongLong();
-        long long end   = slist[3].toLongLong();
+        int64_t start = slist[2].toLongLong();
+        int64_t end   = slist[3].toLongLong();
         frm_pos_map_t map;
 
         if (!enc->GetKeyframePositions(start, end, map))
+        {
+            retlist << "error";
+        }
+        else
+        {
+            frm_pos_map_t::const_iterator it = map.begin();
+            for (; it != map.end(); ++it)
+            {
+                retlist += QString::number(it.key());
+                retlist += QString::number(*it);
+            }
+            if (retlist.empty())
+                retlist << "OK";
+        }
+    }
+    else if (command == "FILL_DURATION_MAP")
+    {
+        int64_t start = slist[2].toLongLong();
+        int64_t end   = slist[3].toLongLong();
+        frm_pos_map_t map;
+
+        if (!enc->GetKeyframeDurations(start, end, map))
         {
             retlist << "error";
         }

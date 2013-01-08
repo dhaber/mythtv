@@ -361,6 +361,7 @@ class AvFormatDecoder : public DecoderBase
 
     float m_fps;
     bool  codec_is_mpeg;
+    bool  m_processFrames;
 };
 
 #endif
