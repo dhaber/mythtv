@@ -28,13 +28,16 @@
 #include "ringbuffer.h"
 #include "tv_rec.h"
 
-#define LOC QString("ASIRec(%1): ").arg(tvrec->GetCaptureCardNum())
+#define LOC QString("ASIRec[%1](%2): ") \
+            .arg(tvrec ? tvrec->GetCaptureCardNum() : -1) \
+            .arg(m_channel->GetDevice())
 
 ASIRecorder::ASIRecorder(TVRec *rec, ASIChannel *channel) :
     DTVRecorder(rec), m_channel(channel), m_stream_handler(NULL),
     m_record_mpts(false)
 {
-    SetStreamData(new MPEGStreamData(-1,false));
+    SetStreamData(new MPEGStreamData(-1, rec ? rec->GetCaptureCardNum() : -1,
+                                     false));
     if (channel->GetProgramNumber() < 0 || !channel->GetMinorChannel())
         _stream_data->SetListeningDisabled(true);
 }
@@ -90,7 +93,7 @@ void ASIRecorder::run(void)
     {
         const ProgramAssociationTable *pat = m_channel->GetGeneratedPAT();
         const ProgramMapTable         *pmt = m_channel->GetGeneratedPMT();
-        _stream_data->ResetMPEG(pat->ProgramNumber(0));
+        _stream_data->Reset(pat->ProgramNumber(0));
         _stream_data->HandleTables(MPEG_PAT_PID, *pat);
         _stream_data->HandleTables(pat->ProgramPID(0), *pmt);
     }

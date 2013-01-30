@@ -27,11 +27,30 @@ by accident, maybe you want to go to the official
 
 If you are new to Qt programming it is essential that you keep in mind
 that almost all Qt objects are not thread-safe, including QString.
-Almost all Qt container objects, including QString, make shallow copies
-on assignment, the two copies of the object must only be used in one
-thread unless you use a lock on the object. You can use the
-QString::detach() on a QString to force a deep copy to be made instead,
-which can then be used in another thread.
+The Qt containers QMap, QSet, QHash, QString, QList, etc are
+copy-on-write containers. This means that when you assign one
+container from another the data isn't actually copied. Instead
+a copy of a pointer to the data is made and the reference count
+is increased. Then when you actually modify the date or get 
+a modifiable reference into the container an actual copy is
+made. This means you can return one of these containers efficiently
+from a function without needing C++11 support. This also means
+these containers are a bit less efficient than their STL equivalents
+most of the time. We still prefer them in MythTV code, especially
+QString due to the extensive i18n support in Qt. QList is actually
+equivalent to an STL deque. We also use the STL style iterators. This
+is both because it makes it easier to switch to an STL container in
+the rare case when it is necessary, such as when we need a reverse
+iterator iterator, and because they are more efficient than the
+Java style iterators that Qt also supports.
+
+In Qt 3.x and Qt 4.0 assignment of one Qt copy-on-write was
+not yet thread-safe. Because of this you will see a number of
+::detach() calls in MythTV code. These calls force a deep copy
+to be made immediately and should either be removed or a comment
+should be added in the rare case where this is done as an
+optimization and not just a hold-over from when copy-on-write 
+wasn't yet thread-safe in Qt 4.0 and earlier.
 
 There are some special dangers when
 \ref qobject_dangers "using QObject" outside the Qt event thread.
@@ -45,7 +64,7 @@ There are also a few simple \ref testing "testing shortcuts".
 
 %MythTV is divided up into 20 libraries:
 <dl>
-  <dt>libmythbase
+  <dt>\ref libmythbase "libmythbase"
   <dd>Lowest-level %MythTV library. Used by the Plugins.
 
       Contains the \ref database_subsystem "database",
@@ -612,9 +631,12 @@ to access these assets:
   <li>GetConfDir() returns the value of the runtime env. var. $MYTHCONFDIR,
       or $HOME/.mythtv</li>
 
-  <li>mysql.txt is loaded from GetShareDir(), GetInstallPrefix() + /etc/mythtv,
-      GetConfDir(), and the current directory. Later files override the values
-      from earlier ones.</li>
+  <li>The new config.xml has replaced the old mysql.txt, and is loaded from
+      GetConfDir() only. If not found, MythTV will attempt to discover the
+      database credentials over UPnP from the master backend, falling back to
+      the compiled-in defaults of mythtv:mythtv@localhost/mythconverg. If no
+      connection can be established, the necessary information is queried from
+      the user.</li>
 </ol>
 
  */
@@ -975,4 +997,12 @@ currently supported, so the ImportRecorder is substituted for DEMO cards.
 
 /** \defgroup db_schema    MythTV Database Schema
 This line is filler that is ignored by Doxygen.
+*/
+
+/** \defgroup libraries    MythTV Libraries
+This line is filler that is ignored by Doxygen.
+*/
+
+/** \defgroup libmythbase    libmythbase - Core MythTV library
+    \ingroup libraries
 */

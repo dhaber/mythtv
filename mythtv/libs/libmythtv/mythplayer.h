@@ -182,6 +182,7 @@ class MTV_PUBLIC MythPlayer
     uint64_t GetTotalFrameCount(void) const   { return totalFrames; }
     uint64_t GetCurrentFrameCount(void) const;
     uint64_t GetFramesPlayed(void) const      { return framesPlayed; }
+    virtual  int64_t GetSecondsPlayed(bool honorCutList);
     virtual  int64_t GetTotalSeconds(void) const;
     virtual  uint64_t GetBookmark(void);
     QString   GetError(void) const;
@@ -200,7 +201,7 @@ class MTV_PUBLIC MythPlayer
     bool    IsPaused(void) const              { return allpaused;      }
     bool    GetRawAudioState(void) const;
     bool    GetLimitKeyRepeat(void) const     { return limitKeyRepeat; }
-    EofState GetEof(void);
+    EofState GetEof(void) const;
     bool    IsErrored(void) const;
     bool    IsPlaying(uint wait_ms = 0, bool wait_for = true) const;
     bool    AtNormalSpeed(void) const         { return next_normal_speed; }
@@ -258,6 +259,7 @@ class MTV_PUBLIC MythPlayer
     /// Returns the stream decoder currently in use.
     DecoderBase *GetDecoder(void) { return decoder; }
     void *GetDecoderContext(unsigned char* buf, uint8_t*& id);
+    virtual bool HasReachedEof(void) const;
 
     // Preview Image stuff
     void SaveScreenshot(void);
@@ -476,7 +478,7 @@ class MTV_PUBLIC MythPlayer
     // Edit mode stuff
     bool EnableEdit(void);
     bool HandleProgramEditorActions(QStringList &actions, long long frame = -1);
-    bool GetEditMode(void) { return deleteMap.IsEditing(); }
+    bool GetEditMode(void) const { return deleteMap.IsEditing(); }
     void DisableEdit(int howToSave);
     bool IsInDelete(uint64_t frame);
     uint64_t GetNearestMark(uint64_t frame, bool right);
@@ -606,7 +608,7 @@ class MTV_PUBLIC MythPlayer
   protected:
     PlayerFlags    playerFlags;
     DecoderBase   *decoder;
-    QMutex         decoder_change_lock;
+    mutable QMutex decoder_change_lock;
     VideoOutput   *videoOutput;
     PlayerContext *player_ctx;
     DecoderThread *decoderThread;

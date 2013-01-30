@@ -33,7 +33,7 @@ extern "C" {
 }
 
 #define LOC ((tvrec) ? \
-    QString("DTVRec(%1): ").arg(tvrec->GetCaptureCardNum()) : \
+    QString("DTVRec[%1]: ").arg(tvrec->GetCaptureCardNum()) : \
     QString("DTVRec(0x%1): ").arg(intptr_t(this),0,16))
 
 const uint DTVRecorder::kMaxKeyFrameDistance = 80;

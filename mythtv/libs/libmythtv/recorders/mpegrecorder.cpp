@@ -46,7 +46,8 @@ extern "C" {
 
 #define IVTV_KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))
 
-#define LOC QString("MPEGRec(%1): ").arg(videodevice)
+#define LOC QString("MPEGRec[%1](%2): ") \
+            .arg(tvrec ? tvrec->GetCaptureCardNum() : -1).arg(videodevice)
 
 const int MpegRecorder::audRateL1[] =
 {
@@ -921,7 +922,9 @@ void MpegRecorder::run(void)
     if (driver == "hdpvr")
     {
         int progNum = 1;
-        MPEGStreamData *sd = new MPEGStreamData(progNum, true);
+        MPEGStreamData *sd = new MPEGStreamData
+                             (progNum, tvrec ? tvrec->GetCaptureCardNum() : -1,
+                              true);
         sd->SetRecordingType(_recording_type);
         SetStreamData(sd);
 
@@ -1180,7 +1183,7 @@ void MpegRecorder::Reset(void)
         curRecording->ClearPositionMap(MARK_GOP_BYFRAME);
     }
     if (_stream_data)
-        _stream_data->ResetMPEG(_stream_data->DesiredProgram());
+        _stream_data->Reset(_stream_data->DesiredProgram());
 }
 
 void MpegRecorder::Pause(bool clear)
@@ -1228,7 +1231,7 @@ bool MpegRecorder::PauseAndWait(int timeout)
         StartEncoding();
 
         if (_stream_data)
-            _stream_data->ResetMPEG(_stream_data->DesiredProgram());
+            _stream_data->Reset(_stream_data->DesiredProgram());
 
         paused = false;
     }

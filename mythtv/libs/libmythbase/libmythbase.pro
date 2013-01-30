@@ -32,7 +32,7 @@ SOURCES += mthread.cpp mthreadpool.cpp
 SOURCES += mythsocket.cpp
 SOURCES += mythdbcon.cpp mythdb.cpp mythdbparams.cpp oldsettings.cpp
 SOURCES += mythobservable.cpp mythevent.cpp httpcomms.cpp mcodecs.cpp
-SOURCES += mythdirs.cpp mythsignalingtimer.cpp
+SOURCES += mythtimer.cpp mythsignalingtimer.cpp mythdirs.cpp
 SOURCES += lcddevice.cpp mythstorage.cpp remotefile.cpp
 SOURCES += mythcorecontext.cpp mythsystem.cpp mythlocale.cpp storagegroup.cpp
 SOURCES += mythcoreutil.cpp mythdownloadmanager.cpp mythtranslation.cpp
@@ -47,7 +47,6 @@ SOURCES += mythplugin.cpp
 unix {
     SOURCES += system-unix.cpp
     HEADERS += system-unix.h
-    QMAKE_CXXFLAGS += -fno-strict-aliasing
 }
 
 mingw {

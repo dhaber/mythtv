@@ -12,7 +12,7 @@ using namespace std;
 #include "ringbuffer.h"
 #include "eithelper.h"
 
-#define LOC QString("ATSCStream: ")
+#define LOC QString("ATSCStream[%1]: ").arg(_cardid)
 
 /** \class ATSCStreamData
  *  \brief Encapsulates data about ATSC stream and emits events for most tables.
@@ -31,8 +31,8 @@ using namespace std;
  */
 ATSCStreamData::ATSCStreamData(int desiredMajorChannel,
                                int desiredMinorChannel,
-                               bool cacheTables)
-    : MPEGStreamData(-1, cacheTables),
+                               int cardnum, bool cacheTables)
+    : MPEGStreamData(-1, cardnum, cacheTables),
       _GPS_UTC_offset(GPS_LEAP_SECONDS),
       _atsc_eit_reset(false),
       _mgt_version(-1),
@@ -46,7 +46,7 @@ ATSCStreamData::ATSCStreamData(int desiredMajorChannel,
 
 ATSCStreamData::~ATSCStreamData()
 {
-    Reset();
+    Reset(-1,-1);
 
     QMutexLocker locker(&_listener_lock);
     _atsc_main_listeners.clear();
@@ -107,22 +107,21 @@ void ATSCStreamData::SetDesiredChannel(int major, int minor)
     ReturnCachedCVCTTables(cvcts);
 
     if (reset)
-        ResetATSC(major, minor);
+        Reset(major, minor);
 }
 
-void ATSCStreamData::ResetMPEG(int desiredProgram)
+void ATSCStreamData::Reset(int desiredProgram)
 {
-    Reset();
-    MPEGStreamData::ResetMPEG(desiredProgram);
+    MPEGStreamData::Reset(desiredProgram);
     AddListeningPID(ATSC_PSIP_PID);
 }
 
-void ATSCStreamData::ResetATSC(int major, int minor)
+void ATSCStreamData::Reset(int major, int minor)
 {
-    MPEGStreamData::ResetMPEG(-1);
     _desired_major_channel = major;
     _desired_minor_channel = minor;
 
+    MPEGStreamData::Reset(-1);
     _mgt_version = -1;
     _tvct_version.clear();
     _cvct_version.clear();
@@ -475,7 +474,7 @@ bool ATSCStreamData::HandleTables(uint pid, const PSIPTable &psip)
 
         default:
         {
-            LOG(VB_RECORD, LOG_ERR,
+            LOG(VB_RECORD, LOG_ERR, LOC +
                 QString("ATSCStreamData::HandleTables(): Unknown table 0x%1")
                     .arg(psip.TableID(),0,16));
             break;
@@ -528,7 +527,7 @@ bool ATSCStreamData::GetEITPIDChanges(const uint_vec_t &cur_pids,
     uint i;
 
 #if 0
-    LOG(VB_GENERAL, LOG_DEBUG, QString("eit size: %1, rate: %2, cnt: %3")
+    LOG(VB_GENERAL, LOG_DEBUG, LOC + QString("eit size: %1, rate: %2, cnt: %3")
             .arg(_atsc_eit_pids.size()).arg(_eit_rate).arg(eit_count));
 #endif
 
@@ -598,7 +597,8 @@ void ATSCStreamData::ProcessVCT(uint tsid, const VirtualChannelTable *vct)
     {
         if (vct->IsHidden(i) && vct->IsHiddenInGuide(i))
         {
-            LOG(VB_EIT, LOG_INFO, QString("%1 chan %2-%3 is hidden in guide")
+            LOG(VB_EIT, LOG_INFO, LOC +
+                QString("%1 chan %2-%3 is hidden in guide")
                     .arg(vct->ModulationMode(i) == 1 ? "NTSC" : "ATSC")
                     .arg(vct->MajorChannel(i))
                     .arg(vct->MinorChannel(i)));
@@ -607,13 +607,13 @@ void ATSCStreamData::ProcessVCT(uint tsid, const VirtualChannelTable *vct)
 
         if (1 == vct->ModulationMode(i))
         {
-            LOG(VB_EIT, LOG_INFO, QString("Ignoring NTSC chan %1-%2")
+            LOG(VB_EIT, LOG_INFO, LOC + QString("Ignoring NTSC chan %1-%2")
                     .arg(vct->MajorChannel(i))
                     .arg(vct->MinorChannel(i)));
             continue;
         }
 
-        LOG(VB_EIT, LOG_INFO, QString("Adding Source #%1 ATSC chan %2-%3")
+        LOG(VB_EIT, LOG_INFO, LOC + QString("Adding Source #%1 ATSC chan %2-%3")
                 .arg(vct->SourceID(i))
                 .arg(vct->MajorChannel(i))
                 .arg(vct->MinorChannel(i)));
@@ -644,7 +644,8 @@ void ATSCStreamData::ProcessCVCT(uint tsid,
 bool ATSCStreamData::HasCachedMGT(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     return (bool)(_cached_mgt);
 }
@@ -680,7 +681,8 @@ bool ATSCStreamData::HasChannel(uint major, uint minor) const
 bool ATSCStreamData::HasCachedTVCT(uint pid, bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     _cache_lock.lock();
     tvct_cache_t::const_iterator it = _cached_tvcts.find(pid);
@@ -693,7 +695,8 @@ bool ATSCStreamData::HasCachedTVCT(uint pid, bool current) const
 bool ATSCStreamData::HasCachedCVCT(uint pid, bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     _cache_lock.lock();
     cvct_cache_t::const_iterator it = _cached_cvcts.find(pid);
@@ -706,7 +709,8 @@ bool ATSCStreamData::HasCachedCVCT(uint pid, bool current) const
 bool ATSCStreamData::HasCachedAllTVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     if (!_cached_mgt)
         return false;
@@ -726,7 +730,8 @@ bool ATSCStreamData::HasCachedAllTVCTs(bool current) const
 bool ATSCStreamData::HasCachedAllCVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     if (!_cached_mgt)
         return false;
@@ -746,7 +751,8 @@ bool ATSCStreamData::HasCachedAllCVCTs(bool current) const
 bool ATSCStreamData::HasCachedAnyTVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     QMutexLocker locker(&_cache_lock);
     return !_cached_tvcts.empty();
@@ -755,7 +761,8 @@ bool ATSCStreamData::HasCachedAnyTVCTs(bool current) const
 bool ATSCStreamData::HasCachedAnyCVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     QMutexLocker locker(&_cache_lock);
     return !_cached_cvcts.empty();
@@ -764,7 +771,8 @@ bool ATSCStreamData::HasCachedAnyCVCTs(bool current) const
 const MasterGuideTable *ATSCStreamData::GetCachedMGT(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     _cache_lock.lock();
     const MasterGuideTable *mgt = _cached_mgt;
@@ -777,7 +785,8 @@ const MasterGuideTable *ATSCStreamData::GetCachedMGT(bool current) const
 tvct_const_ptr_t ATSCStreamData::GetCachedTVCT(uint pid, bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     tvct_ptr_t tvct = NULL;
 
@@ -793,7 +802,8 @@ tvct_const_ptr_t ATSCStreamData::GetCachedTVCT(uint pid, bool current) const
 cvct_const_ptr_t ATSCStreamData::GetCachedCVCT(uint pid, bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     cvct_ptr_t cvct = NULL;
 
@@ -809,7 +819,8 @@ cvct_const_ptr_t ATSCStreamData::GetCachedCVCT(uint pid, bool current) const
 tvct_vec_t ATSCStreamData::GetCachedTVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     vector<const TerrestrialVirtualChannelTable*> tvcts;
 
@@ -829,7 +840,8 @@ tvct_vec_t ATSCStreamData::GetCachedTVCTs(bool current) const
 cvct_vec_t ATSCStreamData::GetCachedCVCTs(bool current) const
 {
     if (!current)
-        LOG(VB_GENERAL, LOG_WARNING, "Currently we ignore \'current\' param");
+        LOG(VB_GENERAL, LOG_WARNING, LOC +
+            "Currently we ignore \'current\' param");
 
     vector<const CableVirtualChannelTable*> cvcts;
 

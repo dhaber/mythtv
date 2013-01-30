@@ -94,14 +94,14 @@ typedef QMap<uint, PIDPriority> pid_map_t;
 class MTV_PUBLIC MPEGStreamData : public EITSource
 {
   public:
-    MPEGStreamData(int desiredProgram, bool cacheTables);
+    MPEGStreamData(int desiredProgram, int cardnum, bool cacheTables);
     virtual ~MPEGStreamData();
 
     void SetCaching(bool cacheTables) { _cache_tables = cacheTables; }
     void SetListeningDisabled(bool lt) { _listening_disabled = lt; }
 
-    virtual void Reset(void) { MPEGStreamData::ResetMPEG(-1); }
-    virtual void ResetMPEG(int desiredProgram);
+    virtual void Reset(void) { Reset(-1); }
+    virtual void Reset(int desiredProgram);
 
     /// \brief Current Offset from computer time to DVB time in seconds
     double TimeOffset(void) const;
@@ -353,6 +353,7 @@ class MTV_PUBLIC MPEGStreamData : public EITSource
     void CachePMT(const ProgramMapTable *pmt);
 
   protected:
+    int                       _cardid;
     QString                   _sistandard;
 
     bool                      _have_CRC_bug;

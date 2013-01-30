@@ -82,6 +82,7 @@ class VideoOutWindow
     QRect  GetEmbeddingRect(void)        const { return embedding_rect;  }
     bool   UsingXinerama(void)           const { return using_xinerama;  }
     bool   UsingGuiSize(void)            const { return db_use_gui_size; }
+    QString GetZoomString(void)          const;
 
     /// \brief Returns current aspect override mode
     /// \sa ToggleAspectOverride(AspectOverrideMode)
@@ -106,6 +107,7 @@ class VideoOutWindow
                      bool         do_pixel_adj = true) const;
 
   protected:
+    void Apply1080Fixup(void);
     void ApplyDBScaleAndMove(void);
     void ApplyManualScaleAndMove(void);
     void ApplyLetterboxing(void);

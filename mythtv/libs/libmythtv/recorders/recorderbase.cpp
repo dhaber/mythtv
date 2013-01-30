@@ -33,8 +33,8 @@ using namespace std;
 #define TVREC_CARDNUM \
         ((tvrec != NULL) ? QString::number(tvrec->GetCaptureCardNum()) : "NULL")
 
-#define LOC      QString("RecBase(%1:%2): ") \
-                 .arg(TVREC_CARDNUM).arg(videodevice)
+#define LOC QString("RecBase[%1](%2): ") \
+            .arg(TVREC_CARDNUM).arg(videodevice)
 
 const uint RecorderBase::kTimeOfLatestDataIntervalTarget = 5000;
 
@@ -472,7 +472,8 @@ void RecorderBase::SavePositionMap(bool force)
     positionMapLock.lock();
 
     uint delta_size = positionMapDelta.size();
-    uint pm_elapsed = positionMapTimer.elapsed();
+    uint pm_elapsed = (positionMapTimer.isRunning()) ?
+        positionMapTimer.elapsed() : 0;
     // save on every 1.5 seconds if in the first few frames of a recording
     needToSave |= (positionMap.size() < 30) &&
         (delta_size >= 1) && (pm_elapsed >= 1500);

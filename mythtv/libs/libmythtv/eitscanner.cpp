@@ -29,10 +29,6 @@
  *
  */
 
-QMutex     EITScanner::resched_lock;
-QDateTime  EITScanner::resched_next_time      = MythDate::current();
-const uint EITScanner::kMinRescheduleInterval = 150;
-
 EITScanner::EITScanner(uint _cardnum)
     : channel(NULL),              eitSource(NULL),
       eitHelper(new EITHelper()), eventThread(new MThread("EIT", this)),
@@ -107,9 +103,11 @@ void EITScanner::run(void)
             t.start();
         }
 
-        // If there have been any new events and we haven't
-        // seen any in a while, tell scheduler to run.
-        if (eitCount && (t.elapsed() > 60 * 1000))
+        // Tell the scheduler to run if
+        // we are in passive scan
+        // and there have been updated events since the last scheduler run
+        // but not in the last 60 seconds
+        if (!activeScan && eitCount && (t.elapsed() > 60 * 1000))
         {
             LOG(VB_EIT, LOG_INFO,
                 LOC_ID + QString("Added %1 EIT Events").arg(eitCount));
@@ -117,6 +115,7 @@ void EITScanner::run(void)
             RescheduleRecordings();
         }
 
+        // Is it time to move to the next transport in active scan?
         if (activeScan && (MythDate::current() > activeScanNextTrig))
         {
             // if there have been any new events, tell scheduler to run.
@@ -163,6 +162,13 @@ void EITScanner::run(void)
             activeScanCond.wakeAll();
         }
     }
+
+    if (eitCount) /* some events have been handled since the last schedule request */
+    {
+        eitCount = 0;
+        RescheduleRecordings();
+    }
+
     activeScanStopped = true;
     activeScanCond.wakeAll();
     lock.unlock();
@@ -176,21 +182,7 @@ void EITScanner::run(void)
  */
 void EITScanner::RescheduleRecordings(void)
 {
-    if (!resched_lock.tryLock())
-        return;
-
-    if (resched_next_time > MythDate::current())
-    {
-        LOG(VB_EIT, LOG_INFO, LOC + "Rate limiting reschedules..");
-        resched_lock.unlock();
-        return;
-    }
-
-    resched_next_time =
-        MythDate::current().addSecs(kMinRescheduleInterval);
-    resched_lock.unlock();
-
-    ScheduledRecording::RescheduleMatch(0, 0, 0, QDateTime(), "EITScanner");
+    eitHelper->RescheduleRecordings();
 }
 
 /** \fn EITScanner::StartPassiveScan(ChannelBase*, EITSource*, bool)
@@ -202,14 +194,13 @@ void EITScanner::StartPassiveScan(ChannelBase *_channel,
 {
     QMutexLocker locker(&lock);
 
-    uint sourceid = _channel->GetCurrentSourceID();
     eitSource     = _eitSource;
     channel       = _channel;
 
-    eitHelper->SetSourceID(sourceid);
     eitSource->SetEITHelper(eitHelper);
     eitSource->SetEITRate(1.0f);
-    eitHelper->SetChannelID(_channel->GetChanID());
+    eitHelper->SetChannelID(channel->GetChanID());
+    eitHelper->SetSourceID(ChannelUtil::GetSourceIDForChannel(channel->GetChanID()));
 
     LOG(VB_EIT, LOG_INFO, LOC_ID + "Started passive scan.");
 }
@@ -229,6 +220,7 @@ void EITScanner::StopPassiveScan(void)
     channel = NULL;
 
     eitHelper->WriteEITCache();
+    eitHelper->SetChannelID(0);
     eitHelper->SetSourceID(0);
 }
 

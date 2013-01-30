@@ -33,8 +33,8 @@ DeviceReadBuffer::DeviceReadBuffer(
       max_poll_wait(2500 /*ms*/),
 
       size(0),                      used(0),
-      read_quanta(0),
-      dev_read_size(0),             min_read(0),
+      read_quanta(0),               dev_buffer_count(1),
+      dev_read_size(0),             readThreshold(0),
 
       buffer(NULL),                 readPtr(NULL),
       writePtr(NULL),               endPtr(NULL),
@@ -72,7 +72,8 @@ DeviceReadBuffer::~DeviceReadBuffer()
 }
 
 bool DeviceReadBuffer::Setup(const QString &streamName, int streamfd,
-                             uint readQuanta, uint deviceBufferSize)
+                             uint readQuanta, uint deviceBufferSize,
+                             uint deviceBufferCount)
 {
     QMutexLocker locker(&lock);
 
@@ -90,13 +91,14 @@ bool DeviceReadBuffer::Setup(const QString &streamName, int streamfd,
     paused        = false;
 
     read_quanta   = (readQuanta) ? readQuanta : read_quanta;
+    dev_buffer_count = deviceBufferCount;
     size          = gCoreContext->GetNumSetting(
         "HDRingbufferSize", 50 * read_quanta) * 1024;
     used          = 0;
     dev_read_size = read_quanta * (using_poll ? 256 : 48);
     dev_read_size = (deviceBufferSize) ?
         min(dev_read_size, (size_t)deviceBufferSize) : dev_read_size;
-    min_read      = read_quanta * 4;
+    readThreshold = read_quanta * 128;
 
     buffer        = new (nothrow) unsigned char[size + dev_read_size];
     readPtr       = buffer;
@@ -329,6 +331,12 @@ void DeviceReadBuffer::run(void)
     RunProlog();
 
     uint      errcnt = 0;
+    uint      cnt;
+    ssize_t   len;
+    size_t    read_size;
+    size_t    unused;
+    size_t    total;
+    size_t    throttle = dev_read_size * dev_buffer_count / 2;
 
     lock.lock();
     runWait.wakeAll();
@@ -360,28 +368,37 @@ void DeviceReadBuffer::run(void)
             }
         }
 
-        // Limit read size for faster return from read
-        size_t unused = (size_t) WaitForUnused(read_quanta);
-        size_t read_size = min(dev_read_size, unused);
-
-        // if read_size > 0 do the read...
-        ssize_t len = 0;
-        if (read_size)
+        /* Some device drivers segment their buffer into small pieces,
+         * So allow for the reading of multiple buffers */
+        for (cnt = 0, len = 0, total = 0;
+             dorun && len >= 0 && cnt < dev_buffer_count; ++cnt)
         {
-            len = read(_stream_fd, writePtr, read_size);
-            if (!CheckForErrors(len, read_size, errcnt))
+            // Limit read size for faster return from read
+            unused = static_cast<size_t>(WaitForUnused(read_quanta));
+            read_size = min(dev_read_size, unused);
+
+            // if read_size > 0 do the read...
+            if (read_size)
             {
-                if (errcnt > 5)
+                len = read(_stream_fd, writePtr, read_size);
+                if (!CheckForErrors(len, read_size, errcnt))
                     break;
-                else
-                    continue;
+                errcnt = 0;
+
+                // if we wrote past the official end of the buffer,
+                // copy to start
+                if (writePtr + len > endPtr)
+                    memcpy(buffer, endPtr, writePtr + len - endPtr);
+                IncrWritePointer(len);
+                total += len;
             }
-            errcnt = 0;
-            // if we wrote past the official end of the buffer, copy to start
-            if (writePtr + len > endPtr)
-                memcpy(buffer, endPtr, writePtr + len - endPtr);
-            IncrWritePointer(len);
         }
+        if (errcnt > 5)
+            break;
+
+        // Slow down reading if not under load
+        if (errcnt == 0 && total < throttle)
+            usleep(1000);
     }
 
     ClosePipes();
@@ -625,7 +642,7 @@ bool DeviceReadBuffer::CheckForErrors(
  */
 uint DeviceReadBuffer::Read(unsigned char *buf, const uint count)
 {
-    uint avail = WaitForUsed(min(count, (uint)dev_read_size), 20);
+    uint avail = WaitForUsed(min(count, (uint)readThreshold), 20);
     size_t cnt = min(count, avail);
 
     if (!cnt)

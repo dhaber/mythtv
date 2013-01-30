@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 // Qt includes
+#include <QDateTime>
 #include <QMap>
 #include <QMutex>
 #include <QObject>
@@ -44,7 +45,7 @@ typedef QMap<uint,ATSCEvent>               EventIDToATSCEvent;
 typedef QMap<uint,QString>                 EventIDToETT;
 typedef QMap<uint,EventIDToATSCEvent>      ATSCSRCToEvents;
 typedef QMap<uint,EventIDToETT>            ATSCSRCToETTs;
-typedef QMap<unsigned long long,int>       ServiceToChanID;
+typedef QMap<unsigned long long,uint>      ServiceToChanID;
 
 class DBEventEIT;
 class EITFixUp;
@@ -71,6 +72,7 @@ class EITHelper
     void SetFixup(uint atsc_major, uint atsc_minor, uint eitfixup);
     void SetLanguagePreferences(const QStringList &langPref);
     void SetSourceID(uint _sourceid);
+    void RescheduleRecordings(void);
 
 #ifdef USING_BACKEND
     void AddEIT(uint atsc_major, uint atsc_minor,
@@ -110,8 +112,13 @@ class EITHelper
     static EITCache        *eitcache;
 
     int                     gps_offset;
-    uint                    sourceid;
-    uint                    channelid;
+
+    /* carry some values to optimize channel lookup and reschedules */
+    uint                    sourceid;            ///< id of the video source
+    uint                    channelid;           ///< id of the channel
+    QDateTime               maxStarttime;        ///< latest starttime of changed events
+    bool                    seenEITother;        ///< if false we only reschedule the active mplex
+
     QMap<uint64_t,uint>     fixup;
     ATSCSRCToEvents         incomplete_events;
     ATSCSRCToETTs           unmatched_etts;

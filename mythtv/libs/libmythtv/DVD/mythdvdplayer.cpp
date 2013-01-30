@@ -30,6 +30,16 @@ void MythDVDPlayer::ReleaseNextVideoFrame(VideoFrame *buffer,
                         !player_ctx->buffer->IsInDiscMenuOrStillFrame());
 }
 
+bool MythDVDPlayer::HasReachedEof(void) const
+{
+    EofState eof = GetEof();
+    if (eof != kEofStateNone && !allpaused)
+        return true;
+    // DeleteMap and EditMode from the parent MythPlayer should not be
+    // relevant here.
+    return false;
+}
+
 void MythDVDPlayer::DisableCaptions(uint mode, bool osd_msg)
 {
     if ((kDisplayAVSubtitle & mode) && player_ctx->buffer->IsDVD())
@@ -124,7 +134,12 @@ bool MythDVDPlayer::VideoLoop(void)
         // if we go below the pre-buffering limit, the player will pause
         // so do this 'manually'
         DisplayNormalFrame(false);
-        dvd_stillframe_showing = false;
+        // unpause the still frame if more frames become available
+        if (dvd_stillframe_showing && nbframes > 1)
+        {
+            dvd_stillframe_showing = false;
+            UnpauseVideo();
+        }
         return !IsErrored();
     }
 
@@ -388,6 +403,17 @@ long long MythDVDPlayer::CalcMaxFFTime(long long ff, bool setjump) const
         player_ctx->buffer->DVD()->TitleTimeLeft() < 5)
         return 0;
     return MythPlayer::CalcMaxFFTime(ff, setjump);
+}
+
+int64_t MythDVDPlayer::GetSecondsPlayed(bool)
+{
+    if (!player_ctx->buffer->IsDVD())
+        return 0;
+
+    return (m_stillFrameLength > 0) ?
+                (m_stillFrameTimer.elapsed() / 1000) :
+                (player_ctx->buffer->DVD()->GetCurrentTime());
+
 }
 
 int64_t MythDVDPlayer::GetTotalSeconds(void) const

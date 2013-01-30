@@ -29,6 +29,7 @@
 #define MYTH_APPNAME_MYTHMETADATALOOKUP "mythmetadatalookup"
 #define MYTH_APPNAME_MYTHUTIL "mythutil"
 #define MYTH_APPNAME_MYTHLOGSERVER "mythlogserver"
+#define MYTH_APPNAME_MYTHSCREENWIZARD "mythscreenwizard"
 
 class MDBManager;
 class MythCoreContextPrivate;
@@ -60,6 +61,8 @@ class MBASE_PUBLIC MythCoreContext : public QObject, public MythObservable, publ
     void SetEventSocket(MythSocket *eventSock);
     void SetScheduler(MythScheduler *sched);
 
+    bool SafeConnectToMasterServer(bool blockingClient = true,
+                                   bool openEventSocket = true);
     bool ConnectToMasterServer(bool blockingClient = true,
                                bool openEventSocket = true);
 

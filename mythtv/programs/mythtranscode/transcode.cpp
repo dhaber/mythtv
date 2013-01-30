@@ -21,6 +21,7 @@
 #include "exitcodes.h"
 #include "mthreadpool.h"
 #include "deletemap.h"
+#include "tvremoteutil.h"
 
 #include "NuppelVideoRecorder.h"
 #include "mythplayer.h"
@@ -255,6 +256,11 @@ int Transcode::TranscodeFile(const QString &inputname,
     player_ctx->SetPlayer(new MythPlayer(kVideoIsNull));
     SetPlayerContext(player_ctx);
     GetPlayer()->SetPlayerInfo(NULL, NULL, GetPlayerContext());
+    if (m_proginfo->GetRecordingEndTime() > curtime)
+    {
+        player_ctx->SetRecorder(RemoteGetExistingRecorder(m_proginfo));
+        GetPlayer()->SetWatchingRecording(true);
+    }
 
     if (showprogress)
     {
@@ -859,6 +865,12 @@ int Transcode::TranscodeFile(const QString &inputname,
             case AV_CODEC_ID_MP2:
                 audio_codec_name = "mp2";
                 break;
+            case AV_CODEC_ID_AAC:
+                audio_codec_name = "aac";
+                break;
+            case AV_CODEC_ID_AAC_LATM:
+                audio_codec_name = "aac_latm";
+                break;
             default:
                 audio_codec_name = "unknown";
         }
@@ -1433,6 +1445,7 @@ int Transcode::TranscodeFile(const QString &inputname,
                 if (elapsed)
                     flagFPS = curFrameNum / elapsed;
 
+                total_frame_count = GetPlayer()->GetCurrentFrameCount();
                 int percentage = curFrameNum * 100 / total_frame_count;
 
                 if (hls)

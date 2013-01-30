@@ -47,10 +47,10 @@ static QSize fix_alignment(QSize raw);
 static float fix_aspect(float raw);
 static float snap(float value, float snapto, float diff);
 
-const float VideoOutWindow::kManualZoomMaxHorizontalZoom = 2.0f;
-const float VideoOutWindow::kManualZoomMaxVerticalZoom   = 2.0f;
-const float VideoOutWindow::kManualZoomMinHorizontalZoom = 0.5f;
-const float VideoOutWindow::kManualZoomMinVerticalZoom   = 0.5f;
+const float VideoOutWindow::kManualZoomMaxHorizontalZoom = 4.0f;
+const float VideoOutWindow::kManualZoomMaxVerticalZoom   = 4.0f;
+const float VideoOutWindow::kManualZoomMinHorizontalZoom = 0.25f;
+const float VideoOutWindow::kManualZoomMinVerticalZoom   = 0.25f;
 const int   VideoOutWindow::kManualZoomMaxMove           = 50;
 
 VideoOutWindow::VideoOutWindow() :
@@ -140,6 +140,7 @@ void VideoOutWindow::MoveResize(void)
     }
 
     // Apply various modifications
+    Apply1080Fixup();
     ApplyDBScaleAndMove();
     ApplyLetterboxing();
     ApplyManualScaleAndMove();
@@ -150,6 +151,20 @@ void VideoOutWindow::MoveResize(void)
     }
     PrintMoveResizeDebug();
     needrepaint = true;
+}
+
+/** \fn VideoOutWindow::Apply1080Fixup(void)
+
+ *  \brief If the video is reported as 1088 lines, apply a vertical
+ *  scaling operation to bring it effectively to 1080 lines.
+ */
+void VideoOutWindow::Apply1080Fixup(void)
+{
+    if (video_dim.height() == 1088)
+    {
+        int height = display_video_rect.height();
+        display_video_rect.setHeight(height * 1088.0 / 1084 + 0.5);
+    }
 }
 
 /** \fn VideoOutWindow::ApplyDBScaleAndMove(void)
@@ -876,6 +891,7 @@ QRect VideoOutWindow::GetPIPRect(
  */
 void VideoOutWindow::Zoom(ZoomDirection direction)
 {
+    const float zf = 0.02;
     if (kZoomHome == direction)
     {
         mz_scale_v = 1.0f;
@@ -887,14 +903,8 @@ void VideoOutWindow::Zoom(ZoomDirection direction)
         if ((mz_scale_h < kManualZoomMaxHorizontalZoom) &&
             (mz_scale_v < kManualZoomMaxVerticalZoom))
         {
-            mz_scale_h *= 1.05f;
-            mz_scale_v *= 1.05f;
-        }
-        else
-        {
-            float ratio = mz_scale_v / mz_scale_h;
-            mz_scale_h = 1.0f;
-            mz_scale_v = ratio * mz_scale_h;
+            mz_scale_h += zf;
+            mz_scale_v += zf;
         }
     }
     else if (kZoomOut == direction)
@@ -902,14 +912,8 @@ void VideoOutWindow::Zoom(ZoomDirection direction)
         if ((mz_scale_h > kManualZoomMinHorizontalZoom) &&
             (mz_scale_v > kManualZoomMinVerticalZoom))
         {
-            mz_scale_h *= 1.0f / 1.05f;
-            mz_scale_v *= 1.0f / 1.05f;
-        }
-        else
-        {
-            float ratio = mz_scale_v / mz_scale_h;
-            mz_scale_h = 1.0f;
-            mz_scale_v = ratio * mz_scale_h;
+            mz_scale_h -= zf;
+            mz_scale_v -= zf;
         }
     }
     else if (kZoomAspectUp == direction)
@@ -917,8 +921,8 @@ void VideoOutWindow::Zoom(ZoomDirection direction)
         if ((mz_scale_h < kManualZoomMaxHorizontalZoom) &&
             (mz_scale_v > kManualZoomMinVerticalZoom))
         {
-            mz_scale_h *= 1.05f;
-            mz_scale_v *= 1.0 / 1.05f;
+            mz_scale_h += zf;
+            mz_scale_v -= zf;
         }
     }
     else if (kZoomAspectDown == direction)
@@ -926,21 +930,30 @@ void VideoOutWindow::Zoom(ZoomDirection direction)
         if ((mz_scale_h > kManualZoomMinHorizontalZoom) &&
             (mz_scale_v < kManualZoomMaxVerticalZoom))
         {
-            mz_scale_h *= 1.0 / 1.05f;
-            mz_scale_v *= 1.05f;
+            mz_scale_h -= zf;
+            mz_scale_v += zf;
         }
     }
-    else if (kZoomUp    == direction && (mz_move.y() <= +kManualZoomMaxMove))
-        mz_move.setY(mz_move.y() + 2);
-    else if (kZoomDown  == direction && (mz_move.y() >= -kManualZoomMaxMove))
-        mz_move.setY(mz_move.y() - 2);
-    else if (kZoomLeft  == direction && (mz_move.x() <= +kManualZoomMaxMove))
+    else if (kZoomUp    == direction && (mz_move.y() < +kManualZoomMaxMove))
+        mz_move.setY(mz_move.y() + 1);
+    else if (kZoomDown  == direction && (mz_move.y() > -kManualZoomMaxMove))
+        mz_move.setY(mz_move.y() - 1);
+    else if (kZoomLeft  == direction && (mz_move.x() < +kManualZoomMaxMove))
         mz_move.setX(mz_move.x() + 2);
-    else if (kZoomRight == direction && (mz_move.x() >= -kManualZoomMaxMove))
+    else if (kZoomRight == direction && (mz_move.x() > -kManualZoomMaxMove))
         mz_move.setX(mz_move.x() - 2);
 
-    mz_scale_v = snap(mz_scale_v, 1.0f, 0.03f);
-    mz_scale_h = snap(mz_scale_h, 1.0f, 0.03f);
+    mz_scale_v = snap(mz_scale_v, 1.0f, zf / 2);
+    mz_scale_h = snap(mz_scale_h, 1.0f, zf / 2);
+}
+
+QString VideoOutWindow::GetZoomString(void) const
+{
+    float zh = GetMzScaleH();
+    float zv = GetMzScaleV();
+    QPoint zo = GetMzMove();
+    return QObject::tr("Zoom %1x%2 @ (%3,%4)")
+        .arg(zh, 0, 'f', 2).arg(zv, 0, 'f', 2).arg(zo.x()).arg(zo.y());
 }
 
 /// Correct for rounding errors

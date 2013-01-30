@@ -17,9 +17,11 @@ using namespace std;
 #include "premieretables.h"
 #include "dishdescriptors.h"
 #include "premieredescriptors.h"
+#include "channelutil.h"        // for ChannelUtil
 #include "mythdate.h"
 #include "programdata.h"
 #include "programinfo.h" // for subtitle types and audio and video properties
+#include "scheduledrecording.h" // for ScheduledRecording
 #include "compat.h" // for gmtime_r on windows.
 
 const uint EITHelper::kChunkSize = 20;
@@ -38,7 +40,8 @@ static void init_fixup(QMap<uint64_t,uint> &fix);
 EITHelper::EITHelper() :
     eitfixup(new EITFixUp()),
     gps_offset(-1 * GPS_LEAP_SECONDS),
-    sourceid(0), channelid(0)
+    sourceid(0), channelid(0),
+    maxStarttime(QDateTime()), seenEITother(false)
 {
     init_fixup(fixup);
 }
@@ -80,6 +83,7 @@ uint EITHelper::ProcessEvents(void)
         eitfixup->Fix(*event);
 
         insertCount += event->UpdateDB(query, 1000);
+        maxStarttime = max (maxStarttime, event->starttime);
 
         delete event;
         eitList_lock.lock();
@@ -314,6 +318,11 @@ void EITHelper::AddEIT(const DVBEventInformationTable *eit)
     {
         // EITo(ther)
         chanid = GetChanID(eit->ServiceID(), eit->OriginalNetworkID(), eit->TSID());
+        // do not reschedule if its only present+following
+        if (eit->TableID() != TableID::PF_EITo)
+        {
+            seenEITother = true;
+        }
     }
     if (!chanid)
         return;
@@ -673,7 +682,7 @@ uint EITHelper::GetChanID(uint atsc_major, uint atsc_minor)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0);
+        return max(*it, 0u);
 
     uint chanid = get_chan_id_from_db_atsc(sourceid, atsc_major, atsc_minor);
     srv_to_chanid[key] = chanid;
@@ -691,7 +700,7 @@ uint EITHelper::GetChanID(uint serviceid, uint networkid, uint tsid)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0);
+        return max(*it, 0u);
 
     uint chanid = get_chan_id_from_db_dvb(sourceid, serviceid, networkid, tsid);
     srv_to_chanid[key] = chanid;
@@ -708,7 +717,7 @@ uint EITHelper::GetChanID(uint program_number)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0);
+        return max(*it, 0u);
 
     uint chanid = get_chan_id_from_db_dtv(sourceid, program_number, channelid);
     srv_to_chanid[key] = chanid;
@@ -1097,4 +1106,17 @@ static void init_fixup(QMap<uint64_t,uint> &fix)
         fix[ 1094LL << 32 | 1 << 16 | 17028 ] = // NT1
         fix[ 1100LL << 32 | 1 << 16 |  8710 ] = // NRJ 12
         EITFixUp::kEFixForceISO8859_15;
+}
+
+/** \fn EITHelper::RescheduleRecordings(void)
+ *  \brief Tells scheduler about programming changes.
+ *
+ */
+void EITHelper::RescheduleRecordings(void)
+{
+    ScheduledRecording::RescheduleMatch(
+        0, sourceid, seenEITother ? 0 : ChannelUtil::GetMplexID(channelid),
+        maxStarttime, "EITScanner");
+    seenEITother = false;
+    maxStarttime = QDateTime();
 }
