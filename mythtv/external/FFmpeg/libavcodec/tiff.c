@@ -737,7 +737,7 @@ static int tiff_decode_tag(TiffContext *s)
         break;
     case TIFF_ROWSPERSTRIP:
         if (type == TIFF_LONG && value == UINT_MAX)
-            value = s->avctx->height;
+            value = s->height;
         if (value < 1) {
             av_log(s->avctx, AV_LOG_ERROR,
                    "Incorrect value of rows per strip\n");
@@ -843,7 +843,7 @@ static int tiff_decode_tag(TiffContext *s)
             s->fax_opts = value;
         break;
 #define ADD_METADATA(count, name, sep)\
-    if (ret = add_metadata(count, type, name, sep, s) < 0) {\
+    if ((ret = add_metadata(count, type, name, sep, s)) < 0) {\
         av_log(s->avctx, AV_LOG_ERROR, "Error allocating temporary buffer\n");\
         return ret;\
     }

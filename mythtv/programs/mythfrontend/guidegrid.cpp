@@ -165,7 +165,9 @@ bool JumpToChannel::Update(void)
 }
 
 void GuideGrid::RunProgramGuide(uint chanid, const QString &channum,
-                    TV *player, bool embedVideo, bool allowFinder, int changrpid)
+                                const QDateTime startTime,
+                                TV *player, bool embedVideo,
+                                bool allowFinder, int changrpid)
 {
     // which channel group should we default to
     if (changrpid == -2)
@@ -174,7 +176,7 @@ void GuideGrid::RunProgramGuide(uint chanid, const QString &channum,
     // check there are some channels setup
     ChannelInfoList channels = ChannelUtil::GetChannels(
         0, true, "", (changrpid<0) ? 0 : changrpid);
-    if (!channels.size())
+    if (channels.empty())
     {
         QString message;
         if (changrpid == -1)
@@ -207,7 +209,7 @@ void GuideGrid::RunProgramGuide(uint chanid, const QString &channum,
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
     GuideGrid *gg = new GuideGrid(mainStack,
-                                  chanid, channum,
+                                  chanid, channum, startTime,
                                   player, embedVideo, allowFinder,
                                   changrpid);
 
@@ -218,7 +220,7 @@ void GuideGrid::RunProgramGuide(uint chanid, const QString &channum,
 }
 
 GuideGrid::GuideGrid(MythScreenStack *parent,
-                     uint chanid, QString channum,
+                     uint chanid, QString channum, const QDateTime startTime,
                      TV *player, bool embedVideo,
                      bool allowFinder, int changrpid)
          : ScheduleCommon(parent, "guidegrid"),
@@ -254,6 +256,9 @@ GuideGrid::GuideGrid(MythScreenStack *parent,
     }
 
     m_originalStartTime = MythDate::current();
+    if (startTime.isValid() &&
+        startTime > m_originalStartTime.addSecs(-8 * 3600))
+        m_originalStartTime = startTime;
 
     int secsoffset = -((m_originalStartTime.time().minute() % 30) * 60 +
                         m_originalStartTime.time().second());

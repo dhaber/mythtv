@@ -310,10 +310,11 @@ static inline int get_lowest_part_list_y(H264Context *h, Picture *pic, int n,
                                          int height, int y_offset, int list)
 {
     int raw_my        = h->mv_cache[list][scan8[n]][1];
-    int filter_height = (raw_my & 3) ? 2 : 0;
+    int filter_height_up   = (raw_my & 3) ? 2 : 0;
+    int filter_height_down = (raw_my & 3) ? 3 : 0;
     int full_my       = (raw_my >> 2) + y_offset;
-    int top           = full_my - filter_height;
-    int bottom        = full_my + filter_height + height;
+    int top           = full_my - filter_height_up;
+    int bottom        = full_my + filter_height_down + height;
 
     return FFMAX(abs(top), bottom);
 }
@@ -1452,6 +1453,25 @@ static void decode_postinit(H264Context *h, int setup_finished)
         s->low_delay           = 0;
     }
 
+    for (i = 0; 1; i++) {
+        if(i == MAX_DELAYED_PIC_COUNT || cur->poc < h->last_pocs[i]){
+            if(i)
+                h->last_pocs[i-1] = cur->poc;
+            break;
+        } else if(i) {
+            h->last_pocs[i-1]= h->last_pocs[i];
+        }
+    }
+    out_of_order = MAX_DELAYED_PIC_COUNT - i;
+    if(   cur->f.pict_type == AV_PICTURE_TYPE_B
+       || (h->last_pocs[MAX_DELAYED_PIC_COUNT-2] > INT_MIN && h->last_pocs[MAX_DELAYED_PIC_COUNT-1] - h->last_pocs[MAX_DELAYED_PIC_COUNT-2] > 2))
+        out_of_order = FFMAX(out_of_order, 1);
+    if(s->avctx->has_b_frames < out_of_order && !h->sps.bitstream_restriction_flag){
+        av_log(s->avctx, AV_LOG_VERBOSE, "Increasing reorder buffer to %d\n", out_of_order);
+        s->avctx->has_b_frames = out_of_order;
+        s->low_delay = 0;
+    }
+
     pics = 0;
     while (h->delayed_pic[pics])
         pics++;
@@ -1477,29 +1497,6 @@ static void decode_postinit(H264Context *h, int setup_finished)
         h->next_outputed_poc = INT_MIN;
     out_of_order = out->poc < h->next_outputed_poc;
 
-    if (h->sps.bitstream_restriction_flag &&
-        s->avctx->has_b_frames >= h->sps.num_reorder_frames) {
-    } else if (out_of_order && pics - 1 == s->avctx->has_b_frames &&
-               s->avctx->has_b_frames < MAX_DELAYED_PIC_COUNT) {
-        int cnt = 0, invalid = 0;
-        for (i = 0; i < MAX_DELAYED_PIC_COUNT; i++) {
-            cnt += out->poc < h->last_pocs[i];
-            invalid += h->last_pocs[i] == INT_MIN;
-        }
-        if (invalid + cnt < MAX_DELAYED_PIC_COUNT) {
-            s->avctx->has_b_frames = FFMAX(s->avctx->has_b_frames, cnt);
-        } else if (cnt) {
-            for (i = 0; i < MAX_DELAYED_PIC_COUNT; i++)
-                h->last_pocs[i] = INT_MIN;
-        }
-        s->low_delay = 0;
-    } else if (s->low_delay &&
-               ((h->next_outputed_poc != INT_MIN && out->poc > h->next_outputed_poc + 2) ||
-                cur->f.pict_type == AV_PICTURE_TYPE_B)) {
-        s->low_delay = 0;
-        s->avctx->has_b_frames++;
-    }
-
     if (out_of_order || pics > s->avctx->has_b_frames) {
         out->f.reference &= ~DELAYED_PIC_REF;
         // for frame threading, the owner must be the second field's thread or
@@ -1508,8 +1505,6 @@ static void decode_postinit(H264Context *h, int setup_finished)
         for (i = out_idx; h->delayed_pic[i]; i++)
             h->delayed_pic[i] = h->delayed_pic[i + 1];
     }
-    memmove(h->last_pocs, &h->last_pocs[1], sizeof(*h->last_pocs) * (MAX_DELAYED_PIC_COUNT - 1));
-    h->last_pocs[MAX_DELAYED_PIC_COUNT - 1] = out->poc;
     if (!out_of_order && pics > s->avctx->has_b_frames) {
         h->next_output_pic = out;
         if (out_idx == 0 && h->delayed_pic[0] && (h->delayed_pic[0]->f.key_frame || h->delayed_pic[0]->mmco_reset)) {
@@ -2285,7 +2280,7 @@ static int field_end(H264Context *h, int in_setup)
      * past end by one (callers fault) and resync_mb_y != 0
      * causes problems for the first MB line, too.
      */
-    if (!FIELD_PICTURE)
+    if (!FIELD_PICTURE && h->current_slice)
         ff_er_frame_end(s);
 
     ff_MPV_frame_end(s);
@@ -2365,7 +2360,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
     MpegEncContext *const s0 = &h0->s;
     unsigned int first_mb_in_slice;
     unsigned int pps_id;
-    int num_ref_idx_active_override_flag;
+    int num_ref_idx_active_override_flag, ret;
     unsigned int slice_type, tmp, i, j;
     int default_ref_list_done = 0;
     int last_pic_structure, last_pic_dropable;
@@ -2793,6 +2788,9 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             Picture *prev = h->short_ref_count ? h->short_ref[0] : NULL;
             av_log(h->s.avctx, AV_LOG_DEBUG, "Frame num gap %d %d\n",
                    h->frame_num, h->prev_frame_num);
+            if (!h->sps.gaps_in_frame_num_allowed_flag)
+                for(i=0; i<FF_ARRAY_ELEMS(h->last_pocs); i++)
+                    h->last_pocs[i] = INT_MIN;
             if (ff_h264_frame_start(h) < 0)
                 return -1;
             h->prev_frame_num++;
@@ -2800,7 +2798,9 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             s->current_picture_ptr->frame_num = h->prev_frame_num;
             ff_thread_report_progress(&s->current_picture_ptr->f, INT_MAX, 0);
             ff_thread_report_progress(&s->current_picture_ptr->f, INT_MAX, 1);
-            ff_generate_sliding_window_mmcos(h);
+            if ((ret = ff_generate_sliding_window_mmcos(h, 1)) < 0 &&
+                s->avctx->err_recognition & AV_EF_EXPLODE)
+                return ret;
             if (ff_h264_execute_ref_pic_marking(h, h->mmco, h->mmco_index) < 0 &&
                 (s->avctx->err_recognition & AV_EF_EXPLODE))
                 return AVERROR_INVALIDDATA;
@@ -2977,7 +2977,15 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
         }
     }
 
-    if (h->nal_ref_idc && ff_h264_decode_ref_pic_marking(h0, &s->gb) < 0 &&
+    // If frame-mt is enabled, only update mmco tables for the first slice
+    // in a field. Subsequent slices can temporarily clobber h->mmco_index
+    // or h->mmco, which will cause ref list mix-ups and decoding errors
+    // further down the line. This may break decoding if the first slice is
+    // corrupt, thus we only do this if frame-mt is enabled.
+    if (h->nal_ref_idc &&
+        ff_h264_decode_ref_pic_marking(h0, &s->gb,
+                            !(s->avctx->active_thread_type & FF_THREAD_FRAME) ||
+                            h0->current_slice == 0) < 0 &&
         (s->avctx->err_recognition & AV_EF_EXPLODE))
         return AVERROR_INVALIDDATA;
 

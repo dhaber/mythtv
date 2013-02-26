@@ -64,8 +64,8 @@ class DTVRecorder :
     void HandleEncryptionStatus(uint /*pnum*/, bool /*encrypted*/) { }
 
     // MPEG Single Program Stream Listener
-    void HandleSingleProgramPAT(ProgramAssociationTable *pat);
-    void HandleSingleProgramPMT(ProgramMapTable *pmt);
+    void HandleSingleProgramPAT(ProgramAssociationTable *pat, bool insert);
+    void HandleSingleProgramPMT(ProgramMapTable *pmt, bool insert);
 
     // ATSC Main
     void HandleSTT(const SystemTimeTable*) { UpdateCAMTimeOffset(); }
@@ -93,11 +93,11 @@ class DTVRecorder :
     void FinishRecording(void);
     void ResetForNewFile(void);
 
-    void HandleKeyframe(uint64_t frameNum, int64_t extra = 0);
+    void HandleKeyframe(int64_t extra);
     void HandleTimestamps(int stream_id, int64_t pts, int64_t dts);
     void UpdateFramesWritten(void);
 
-    void BufferedWrite(const TSPacket &tspacket);
+    void BufferedWrite(const TSPacket &tspacket, bool insert = false);
 
     // MPEG TS "audio only" support
     bool FindAudioKeyframes(const TSPacket *tspacket);
@@ -183,9 +183,12 @@ class DTVRecorder :
     mutable QAtomicInt _continuity_error_count;
     unsigned long long _frames_seen_count;
     unsigned long long _frames_written_count;
-    double _frame_interval; // usec
-    double _frame_duration; // usec
     double _total_duration; // usec
+    // Calculate _total_duration as
+    // _td_base + (_td_tick_count * _td_tick_framerate / 2)
+    double _td_base;
+    uint64_t _td_tick_count;
+    FrameRate _td_tick_framerate;
 
     // constants
     /// If the number of regular frames detected since the last

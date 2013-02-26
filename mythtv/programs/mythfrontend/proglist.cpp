@@ -21,6 +21,7 @@ using namespace std;
 #include "proglist.h"
 #include "mythdb.h"
 #include "mythdate.h"
+#include "guidegrid.h"
 
 #define LOC      QString("ProgLister: ")
 #define LOC_WARN QString("ProgLister, Warning: ")
@@ -243,6 +244,8 @@ bool ProgLister::keyPressEvent(QKeyEvent *e)
             ShowUpcoming();
         else if (action == "DETAILS" || action == "INFO")
             ShowDetails();
+        else if (action == "GUIDE")
+            ShowGuide();
         else if (action == "TOGGLERECORD")
             RecordSelected();
         else if (action == "1")
@@ -309,6 +312,7 @@ void ProgLister::ShowMenu(void)
 
     menu->AddItem(tr("Edit Schedule"),   SLOT(EditScheduled()));
     menu->AddItem(tr("Program Details"), SLOT(ShowDetails()));
+    menu->AddItem(tr("Program Guide"),   SLOT(ShowGuide()));
     menu->AddItem(tr("Upcoming"),        SLOT(ShowUpcoming()));
     menu->AddItem(tr("Custom Edit"),     SLOT(EditCustom()));
 
@@ -762,6 +766,17 @@ void ProgLister::ShowOldRecordedMenu(void)
         mainStack->AddScreen(menuPopup);
     else
         delete menuPopup;
+}
+
+void ProgLister::ShowGuide(void)
+{
+    ProgramInfo *pi = GetCurrent();
+    if (pi)
+    {
+        GuideGrid::RunProgramGuide(pi->GetChanID(), pi->GetChanNum(),
+                                   pi->GetScheduledStartTime(),
+                                   NULL, this, -2);
+    }
 }
 
 void ProgLister::ShowUpcoming(void)

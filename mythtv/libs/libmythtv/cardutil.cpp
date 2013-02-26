@@ -1621,7 +1621,7 @@ vector<uint> CardUtil::GetSharedInputGroups(uint cardid)
         return list;
 
     list = GetInputGroups(inputs[0]);
-    for (uint i = 1; (i < inputs.size()) && list.size(); i++)
+    for (uint i = 1; (i < inputs.size()) && !list.empty(); i++)
     {
         vector<uint> curlist = GetInputGroups(inputs[i]);
         vector<uint> newlist;
@@ -1859,7 +1859,7 @@ InputNames CardUtil::ProbeV4LVideoInputs(int videofd, bool &ok)
 #endif // USING_V4L1
 
     // Create an input on single input cards that don't advertise input
-    if (!list.size())
+    if (list.isEmpty())
         list[0] = "Television";
 
     ok = true;

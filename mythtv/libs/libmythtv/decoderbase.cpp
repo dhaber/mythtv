@@ -27,7 +27,8 @@ DecoderBase::DecoderBase(MythPlayer *parent, const ProgramInfo &pginfo)
       current_aspect(1.33333), fps(29.97),
       bitrate(4000),
 
-      framesPlayed(0), framesRead(0), totalDuration(0),
+      framesPlayed(0), framesRead(0),
+      totalDuration(AVRationalInit(0)),
       lastKey(0), keyframedist(-1), indexOffset(0),
       trackTotalDuration(false),
 
@@ -85,7 +86,7 @@ void DecoderBase::Reset(bool reset_video_data, bool seek_reset, bool reset_file)
         ResetPosMap();
         framesPlayed = 0;
         framesRead = 0;
-        totalDuration = 0;
+        totalDuration = AVRationalInit(0);
         dontSyncPositionMap = false;
     }
 
@@ -499,15 +500,18 @@ bool DecoderBase::FindPosition(long long desired_value, bool search_adjusted,
 
     upper_bound = upper;
     lower_bound = lower;
+    bool empty = m_positionMap.empty();
 
     LOG(VB_PLAYBACK, LOG_INFO, LOC +
         QString("FindPosition(%1, search%3 adjusted)")
             .arg(desired_value).arg((search_adjusted) ? "" : " not") +
         QString(" --> \n\t\t\t[%1:%2(%3),%4:%5(%6)]")
-            .arg(lower_bound).arg(GetKey(m_positionMap[lower_bound]))
+            .arg(lower_bound)
+            .arg(empty ? -1 : GetKey(m_positionMap[lower_bound]))
             .arg(m_positionMap[lower_bound].pos)
-            .arg(upper_bound).arg(GetKey(m_positionMap[upper_bound]))
-            .arg(m_positionMap[upper_bound].pos));
+            .arg(upper_bound)
+            .arg(empty ? -1 : GetKey(m_positionMap[upper_bound]))
+            .arg(empty ? -1 : m_positionMap[upper_bound].pos));
 
     return false;
 }
@@ -888,7 +892,7 @@ void DecoderBase::FileChanged(void)
     ResetPosMap();
     framesPlayed = 0;
     framesRead = 0;
-    totalDuration = 0;
+    totalDuration = AVRationalInit(0);
 
     waitingForChange = false;
     justAfterChange = true;
@@ -1259,10 +1263,10 @@ QString toString(AudioTrackType type)
 
 void DecoderBase::SaveTotalDuration(void)
 {
-    if (!m_playbackinfo || !totalDuration)
+    if (!m_playbackinfo || av_q2d(totalDuration) == 0)
         return;
 
-    m_playbackinfo->SaveTotalDuration(totalDuration);
+    m_playbackinfo->SaveTotalDuration(1000 * av_q2d(totalDuration));
 }
 
 void DecoderBase::SaveTotalFrames(void)

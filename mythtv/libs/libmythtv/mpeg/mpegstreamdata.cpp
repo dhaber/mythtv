@@ -639,7 +639,7 @@ bool MPEGStreamData::CreatePMTSingleProgram(const ProgramMapTable &pmt)
     for (uint i = 0; i < audioPIDs.size(); i++)
         AddAudioPID(audioPIDs[i]);
 
-    if (videoPIDs.size() >= 1)
+    if (!videoPIDs.empty())
         _pid_video_single_program = videoPIDs[0];
     for (uint i = 1; i < videoPIDs.size(); i++)
         AddWritingPID(videoPIDs[i]);
@@ -831,7 +831,7 @@ void MPEGStreamData::ProcessPAT(const ProgramAssociationTable *pat)
         QMutexLocker locker(&_listener_lock);
         ProgramAssociationTable *pat_sp = PATSingleProgram();
         for (uint i = 0; i < _mpeg_sp_listeners.size(); i++)
-            _mpeg_sp_listeners[i]->HandleSingleProgramPAT(pat_sp);
+            _mpeg_sp_listeners[i]->HandleSingleProgramPAT(pat_sp, false);
     }
 }
 
@@ -866,7 +866,7 @@ void MPEGStreamData::ProcessPMT(const ProgramMapTable *pmt)
         QMutexLocker locker(&_listener_lock);
         ProgramMapTable *pmt_sp = PMTSingleProgram();
         for (uint i = 0; i < _mpeg_sp_listeners.size(); i++)
-            _mpeg_sp_listeners[i]->HandleSingleProgramPMT(pmt_sp);
+            _mpeg_sp_listeners[i]->HandleSingleProgramPMT(pmt_sp, false);
     }
 }
 
@@ -977,7 +977,7 @@ void MPEGStreamData::HandleTSTables(const TSPacket* tspacket)
             QMutexLocker locker(&_listener_lock);
             ProgramAssociationTable *pat_sp = PATSingleProgram();
             for (uint i = 0; i < _mpeg_sp_listeners.size(); i++)
-                _mpeg_sp_listeners[i]->HandleSingleProgramPAT(pat_sp);
+                _mpeg_sp_listeners[i]->HandleSingleProgramPAT(pat_sp, false);
         }
         if (TableID::PMT == psip->TableID() &&
             tspacket->PID() == _pid_pmt_single_program)
@@ -985,7 +985,7 @@ void MPEGStreamData::HandleTSTables(const TSPacket* tspacket)
             QMutexLocker locker(&_listener_lock);
             ProgramMapTable *pmt_sp = PMTSingleProgram();
             for (uint i = 0; i < _mpeg_sp_listeners.size(); i++)
-                _mpeg_sp_listeners[i]->HandleSingleProgramPMT(pmt_sp);
+                _mpeg_sp_listeners[i]->HandleSingleProgramPMT(pmt_sp, false);
         }
         DONE_WITH_PSIP_PACKET(); // already parsed this table, toss it.
     }

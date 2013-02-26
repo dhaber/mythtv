@@ -343,7 +343,8 @@ static void startGuide(void)
     uint chanid = 0;
     QString channum = gCoreContext->GetSetting("DefaultTVChannel");
     channum = (channum.isEmpty()) ? "3" : channum;
-    GuideGrid::RunProgramGuide(chanid, channum, NULL, false, true, -2);
+    QDateTime startTime;
+    GuideGrid::RunProgramGuide(chanid, channum, startTime, NULL, false, true, -2);
 }
 
 static void startFinder(void)
@@ -505,7 +506,7 @@ static void startPlaybackWithGroup(QString recGroup = "")
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
     PlaybackBox *pbb = new PlaybackBox(
-        mainStack, "playbackbox", PlaybackBox::kPlayBox);
+        mainStack, "playbackbox");
 
     if (pbb->Create())
     {
@@ -521,19 +522,6 @@ static void startPlaybackWithGroup(QString recGroup = "")
 static void startPlayback(void)
 {
     startPlaybackWithGroup();
-}
-
-static void startDelete(void)
-{
-    MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
-
-    PlaybackBox *pbb = new PlaybackBox(
-        mainStack, "deletebox", PlaybackBox::kDeleteBox);
-
-    if (pbb->Create())
-        mainStack->AddScreen(pbb);
-    else
-        delete pbb;
 }
 
 static void startPrevious(void)
@@ -808,8 +796,6 @@ static void TVMenuCallback(void *data, QString &selection)
     }
     else if (sel == "tv_schedule")
         startGuide();
-    else if (sel == "tv_delete")
-        startDelete();
     else if (sel == "tv_manualschedule")
         startManualSchedule();
     else if (sel == "tv_custom_record")
@@ -1306,8 +1292,6 @@ static void InitJumpPoints(void)
          "Priorities"), "", "", startChannelRecPriorities);
      REG_JUMPLOC(QT_TRANSLATE_NOOP("MythControls", "TV Recording Playback"),
          "", "", startPlayback, "JUMPREC");
-     REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "TV Recording Deletion"),
-         "", "", startDelete);
      REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Live TV"),
          "", "", startTVNormal);
      REG_JUMP(QT_TRANSLATE_NOOP("MythControls", "Live TV In Guide"),

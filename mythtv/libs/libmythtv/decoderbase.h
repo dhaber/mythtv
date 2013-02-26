@@ -111,6 +111,13 @@ class StreamInfo
 };
 typedef vector<StreamInfo> sinfo_vec_t;
 
+inline AVRational AVRationalInit(int num, int den = 1) {
+    AVRational result;
+    result.num = num;
+    result.den = den;
+    return result;
+}
+
 class DecoderBase
 {
   public:
@@ -257,7 +264,7 @@ class DecoderBase
     virtual bool SetVideoByComponentTag(int) { return false; }
 
     void SaveTotalDuration(void);
-    void ResetTotalDuration(void) { totalDuration = 0; }
+    void ResetTotalDuration(void) { totalDuration = AVRationalInit(0); }
     void SaveTotalFrames(void);
     bool GetVideoInverted(void) const { return video_inverted; }
     void TrackTotalDuration(bool track) { trackTotalDuration = track; }
@@ -297,7 +304,7 @@ class DecoderBase
 
     long long framesPlayed;
     long long framesRead;
-    int64_t totalDuration;
+    AVRational totalDuration;
     long long lastKey;
     int keyframedist;
     long long indexOffset;

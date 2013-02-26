@@ -262,7 +262,7 @@ void MetadataFactory::VideoScan(QStringList hosts)
 
 void MetadataFactory::OnMultiResult(MetadataLookupList list)
 {
-    if (!list.size())
+    if (list.isEmpty())
         return;
 
     if (m_parent)
