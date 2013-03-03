@@ -1,5 +1,10 @@
 include ( ../../settings.pro )
 
+QT += network xml sql script
+contains(QT_VERSION, ^5\\.[0-9]\\..*) {
+QT += widgets
+}
+
 TEMPLATE = lib
 TARGET = myth-$$LIBVERSION
 CONFIG += thread dll
@@ -7,13 +12,18 @@ target.path = $${LIBDIR}
 INSTALLS = target
 DEFINES += MYTH_API
 
-
-QT += network xml sql script
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
-
 QMAKE_CLEAN += $(TARGET) $(TARGETA) $(TARGETD) $(TARGET0) $(TARGET1) $(TARGET2)
+
+POSTINC =
+
+contains(INCLUDEPATH, /usr/include) {
+  POSTINC += /usr/include
+  INCLUDEPATH -= /usr/include
+}
+contains(INCLUDEPATH, /usr/local/include) {
+  POSTINC += /usr/local/include
+  INCLUDEPATH -= /usr/local/include
+}
 
 # Input
 HEADERS += audio/audiooutput.h audio/audiooutputbase.h audio/audiooutputnull.h
@@ -25,7 +35,7 @@ HEADERS += backendselect.h dbsettings.h dialogbox.h
 HEADERS += langsettings.h
 HEADERS += mythconfigdialogs.h mythconfiggroups.h
 HEADERS += mythcontext.h mythdialogs.h
-HEADERS += mythevent.h mythexp.h mythmediamonitor.h
+HEADERS += mythexp.h mythmediamonitor.h
 HEADERS += mythwidgets.h mythwizard.h schemawizard.h
 HEADERS += output.h
 HEADERS += settings.h
@@ -36,8 +46,7 @@ HEADERS += remoteutil.h
 HEADERS += rawsettingseditor.h
 HEADERS += programinfo.h          programinfoupdater.h
 HEADERS += programtypes.h         recordingtypes.h
-HEADERS += mythrssmanager.h       netgrabbermanager.h
-HEADERS += rssparse.h             netutils.h
+HEADERS += rssparse.h
 
 # remove when everything is switched to mythui
 HEADERS += virtualkeyboard_qt.h uitypes.h xmlparse.h
@@ -63,12 +72,18 @@ SOURCES += remoteutil.cpp
 SOURCES += rawsettingseditor.cpp
 SOURCES += programinfo.cpp        programinfoupdater.cpp
 SOURCES += programtypes.cpp       recordingtypes.cpp
-SOURCES += mythrssmanager.cpp     netgrabbermanager.cpp
-SOURCES += rssparse.cpp           netutils.cpp
+SOURCES += rssparse.cpp
 
 # remove when everything is switched to mythui
 SOURCES += virtualkeyboard_qt.cpp uitypes.cpp xmlparse.cpp
 
+# This stuff is not Qt5 compatible..
+contains(QT_VERSION, ^4\\.[0-9]\\..*) {
+HEADERS += mythrssmanager.h             netutils.h
+HEADERS += netgrabbermanager.h
+SOURCES += mythrssmanager.cpp           netutils.cpp
+SOURCES += netgrabbermanager.cpp
+}
 
 INCLUDEPATH += ../libmythsamplerate ../libmythsoundtouch ../libmythfreesurround
 INCLUDEPATH += ../libmythbase
@@ -115,8 +130,13 @@ inc.files += mythconfigdialogs.h mythconfiggroups.h
 inc.files += mythterminal.h       remoteutil.h
 inc.files += programinfo.h
 inc.files += programtypes.h       recordingtypes.h
-inc.files += mythrssmanager.h     netgrabbermanager.h
-inc.files += rssparse.h           netutils.h
+inc.files += rssparse.h
+
+# This stuff is not Qt5 compatible..
+contains(QT_VERSION, ^4\\.[0-9]\\..*) {
+inc.files += mythrssmanager.h     netutils.h
+inc.files += netgrabbermanager.h
+}
 
 # remove when everything is switched to mythui
 inc.files += virtualkeyboard_qt.h xmlparse.h

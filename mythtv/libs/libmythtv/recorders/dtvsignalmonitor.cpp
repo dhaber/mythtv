@@ -4,7 +4,6 @@
 using namespace std;
 
 #include "dtvchannel.h"
-#include "dvbchannel.h"
 #include "dtvsignalmonitor.h"
 #include "scanstreamdata.h"
 #include "mpegtables.h"

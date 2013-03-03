@@ -817,7 +817,7 @@ bool AvFormatDecoder::CanHandle(char testbuf[kDecoderProbeBufferSize],
 
     AVProbeData probe;
 
-    QByteArray fname = filename.toAscii();
+    QByteArray fname = filename.toLatin1();
     probe.filename = fname.constData();
     probe.buf = (unsigned char *)testbuf;
     probe.buf_size = testbufsize;
@@ -950,7 +950,7 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
 
     AVInputFormat *fmt      = NULL;
     QString        fnames   = ringBuffer->GetFilename();
-    QByteArray     fnamea   = fnames.toAscii();
+    QByteArray     fnamea   = fnames.toLatin1();
     const char    *filename = fnamea.constData();
 
     AVProbeData probe;
@@ -1380,8 +1380,6 @@ void AvFormatDecoder::InitVideoCodec(AVStream *stream, AVCodecContext *enc,
         FlagIsSet(kDecodeFewBlocks) || FlagIsSet(kDecodeNoLoopFilter)   ||
         FlagIsSet(kDecodeNoDecode))
     {
-        enc->flags2 |= CODEC_FLAG2_FAST;
-
         if ((AV_CODEC_ID_MPEG2VIDEO == codec->id) ||
             (AV_CODEC_ID_MPEG1VIDEO == codec->id))
         {
@@ -3132,7 +3130,7 @@ int AvFormatDecoder::H264PreProcessPkt(AVStream *stream, AVPacket *pkt)
         uint  height = m_h264_parser->pictureHeight();
         if (height == 1088 && current_height == 1080)
             height = 1080;
-        float seqFPS = m_h264_parser->frameRate() * 0.001f;
+        float seqFPS = m_h264_parser->frameRate();
 
         bool res_changed = ((width  != (uint)current_width) ||
                             (height != (uint)current_height));

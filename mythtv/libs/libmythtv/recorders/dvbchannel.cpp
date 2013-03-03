@@ -216,7 +216,7 @@ bool DVBChannel::Open(DVBChannel *who)
     ReturnMasterLock(master); // if we're the master we don't need this lock..
 
     QString devname = CardUtil::GetDeviceName(DVB_DEV_FRONTEND, device);
-    QByteArray devn = devname.toAscii();
+    QByteArray devn = devname.toLatin1();
 
     for (int tries = 1; ; ++tries)
     {
@@ -271,8 +271,6 @@ bool DVBChannel::Open(DVBChannel *who)
         if (diseqc_tree)
             diseqc_tree->Open(fd_frontend);
     }
-
-    dvbcam->Start();
 
     first_tune = true;
 
@@ -491,6 +489,8 @@ bool DVBChannel::CheckModulation(DTVModulation modulation) const
  */
 void DVBChannel::SetPMT(const ProgramMapTable *pmt)
 {
+    if (!dvbcam->IsRunning())
+        dvbcam->Start();
     if (pmt && dvbcam->IsRunning())
         dvbcam->SetPMT(this, pmt);
 }
