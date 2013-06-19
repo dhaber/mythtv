@@ -920,7 +920,7 @@ void PlaybackProfileConfig::Save(void)
 
 void PlaybackProfileConfig::pressed(QString cmd)
 {
-    if (cmd.left(4) == "edit")
+    if (cmd.startsWith("edit"))
     {
         uint i = cmd.mid(4).toUInt();
         PlaybackProfileItemConfig itemcfg(items[i]);
@@ -931,7 +931,7 @@ void PlaybackProfileConfig::pressed(QString cmd)
         InitLabel(i);
         needs_save = true;
     }
-    else if (cmd.left(3) == "del")
+    else if (cmd.startsWith("del"))
     {
         uint i = cmd.mid(3).toUInt();
         del_items.push_back(items[i]);
@@ -1662,9 +1662,9 @@ static HostComboBox *XineramaMonitorAspectRatio()
 {
     HostComboBox *gc = new HostComboBox("XineramaMonitorAspectRatio");
     gc->setLabel(QObject::tr("Monitor aspect ratio"));
-    gc->addSelection(QObject::tr("4:3"),   "1.3333");
     gc->addSelection(QObject::tr("16:9"),  "1.7777");
     gc->addSelection(QObject::tr("16:10"), "1.6");
+    gc->addSelection(QObject::tr("4:3"),   "1.3333");
     gc->setHelpText(QObject::tr(
                         "The aspect ratio of a Xinerama display cannot be "
                         "queried from the display, so it must be specified."));
@@ -2558,18 +2558,6 @@ static HostCheckBox *RealtimePriority()
     return gc;
 }
 
-static HostCheckBox *EnableMediaMon()
-{
-    HostCheckBox *gc = new HostCheckBox("MonitorDrives");
-    gc->setLabel(QObject::tr("Monitor CD/DVD") +
-                 QObject::tr(" (and other removable devices)"));
-    gc->setHelpText(QObject::tr("This enables support for monitoring your "
-                    "CD/DVD drives for new disks and launching the proper "
-                    "plugin to handle them. Requires restart."));
-    gc->setValue(false);
-    return gc;
-}
-
 static HostLineEdit *IgnoreMedia()
 {
     HostLineEdit *ge = new HostLineEdit("IgnoreDevices");
@@ -2581,29 +2569,6 @@ static HostLineEdit *IgnoreMedia()
                                 "Requires restart."));
     return ge;
 }
-
-class MythMediaSettings : public TriggeredConfigurationGroup
-{
-  public:
-     MythMediaSettings() :
-         TriggeredConfigurationGroup(false, false, true, true)
-     {
-         setLabel(QObject::tr("MythMediaMonitor"));
-         setUseLabel(false);
-
-         Setting* enabled = EnableMediaMon();
-         addChild(enabled);
-         setTrigger(enabled);
-
-         ConfigurationGroup* settings = new VerticalConfigurationGroup(false);
-         settings->addChild(IgnoreMedia());
-         addTarget("1", settings);
-
-         // show nothing if fillEnabled is off
-         addTarget("0", new VerticalConfigurationGroup(true));
-     };
-};
-
 
 static HostComboBox *DisplayGroupTitleSort()
 {
@@ -3142,8 +3107,7 @@ MainGeneralSettings::MainGeneralSettings()
     VerticalConfigurationGroup *media =
         new VerticalConfigurationGroup(false, true, false, false);
     media->setLabel(QObject::tr("Media Monitor"));
-    MythMediaSettings *mediaMon = new MythMediaSettings();
-    media->addChild(mediaMon);
+    media->addChild(IgnoreMedia());
     addChild(media);
 
     VerticalConfigurationGroup *remotecontrol =

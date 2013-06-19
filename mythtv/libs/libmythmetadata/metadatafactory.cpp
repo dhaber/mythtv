@@ -612,17 +612,15 @@ LookupType GuessLookupType(ProgramInfo *pginfo)
 {
     LookupType ret = kUnknownVideo;
 
-    QString catType = pginfo->GetCategoryType();
-    if (catType.isEmpty())
+    ProgramInfo::CategoryType catType = pginfo->GetCategoryType();
+    if (catType == ProgramInfo::kCategoryNone)
         catType = pginfo->QueryCategoryType();
 
-    if (catType == "tvshow")
+    if ((!pginfo->GetSubtitle().isEmpty() || pginfo->GetEpisode() > 0) &&
+       (catType == ProgramInfo::kCategorySeries ||
+        catType == ProgramInfo::kCategoryTVShow))
         ret = kProbableTelevision;
-
-    else if (catType == "series")
-        ret = pginfo->GetProgramID().endsWith("0000") ? kProbableGenericTelevision : kProbableTelevision;
-
-    else if (catType == "movie" || catType == "film")
+    else if (catType == ProgramInfo::kCategoryMovie)
         ret = kProbableMovie;
     else if (pginfo->GetSeason() > 0 || pginfo->GetEpisode() > 0 ||
         !pginfo->GetSubtitle().isEmpty())

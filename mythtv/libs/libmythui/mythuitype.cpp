@@ -182,6 +182,9 @@ void MythUIType::DeleteChild(const QString &name)
  */
 void MythUIType::DeleteChild(MythUIType *child)
 {
+    if (!child)
+        return;
+
     QMutableListIterator<MythUIType *> it(m_ChildrenList);
 
     while (it.hasNext())
@@ -435,6 +438,7 @@ void MythUIType::HandleAlphaPulse(void)
         {
             m_AlphaChangeMode = 0;
             m_AlphaChange = 0;
+            emit FinishedFading();
         }
     }
 

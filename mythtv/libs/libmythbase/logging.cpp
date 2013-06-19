@@ -22,7 +22,7 @@ using namespace std;
 #include "mythdb.h"
 #include "mythdirs.h"
 #include "mythcorecontext.h"
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 #include "mythsignalingtimer.h"
 #include "dbutil.h"
 #include "exitcodes.h"
@@ -138,17 +138,19 @@ void loggingGetTimeStamp(qlonglong *epoch, uint *usec)
 }
 
 LoggingItem::LoggingItem() :
-        ReferenceCounter("LoggingItem", false), m_file(NULL),
-        m_function(NULL), m_threadName(NULL), m_appName(NULL), m_table(NULL),
-        m_logFile(NULL)
+        ReferenceCounter("LoggingItem", false),
+        m_pid(-1), m_tid(-1), m_threadId(-1), m_usec(0), m_line(0),
+        m_type(kMessage), m_level((LogLevel_t)LOG_INFO), m_facility(0),
+        m_file(NULL), m_function(NULL), m_threadName(NULL), m_appName(NULL),
+        m_table(NULL), m_logFile(NULL)
 {
 }
 
 LoggingItem::LoggingItem(const char *_file, const char *_function,
                          int _line, LogLevel_t _level, LoggingType _type) :
-        ReferenceCounter("LoggingItem", false),
+        ReferenceCounter("LoggingItem", false), m_pid(-1),
         m_threadId((uint64_t)(QThread::currentThreadId())),
-        m_line(_line), m_type(_type), m_level(_level),
+        m_line(_line), m_type(_type), m_level(_level), m_facility(0),
         m_file(strdup(_file)), m_function(strdup(_function)),
         m_threadName(NULL), m_appName(NULL), m_table(NULL), m_logFile(NULL)
 {
@@ -256,7 +258,7 @@ LoggerThread::LoggerThread(QString filename, bool progress, bool quiet,
     m_aborted(false), m_initialWaiting(true),
     m_filename(filename), m_progress(progress),
     m_quiet(quiet), m_appname(QCoreApplication::applicationName()),
-    m_tablename(table), m_facility(facility), m_pid(getpid()),
+    m_tablename(table), m_facility(facility), m_pid(getpid()), m_epoch(0),
     m_zmqContext(NULL), m_zmqSocket(NULL), m_initialTimer(NULL), 
     m_heartbeatTimer(NULL)
 {
@@ -493,7 +495,7 @@ void LoggerThread::launchLogServer(void)
         QStringList args;
         args << "--daemon" << logPropagateArgs;
 
-        MythSystem ms(GetInstallPrefix() + "/bin/mythlogserver", args, mask);
+        MythSystemLegacy ms(GetInstallPrefix() + "/bin/mythlogserver", args, mask);
         ms.Run();
         ms.Wait(0);
     }
@@ -1120,7 +1122,7 @@ int verboseArgParse(QString arg)
         option = (*it).toLower();
         bool reverseOption = false;
 
-        if (option != "none" && option.left(2) == "no")
+        if (option != "none" && option.startsWith("no"))
         {
             reverseOption = true;
             option = option.right(option.length() - 2);

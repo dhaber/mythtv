@@ -91,13 +91,13 @@ static int movie_request_frame(AVFilterLink *outlink);
 static AVStream *find_stream(void *log, AVFormatContext *avf, const char *spec)
 {
     int i, ret, already = 0, stream_id = -1;
-    char type_char, dummy;
+    char type_char[2], dummy;
     AVStream *found = NULL;
     enum AVMediaType type;
 
-    ret = sscanf(spec, "d%[av]%d%c", &type_char, &stream_id, &dummy);
+    ret = sscanf(spec, "d%1[av]%d%c", type_char, &stream_id, &dummy);
     if (ret >= 1 && ret <= 2) {
-        type = type_char == 'v' ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
+        type = type_char[0] == 'v' ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
         ret = av_find_best_stream(avf, type, stream_id, -1, NULL, 0);
         if (ret < 0) {
             av_log(log, AV_LOG_ERROR, "No %s stream with index '%d' found\n",
@@ -197,9 +197,12 @@ static av_cold int movie_common_init(AVFilterContext *ctx, const char *args, con
     movie->class = class;
     av_opt_set_defaults(movie);
 
-    if (args)
+    if (args) {
         movie->file_name = av_get_token(&args, ":");
-    if (!movie->file_name || !*movie->file_name) {
+        if (!movie->file_name)
+            return AVERROR(ENOMEM);
+    }
+    if (!args || !*movie->file_name) {
         av_log(ctx, AV_LOG_ERROR, "No filename provided!\n");
         return AVERROR(EINVAL);
     }
@@ -569,12 +572,9 @@ static int movie_push_frame(AVFilterContext *ctx, unsigned out_id)
     case AVMEDIA_TYPE_VIDEO:
         if (!movie->frame->sample_aspect_ratio.num)
             buf->video->sample_aspect_ratio = st->st->sample_aspect_ratio;
-        ff_start_frame(outlink, buf);
-        ff_draw_slice(outlink, 0, outlink->h, 1);
-        ff_end_frame(outlink);
-        break;
+        /* Fall through */
     case AVMEDIA_TYPE_AUDIO:
-        ff_filter_samples(outlink, buf);
+        ff_filter_frame(outlink, buf);
         break;
     }
 
@@ -612,7 +612,7 @@ AVFilter avfilter_avsrc_movie = {
     .query_formats = movie_query_formats,
 
     .inputs    = NULL,
-    .outputs   = (const AVFilterPad[]) {{ .name = NULL }},
+    .outputs   = NULL,
     .priv_class = &movie_class,
 };
 
@@ -636,8 +636,8 @@ AVFilter avfilter_avsrc_amovie = {
     .uninit        = movie_uninit,
     .query_formats = movie_query_formats,
 
-    .inputs    = (const AVFilterPad[]) {{ .name = NULL }},
-    .outputs   = (const AVFilterPad[]) {{ .name = NULL }},
+    .inputs     = NULL,
+    .outputs    = NULL,
     .priv_class = &amovie_class,
 };
 

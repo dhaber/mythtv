@@ -37,7 +37,7 @@ using namespace std;
 // MythTV headers
 #include <mythdate.h>
 #include <mythdbcon.h>
-#include <mythsystem.h>
+#include <mythsystemlegacy.h>
 #include <mythcontext.h>
 #include <mythlogging.h>
 #include <mythmainwindow.h>
@@ -105,30 +105,24 @@ void FileCopyThread::run()
 
 IconView::IconView(MythScreenStack *parent, const char *name,
                    const QString &galleryDir, MythMediaDevice *initialDevice)
-        : MythScreenType(parent, name)
+        : MythScreenType(parent, name),
+            m_galleryDir(galleryDir),
+            m_galleryFilter(new GalleryFilter()),
+            m_imageList(NULL),
+            m_captionText(NULL),    m_crumbsText(NULL),
+            m_positionText(NULL),   m_noImagesText(NULL),
+            m_selectedImage(NULL),  m_menuPopup(NULL),
+            m_popupStack(NULL),
+            m_isGallery(false),     m_showDevices(false),
+            m_currDevice(initialDevice),
+            m_thumbGen(new ThumbGenerator(this, 0, 0)),
+            m_childCountThread(new ChildCountThread(this))
 {
-    m_galleryDir = galleryDir;
-    m_galleryFilter = new GalleryFilter();
-
-    m_isGallery = false;
-    m_showDevices = false;
-    m_currDevice = initialDevice;
-
-    m_thumbGen = new ThumbGenerator(this, 0, 0);
-    m_childCountThread = new ChildCountThread(this);
-
     m_showcaption = gCoreContext->GetNumSetting("GalleryOverlayCaption", 0);
     m_sortorder = gCoreContext->GetNumSetting("GallerySortOrder", 0);
     m_useOpenGL = gCoreContext->GetNumSetting("SlideshowUseOpenGL", 0);
     m_recurse = gCoreContext->GetNumSetting("GalleryRecursiveSlideshow", 0);
     m_paths = gCoreContext->GetSetting("GalleryImportDirs").split(":");
-    m_errorStr = QString::null;
-
-    m_captionText = NULL;
-    m_noImagesText = NULL;
-    m_selectedImage = NULL;
-
-    m_menuPopup = NULL;
 
     QDir dir(m_galleryDir);
     if (!dir.exists() || !dir.isReadable())
@@ -387,7 +381,7 @@ void IconView::UpdateText(MythUIButtonListItem *item)
 
     if (m_positionText)
         m_positionText->SetText(tr("%1 of %2")
-                                .arg(m_imageList->GetCurrentPos() + 1)
+                                .arg(m_imageList->IsEmpty() ? 0 : m_imageList->GetCurrentPos() + 1)
                                 .arg(m_imageList->GetCount()));
 
     ThumbItem *thumbitem = qVariantValue<ThumbItem *>(item->GetData());
@@ -455,6 +449,8 @@ bool IconView::keyPressEvent(QKeyEvent *event)
                 HandleRotateCCW();
             else if (action == "DELETE")
                 HandleDelete();
+            else if (action == "EDIT")
+                HandleRename();
             else if (action == "MARK")
             {
                 ThumbItem *thumbitem = GetCurrentThumb();
@@ -1038,6 +1034,11 @@ void IconView::DoDeleteCurrent(bool doDelete)
     {
         ThumbItem *thumbitem = GetCurrentThumb();
 
+        int currPos = 0;
+        MythUIButtonListItem *item = m_imageList->GetItemCurrent();
+        if (item)
+            currPos = m_imageList->GetCurrentPos();
+
         if (!thumbitem)
             return;
 
@@ -1046,6 +1047,8 @@ void IconView::DoDeleteCurrent(bool doDelete)
         GalleryUtil::Delete(fi);
 
         LoadDirectory(m_currDir);
+
+        m_imageList->SetItemCurrent(currPos);
     }
 }
 
@@ -1358,6 +1361,16 @@ void IconView::DoRename(QString folderName)
 
     ThumbItem *thumbitem = GetCurrentThumb();
 
+    int currPos = 0;
+    MythUIButtonListItem *item = m_imageList->GetItemCurrent();
+    if (item)
+    {
+        currPos = m_imageList->GetCurrentPos() + 1;
+
+        if (currPos >= m_imageList->GetCount())
+            currPos = m_imageList->GetCount() - 1;
+    }
+
     if (!thumbitem)
         return;
 
@@ -1375,6 +1388,8 @@ void IconView::DoRename(QString folderName)
     }
 
     LoadDirectory(m_currDir);
+
+    m_imageList->SetItemCurrent(currPos);
 }
 
 void IconView::ImportFromDir(const QString &fromDir, const QString &toDir)

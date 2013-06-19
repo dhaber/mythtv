@@ -23,11 +23,13 @@
 // #define DEBUG 1
 
 #include "avcodec.h"
+#include "copy_block.h"
 #include "bytestream.h"
+#include "internal.h"
 #include "libavutil/bswap.h"
 #include "libavutil/imgutils.h"
-#include "libavcodec/dsputil.h"
 #include "sanm_data.h"
+#include "libavutil/avassert.h"
 
 #define NGLYPHS 256
 
@@ -229,6 +231,9 @@ static void destroy_buffers(SANMVideoContext *ctx)
     av_freep(&ctx->frm2);
     av_freep(&ctx->stored_frame);
     av_freep(&ctx->rle_buf);
+    ctx->frm0_size =
+    ctx->frm1_size =
+    ctx->frm2_size = 0;
 }
 
 static av_cold int init_buffers(SANMVideoContext *ctx)
@@ -262,7 +267,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     ctx->avctx     = avctx;
     ctx->version   = !avctx->extradata_size;
 
-    avctx->pix_fmt = ctx->version ? PIX_FMT_RGB565 : PIX_FMT_PAL8;
+    avctx->pix_fmt = ctx->version ? AV_PIX_FMT_RGB565 : AV_PIX_FMT_PAL8;
 
     init_sizes(ctx, avctx->width, avctx->height);
     if (init_buffers(ctx)) {
@@ -285,7 +290,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
         ctx->subversion = AV_RL16(avctx->extradata);
         for (i = 0; i < 256; i++)
-            ctx->pal[i] = 0xFF << 24 | AV_RL32(avctx->extradata + 2 + i * 4);
+            ctx->pal[i] = 0xFFU << 24 | AV_RL32(avctx->extradata + 2 + i * 4);
     }
 
     return 0;
@@ -414,6 +419,11 @@ static int old_codec37(SANMVideoContext *ctx, int top,
     bytestream2_skip(&ctx->gb, 4);
     flags        = bytestream2_get_byte(&ctx->gb);
     bytestream2_skip(&ctx->gb, 3);
+
+    if (decoded_size > ctx->height * stride - left - top * stride) {
+        decoded_size = ctx->height * stride - left - top * stride;
+        av_log(ctx->avctx, AV_LOG_WARNING, "decoded size is too large\n");
+    }
 
     ctx->rotate_code = 0;
 
@@ -612,6 +622,16 @@ static int process_block(SANMVideoContext *ctx, uint8_t *dst, uint8_t *prev1,
     } else {
         int mx = motion_vectors[code][0];
         int my = motion_vectors[code][1];
+        int index = prev2 - (const uint8_t*)ctx->frm2;
+
+        av_assert2(index >= 0 && index < (ctx->buf_size>>1));
+
+        if (index < - mx - my*stride ||
+            (ctx->buf_size>>1) - index < mx + size + (my + size - 1)*stride) {
+            av_log(ctx->avctx, AV_LOG_ERROR, "MV is invalid \n");
+            return AVERROR_INVALIDDATA;
+        }
+
         for (k = 0; k < size; k++)
             memcpy(dst + k * stride, prev2 + mx + (my + k) * stride, size);
     }
@@ -638,8 +658,8 @@ static int old_codec47(SANMVideoContext *ctx, int top,
     decoded_size = bytestream2_get_le32(&ctx->gb);
     bytestream2_skip(&ctx->gb, 8);
 
-    if (decoded_size > height * stride - left - top * stride) {
-        decoded_size = height * stride - left - top * stride;
+    if (decoded_size > ctx->height * stride - left - top * stride) {
+        decoded_size = ctx->height * stride - left - top * stride;
         av_log(ctx->avctx, AV_LOG_WARNING, "decoded size is too large\n");
     }
 
@@ -656,8 +676,7 @@ static int old_codec47(SANMVideoContext *ctx, int top,
         if (bytestream2_get_bytes_left(&ctx->gb) < width * height)
             return AVERROR_INVALIDDATA;
         for (j = 0; j < height; j++) {
-            for (i = 0; i < width; i++)
-                bytestream2_get_bufferu(&ctx->gb, dst, width);
+            bytestream2_get_bufferu(&ctx->gb, dst, width);
             dst += stride;
         }
         break;
@@ -720,13 +739,19 @@ static int process_frame_obj(SANMVideoContext *ctx)
     w     = bytestream2_get_le16u(&ctx->gb);
     h     = bytestream2_get_le16u(&ctx->gb);
 
+    if (!w || !h) {
+        av_log(ctx->avctx, AV_LOG_ERROR, "dimensions are invalid\n");
+        return AVERROR_INVALIDDATA;
+    }
+
     if (ctx->width < left + w || ctx->height < top + h) {
         if (av_image_check_size(FFMAX(left + w, ctx->width),
                                 FFMAX(top  + h, ctx->height), 0, ctx->avctx) < 0)
             return AVERROR_INVALIDDATA;
         avcodec_set_dimensions(ctx->avctx, FFMAX(left + w, ctx->width),
                                            FFMAX(top  + h, ctx->height));
-        init_sizes(ctx, left + w, top + h);
+        init_sizes(ctx, FFMAX(left + w, ctx->width),
+                        FFMAX(top  + h, ctx->height));
         if (init_buffers(ctx)) {
             av_log(ctx->avctx, AV_LOG_ERROR, "error resizing buffers\n");
             return AVERROR(ENOMEM);
@@ -811,7 +836,7 @@ static int draw_glyph(SANMVideoContext *ctx, uint16_t *dst, int index, uint16_t 
     uint16_t colors[2] = { fg_color, bg_color };
     int x, y;
 
-    if (index > NGLYPHS) {
+    if (index >= NGLYPHS) {
         av_log(ctx->avctx, AV_LOG_ERROR, "ignoring nonexistent glyph #%u\n", index);
         return AVERROR_INVALIDDATA;
     }
@@ -1131,7 +1156,7 @@ static int copy_output(SANMVideoContext *ctx, SANMFrameHeader *hdr)
     int ret, dstpitch, height = ctx->height;
     int srcpitch = ctx->pitch * (hdr ? sizeof(ctx->frm0[0]) : 1);
 
-    if ((ret = ctx->avctx->get_buffer(ctx->avctx, ctx->output)) < 0) {
+    if ((ret = ff_get_buffer(ctx->avctx, ctx->output)) < 0) {
         av_log(ctx->avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
@@ -1181,7 +1206,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                     return AVERROR_INVALIDDATA;
                 }
                 for (i = 0; i < 256; i++)
-                    ctx->pal[i] = 0xFF << 24 | bytestream2_get_be24u(&ctx->gb);
+                    ctx->pal[i] = 0xFFU << 24 | bytestream2_get_be24u(&ctx->gb);
                 break;
             case MKBETAG('F', 'O', 'B', 'J'):
                 if (size < 16)
@@ -1199,7 +1224,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                             int t = (ctx->pal[i] >> (16 - j * 8)) & 0xFF;
                             tmp[j] = av_clip_uint8((t * 129 + ctx->delta_pal[i * 3 + j]) >> 7);
                         }
-                        ctx->pal[i] = 0xFF << 24 | AV_RB24(tmp);
+                        ctx->pal[i] = 0xFFU << 24 | AV_RB24(tmp);
                     }
                 } else {
                     if (size < 768 * 2 + 4) {
@@ -1212,7 +1237,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                         ctx->delta_pal[i] = bytestream2_get_le16u(&ctx->gb);
                     if (size >= 768 * 5 + 4) {
                         for (i = 0; i < 256; i++)
-                            ctx->pal[i] = 0xFF << 24 | bytestream2_get_be24u(&ctx->gb);
+                            ctx->pal[i] = 0xFFU << 24 | bytestream2_get_be24u(&ctx->gb);
                     } else {
                         memset(ctx->pal, 0, sizeof(ctx->pal));
                     }

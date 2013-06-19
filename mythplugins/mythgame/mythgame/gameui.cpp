@@ -103,6 +103,13 @@ bool GameUI::Create()
 
 void GameUI::BuildTree()
 {
+    if (m_gameTree)
+    {
+        m_gameUITree->Reset();
+        delete m_gameTree;
+        m_gameTree = NULL;
+    }
+
     m_gameTree = new MythGenericTree("game root", 0, false);
 
     //  create system filter to only select games where handlers are present
@@ -269,7 +276,7 @@ void GameUI::itemClicked(MythUIButtonListItem*)
         else
         {
             //: %1 is the game name
-            QString msg = tr("Choose System for:\n%1").arg(node->getString());
+            QString msg = tr("Choose System for:\n%1").arg(node->GetText());
             MythScreenStack *popupStack = GetMythMainWindow()->
                                               GetStack("popup stack");
             MythDialogBox *chooseSystemPopup = new MythDialogBox(
@@ -431,7 +438,7 @@ void GameUI::showMenu()
     MythScreenStack *popupStack = GetMythMainWindow()->
                                           GetStack("popup stack");
     MythDialogBox *showMenuPopup =
-            new MythDialogBox(node->getString(), popupStack, "showMenuPopup");
+            new MythDialogBox(node->GetText(), popupStack, "showMenuPopup");
 
     if (showMenuPopup->Create())
     {
@@ -471,7 +478,7 @@ void GameUI::searchStart(void)
         for (it = children->begin(); it != children->end(); ++it)
         {
             MythGenericTree *child = *it;
-            childList << child->getString();
+            childList << child->GetText();
         }
 
         MythScreenStack *popupStack =
@@ -552,7 +559,7 @@ void GameUI::customEvent(QEvent *event)
 
             RomInfo *romInfo = qVariantValue<RomInfo *>(dce->GetData());
             node->SetData(qVariantFromValue(romInfo));
-            node->setString(romInfo->Gamename());
+            node->SetText(romInfo->Gamename());
 
             romInfo->SaveToDatabase();
             updateChangedNode(node, romInfo);
@@ -637,7 +644,7 @@ void GameUI::customEvent(QEvent *event)
 
 QString GameUI::getFillSql(MythGenericTree *node) const
 {
-    QString layer = node->getString();
+    QString layer = node->GetText();
     int childDepth = node->getInt() + 1;
     QString childLevel = getChildLevelString(node);
     QString filter = getFilter(node);
@@ -790,7 +797,7 @@ bool GameUI::isLeaf(MythGenericTree *node) const
 
 void GameUI::fillNode(MythGenericTree *node)
 {
-    QString layername = node->getString();
+    QString layername = node->GetText();
     RomInfo *romInfo = qVariantValue<RomInfo *>(node->GetData());
 
     MSqlQuery query(MSqlQuery::InitCon());
@@ -1106,11 +1113,6 @@ void GameUI::reloadAllData(bool dbChanged)
     m_scanner = NULL;
 
     if (dbChanged)
-    {
-        m_gameUITree->Reset();
-        delete m_gameTree;
-        m_gameTree = NULL;
         BuildTree();
-    }
 }
 

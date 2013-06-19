@@ -21,10 +21,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libavutil/intmath.h"
 #include "avcodec.h"
 #include "bytestream.h"
 #include "internal.h"
+#include "mathops.h"
 
 #define ROQ_FRAME_SIZE           735
 #define ROQ_HEADER_SIZE   8
@@ -158,6 +158,8 @@ static int roq_dpcm_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
             context->input_frames++;
             return 0;
         }
+    }
+    if (context->input_frames < 8) {
         in = context->frame_buffer;
     }
 
@@ -166,12 +168,12 @@ static int roq_dpcm_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
         context->lastSample[1] &= 0xFF00;
     }
 
-    if (context->input_frames == 7 || !in)
+    if (context->input_frames == 7)
         data_size = avctx->channels * context->buffered_samples;
     else
         data_size = avctx->channels * avctx->frame_size;
 
-    if ((ret = ff_alloc_packet2(avctx, avpkt, ROQ_HEADER_SIZE + data_size)))
+    if ((ret = ff_alloc_packet2(avctx, avpkt, ROQ_HEADER_SIZE + data_size)) < 0)
         return ret;
     out = avpkt->data;
 

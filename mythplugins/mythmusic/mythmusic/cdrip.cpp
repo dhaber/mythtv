@@ -39,7 +39,7 @@ using namespace std;
 #include <mythuibutton.h>
 #include <mythuiprogressbar.h>
 #include <mythuibuttonlist.h>
-#include <mythsystem.h>
+#include <mythsystemlegacy.h>
 
 // MythUI headers
 #include <mythtv/libmythui/mythscreenstack.h>
@@ -209,7 +209,7 @@ void CDRipperThread::run(void)
         return;
     }
 
-    Metadata *track = m_tracks->at(0)->metadata;
+    MusicMetadata *track = m_tracks->at(0)->metadata;
     QString tots;
 
     if (track->Compilation())
@@ -254,7 +254,7 @@ void CDRipperThread::run(void)
         lcd->switchToGeneric(textItems);
     }
 
-    Metadata *titleTrack = NULL;
+    MusicMetadata *titleTrack = NULL;
     QString outfile;
 
     std::auto_ptr<Encoder> encoder;
@@ -303,20 +303,20 @@ void CDRipperThread::run(void)
                     if (encodertype == "mp3")
                     {
                         outfile += ".mp3";
-                        encoder.reset(new LameEncoder(gMusicData->musicDir + outfile, m_quality,
+                        encoder.reset(new LameEncoder(getMusicDirectory() + outfile, m_quality,
                                                       titleTrack, mp3usevbr));
                     }
                     else // ogg
                     {
                         outfile += ".ogg";
-                        encoder.reset(new VorbisEncoder(gMusicData->musicDir + outfile, m_quality,
+                        encoder.reset(new VorbisEncoder(getMusicDirectory() + outfile, m_quality,
                                                         titleTrack));
                     }
                 }
                 else
                 {
                     outfile += ".flac";
-                    encoder.reset(new FlacEncoder(gMusicData->musicDir + outfile, m_quality,
+                    encoder.reset(new FlacEncoder(getMusicDirectory() + outfile, m_quality,
                                                   titleTrack));
                 }
 
@@ -673,7 +673,7 @@ void Ripper::ScanFinished()
     if (m_decoder)
     {
         QString label;
-        Metadata *metadata;
+        MusicMetadata *metadata;
 
         m_artistName.clear();
         m_albumName.clear();
@@ -752,7 +752,7 @@ void Ripper::scanCD(void)
     if (m_decoder)
         delete m_decoder;
 
-    m_decoder = new CdDecoder("cda", NULL, NULL, NULL);
+    m_decoder = new CdDecoder("cda", NULL, NULL);
     if (m_decoder)
         m_decoder->setDevice(m_CDdevice);
 }
@@ -779,7 +779,7 @@ bool Ripper::deleteExistingTrack(RipTrack *track)
     if (!track)
         return false;
 
-    Metadata *metadata = track->metadata;
+    MusicMetadata *metadata = track->metadata;
 
     if (!metadata)
         return false;
@@ -824,7 +824,7 @@ bool Ripper::deleteExistingTrack(RipTrack *track)
     if (query.next())
     {
         int trackID = query.value(0).toInt();
-        QString filename = gMusicData->musicDir + query.value(1).toString();
+        QString filename = getMusicDirectory() + query.value(1).toString();
 
         // delete file
         if (!QFile::remove(filename))
@@ -859,7 +859,7 @@ bool Ripper::somethingWasRipped()
 void Ripper::artistChanged()
 {
     QString newartist = m_artistEdit->GetText();
-    Metadata *data;
+    MusicMetadata *data;
 
     if (m_tracks->size() > 0)
     {
@@ -890,7 +890,7 @@ void Ripper::artistChanged()
 void Ripper::albumChanged()
 {
     QString newalbum = m_albumEdit->GetText();
-    Metadata *data;
+    MusicMetadata *data;
 
     if (m_tracks->size() > 0)
     {
@@ -909,7 +909,7 @@ void Ripper::albumChanged()
 void Ripper::genreChanged()
 {
     QString newgenre = m_genreEdit->GetText();
-    Metadata *data;
+    MusicMetadata *data;
 
     if (m_tracks->size() > 0)
     {
@@ -929,7 +929,7 @@ void Ripper::yearChanged()
 {
     QString newyear = m_yearEdit->GetText();
 
-    Metadata *data;
+    MusicMetadata *data;
 
     if (m_tracks->size() > 0)
     {
@@ -949,7 +949,7 @@ void Ripper::compilationChanged(bool state)
 {
     if (!state)
     {
-        Metadata *data;
+        MusicMetadata *data;
         if (m_tracks->size() > 0)
         {
             // Update artist MetaData of each track on the ablum...
@@ -975,7 +975,7 @@ void Ripper::compilationChanged(bool state)
             // Update artist MetaData of each track on the album...
             for (int trackno = 0; trackno < m_tracks->size(); ++trackno)
             {
-                Metadata *data;
+                MusicMetadata *data;
                 data = m_tracks->at(trackno)->metadata;
 
                 if (data)
@@ -998,7 +998,7 @@ void Ripper::switchTitlesAndArtists()
     if (!m_compilationCheck->GetBooleanCheckState())
         return;
 
-    Metadata *data;
+    MusicMetadata *data;
 
     // Switch title and artist for each track
     QString tmp;
@@ -1128,7 +1128,7 @@ void Ripper::updateTrackList(void)
                 break;
 
             RipTrack *track = m_tracks->at(i);
-            Metadata *metadata = track->metadata;
+            MusicMetadata *metadata = track->metadata;
 
             MythUIButtonListItem *item = new MythUIButtonListItem(m_trackList,"");
 
@@ -1172,7 +1172,7 @@ void Ripper::updateTrackList(void)
 void Ripper::searchArtist()
 {
     QString msg = tr("Select an Artist");
-    QStringList searchList = Metadata::fillFieldList("artist");
+    QStringList searchList = MusicMetadata::fillFieldList("artist");
 
     MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
     MythUISearchDialog *searchDlg = new MythUISearchDialog(popupStack, msg, searchList, false, "");
@@ -1196,7 +1196,7 @@ void Ripper::setArtist(QString artist)
 void Ripper::searchAlbum()
 {
     QString msg = tr("Select an Album");
-    QStringList searchList = Metadata::fillFieldList("album");
+    QStringList searchList = MusicMetadata::fillFieldList("album");
 
     MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
     MythUISearchDialog *searchDlg = new MythUISearchDialog(popupStack, msg, searchList, false, "");
@@ -1220,7 +1220,7 @@ void Ripper::setAlbum(QString album)
 void Ripper::searchGenre()
 {
     QString msg = tr("Select a Genre");
-    QStringList searchList = Metadata::fillFieldList("genre");
+    QStringList searchList = MusicMetadata::fillFieldList("genre");
     // load genre list
     m_searchList.clear();
     for (int x = 0; x < genre_table_size; x++)
@@ -1256,7 +1256,7 @@ void Ripper::showEditMetadataDialog(MythUIButtonListItem *item)
     if (!track)
         return;
 
-    Metadata *editMeta = track->metadata;
+    MusicMetadata *editMeta = track->metadata;
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -1294,7 +1294,13 @@ void Ripper::toggleTrackActive(MythUIButtonListItem *item)
     if (m_tracks->isEmpty() || !item)
         return;
 
-    RipTrack *track = m_tracks->at(m_trackList->GetItemPos(item));
+    int pos = m_trackList->GetItemPos(item);
+
+    // sanity check item position
+    if (pos < 0 || pos > m_tracks->count() - 1)
+        return;
+
+    RipTrack *track = m_tracks->at(pos);
 
     if (!track->active && !track->isNew)
     {
@@ -1401,17 +1407,14 @@ void Ripper::customEvent(QEvent* event)
 
 RipStatus::RipStatus(MythScreenStack *parent, const QString &device,
                      QVector<RipTrack*> *tracks, int quality)
-    : MythScreenType(parent, "ripstatus")
+    : MythScreenType(parent, "ripstatus"),
+    m_tracks(tracks),           m_quality(quality),
+    m_CDdevice(device),         m_overallText(NULL),
+    m_trackText(NULL),          m_statusText(NULL),
+    m_overallPctText(NULL),     m_trackPctText(NULL),
+    m_overallProgress(NULL),    m_trackProgress(NULL),
+    m_ripperThread(NULL)
 {
-    m_CDdevice = device;
-    m_tracks = tracks;
-    m_quality = quality;
-    m_ripperThread = NULL;
-
-    m_overallText = m_trackText = m_statusText = m_trackPctText =
-    m_overallPctText = NULL;
-
-    m_overallProgress = m_trackProgress = NULL;
 }
 
 RipStatus::~RipStatus(void)

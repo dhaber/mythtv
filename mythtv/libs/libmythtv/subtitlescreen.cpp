@@ -527,6 +527,7 @@ SubtitleScreen::SubtitleScreen(MythPlayer *player, const char * name,
     m_player(player),  m_subreader(NULL),   m_608reader(NULL),
     m_708reader(NULL), m_safeArea(QRect()),
     m_removeHTML(QRegExp("</?.+>")),        m_subtitleType(kDisplayNone),
+    m_fontSize(0),
     m_textFontZoom(100), m_textFontZoomPrev(100),
     m_textFontDelayMs(0), m_textFontDelayMsPrev(0),
     m_refreshModified(false), m_refreshDeleted(false),
@@ -557,6 +558,7 @@ void SubtitleScreen::EnableSubtitles(int type, bool forced_only)
 {
     if (forced_only)
     {
+        SetElementDeleted();
         SetVisible(true);
         SetArea(MythRect());
         return;
@@ -576,18 +578,20 @@ void SubtitleScreen::EnableSubtitles(int type, bool forced_only)
     ClearAllSubtitles();
     SetVisible(m_subtitleType != kDisplayNone);
     SetArea(MythRect());
-    m_textFontZoom  = gCoreContext->GetNumSetting("OSDCC708TextZoom", 100);
     switch (m_subtitleType)
     {
     case kDisplayTextSubtitle:
     case kDisplayRawTextSubtitle:
         m_family = kSubFamilyText;
+        m_textFontZoom  = gCoreContext->GetNumSetting("OSDCC708TextZoom", 100);
         break;
     case kDisplayCC608:
         m_family = kSubFamily608;
+        m_textFontZoom  = gCoreContext->GetNumSetting("OSDCC708TextZoom", 100);
         break;
     case kDisplayCC708:
         m_family = kSubFamily708;
+        m_textFontZoom  = gCoreContext->GetNumSetting("OSDCC708TextZoom", 100);
         break;
     case kDisplayAVSubtitle:
         m_family = kSubFamilyAV;
@@ -1443,7 +1447,8 @@ void SubtitleScreen::AddScaledImage(QImage &img, QRect &pos)
     }
 }
 
-MythFontProperties* SubtitleScreen::GetFont(CC708CharacterAttribute attr) const
+MythFontProperties *
+SubtitleScreen::GetFont(const CC708CharacterAttribute &attr) const
 {
     return m_format->GetFont(m_family, attr, m_fontSize,
                              m_textFontZoom, m_fontStretch);

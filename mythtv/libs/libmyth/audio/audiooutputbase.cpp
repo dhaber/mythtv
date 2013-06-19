@@ -20,7 +20,7 @@
 #include "spdifencoder.h"
 #include "mythlogging.h"
 
-#define LOC QString("AO: ")
+#define LOC QString("AOBase: ")
 
 #define WPOS audiobuffer + org_waud
 #define RPOS audiobuffer + raud
@@ -104,7 +104,8 @@ AudioOutputBase::AudioOutputBase(const AudioSettings &settings) :
     memory_corruption_test2(0xdeadbeef),
     memory_corruption_test3(0xdeadbeef),
     m_configure_succeeded(false),m_length_last_data(0),
-    m_spdifenc(NULL),           m_forcedprocessing(false)
+    m_spdifenc(NULL),           m_forcedprocessing(false),
+    m_previousbpf(0)
 {
     src_in = (float *)AOALIGN(src_in_buf);
     memset(&src_data,          0, sizeof(SRC_DATA));
@@ -1122,7 +1123,7 @@ void AudioOutputBase::SetAudiotime(int frames, int64_t timecode)
     }
 
     audbuf_timecode =
-        timecode + (effdsp ? ((frames + processframes_unstretched * 100000) +
+        timecode + (effdsp ? ((frames + processframes_unstretched) * 100000 +
                     (processframes_stretched * eff_stretchfactor)
                    ) / effdsp : 0);
 
@@ -1225,7 +1226,7 @@ int AudioOutputBase::CopyWithUpmix(char *buffer, int frames, uint &org_waud)
     int bpf   = bytes_per_frame;
     int off   = 0;
 
-    if (!needs_upmix)
+    if (!needs_upmix || !upmixer)
     {
         int num  = len;
 
@@ -1399,9 +1400,16 @@ bool AudioOutputBase::AddData(void *in_buffer, int in_len,
     // Calculate amount of free space required in ringbuffer
     if (processing)
     {
+        int sampleSize = AudioOutputSettings::SampleSize(format);
+        if (sampleSize <= 0)
+        {
+            // Would lead to division by zero (or unexpected results if negative)
+            VBERROR("Sample size is <= 0, AddData returning false");
+            return false;
+        }
+
         // Final float conversion space requirement
-        len = sizeof(*src_in_buf) /
-            AudioOutputSettings::SampleSize(format) * len;
+        len = sizeof(*src_in_buf) / sampleSize * len;
 
         // Account for changes in number of channels
         if (needs_downmix)
@@ -1753,6 +1761,10 @@ int AudioOutputBase::GetAudioData(uchar *buffer, int size, bool full_buffer,
     int bdiff = kAudioRingBufferSize - raud;
 
     int obytes = output_settings->SampleSize(output_format);
+
+    if (obytes <= 0)
+        return 0;
+
     bool fromFloats = processing && !enc && output_format != FORMAT_FLT;
 
     // Scale if necessary

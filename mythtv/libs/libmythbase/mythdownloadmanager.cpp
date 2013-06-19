@@ -807,7 +807,7 @@ bool MythDownloadManager::downloadNow(MythDownloadInfo *dlInfo, bool deleteInfo)
     m_queueWaitCond.wakeAll();
 
     // timeout myth:// RemoteFile transfers 20 seconds from now
-    // timeout non-myth:// QNetworkAccessManager transfers 10 seconds after
+    // timeout non-myth:// QNetworkAccessManager transfers 60 seconds after
     //    their last progress update
     QDateTime startedAt = MythDate::current();
     m_infoLock->lock();
@@ -1025,6 +1025,12 @@ void MythDownloadManager::downloadFinished(MythDownloadInfo *dlInfo)
                 .arg((long long)dlInfo)
                 .arg(reply->url().toString())
                 .arg(dlInfo->m_redirectedTo.toString()));
+
+        if (dlInfo->m_data)
+            dlInfo->m_data->clear();
+
+        dlInfo->m_bytesReceived = 0;
+        dlInfo->m_bytesTotal    = 0;
 
         QNetworkRequest request(dlInfo->m_redirectedTo);
         if (dlInfo->m_preferCache)
@@ -1521,8 +1527,17 @@ MythCookieJar::MythCookieJar()
  */
 void MythCookieJar::load(const QString &filename)
 {
+    LOG(VB_GENERAL, LOG_DEBUG, QString("MythCookieJar: loading cookies from: %1").arg(filename));
+
+    QFile f(filename);
+    if (!f.open(QIODevice::ReadOnly))
+    {
+        LOG(VB_GENERAL, LOG_WARNING, QString("MythCookieJar::load() failed to open file for reading: %1").arg(filename));
+        return;
+    }
+
     QList<QNetworkCookie> cookieList;
-    QTextStream stream((QString *)&filename, QIODevice::ReadOnly);
+    QTextStream stream(&f);
     while (!stream.atEnd())
     {
         QString cookie = stream.readLine();
@@ -1537,8 +1552,17 @@ void MythCookieJar::load(const QString &filename)
  */
 void MythCookieJar::save(const QString &filename)
 {
+    LOG(VB_GENERAL, LOG_DEBUG, QString("MythCookieJar: saving cookies to: %1").arg(filename));
+
+    QFile f(filename);
+    if (!f.open(QIODevice::WriteOnly))
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("MythCookieJar::save() failed to open file for writing: %1").arg(filename));
+        return;
+    }
+
     QList<QNetworkCookie> cookieList = allCookies();
-    QTextStream stream((QString *)&filename, QIODevice::WriteOnly);
+    QTextStream stream(&f);
 
     for (QList<QNetworkCookie>::iterator it = cookieList.begin();
          it != cookieList.end(); ++it)

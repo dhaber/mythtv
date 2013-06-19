@@ -20,12 +20,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/avassert.h"
+#include "libavutil/channel_layout.h"
+#include "libavutil/opt.h"
 #include "avcodec.h"
 #include "dsputil.h"
 #include "bytestream.h"
-#include "libavutil/audioconvert.h"
-#include "libavutil/avassert.h"
-#include "libavutil/opt.h"
+#include "internal.h"
 
 /**
  * @file
@@ -128,7 +129,6 @@ typedef struct APEPredictor {
 typedef struct APEContext {
     AVClass *class;                          ///< class for AVOptions
     AVCodecContext *avctx;
-    AVFrame frame;
     DSPContext dsp;
     int channels;
     int samples;                             ///< samples left to decode in current frame
@@ -196,13 +196,13 @@ static av_cold int ape_decode_init(AVCodecContext *avctx)
     s->bps = avctx->bits_per_coded_sample;
     switch (s->bps) {
     case 8:
-        avctx->sample_fmt = AV_SAMPLE_FMT_U8;
+        avctx->sample_fmt = AV_SAMPLE_FMT_U8P;
         break;
     case 16:
-        avctx->sample_fmt = AV_SAMPLE_FMT_S16;
+        avctx->sample_fmt = AV_SAMPLE_FMT_S16P;
         break;
     case 24:
-        avctx->sample_fmt = AV_SAMPLE_FMT_S32;
+        avctx->sample_fmt = AV_SAMPLE_FMT_S32P;
         break;
     default:
         av_log_ask_for_sample(avctx, "Unsupported bits per coded sample %d\n",
@@ -233,9 +233,6 @@ static av_cold int ape_decode_init(AVCodecContext *avctx)
 
     ff_dsputil_init(&s->dsp, avctx);
     avctx->channel_layout = (avctx->channels==2) ? AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO;
-
-    avcodec_get_frame_defaults(&s->frame);
-    avctx->coded_frame = &s->frame;
 
     return 0;
 filter_alloc_fail:
@@ -825,14 +822,14 @@ static void ape_unpack_stereo(APEContext *ctx, int count)
 static int ape_decode_frame(AVCodecContext *avctx, void *data,
                             int *got_frame_ptr, AVPacket *avpkt)
 {
+    AVFrame *frame     = data;
     const uint8_t *buf = avpkt->data;
     APEContext *s = avctx->priv_data;
     uint8_t *sample8;
     int16_t *sample16;
     int32_t *sample24;
-    int i, ret;
+    int i, ch, ret;
     int blockstodecode;
-    int bytes_used = 0;
 
     /* this should never be negative, but bad things will happen if it is, so
        check it just to make sure. */
@@ -887,8 +884,6 @@ static int ape_decode_frame(AVCodecContext *avctx, void *data,
             av_log(avctx, AV_LOG_ERROR, "Error reading frame header\n");
             return AVERROR_INVALIDDATA;
         }
-
-        bytes_used = avpkt->size;
     }
 
     if (!s->data) {
@@ -908,8 +903,8 @@ static int ape_decode_frame(AVCodecContext *avctx, void *data,
     s->decoded[1] = s->decoded_buffer + FFALIGN(blockstodecode, 8);
 
     /* get output buffer */
-    s->frame.nb_samples = blockstodecode;
-    if ((ret = avctx->get_buffer(avctx, &s->frame)) < 0) {
+    frame->nb_samples = blockstodecode;
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
@@ -930,37 +925,33 @@ static int ape_decode_frame(AVCodecContext *avctx, void *data,
 
     switch (s->bps) {
     case 8:
-        sample8 = (uint8_t *)s->frame.data[0];
-        for (i = 0; i < blockstodecode; i++) {
-            *sample8++ = (s->decoded[0][i] + 0x80) & 0xff;
-            if (s->channels == 2)
-                *sample8++ = (s->decoded[1][i] + 0x80) & 0xff;
+        for (ch = 0; ch < s->channels; ch++) {
+            sample8 = (uint8_t *)frame->data[ch];
+            for (i = 0; i < blockstodecode; i++)
+                *sample8++ = (s->decoded[ch][i] + 0x80) & 0xff;
         }
         break;
     case 16:
-        sample16 = (int16_t *)s->frame.data[0];
-        for (i = 0; i < blockstodecode; i++) {
-            *sample16++ = s->decoded[0][i];
-            if (s->channels == 2)
-                *sample16++ = s->decoded[1][i];
+        for (ch = 0; ch < s->channels; ch++) {
+            sample16 = (int16_t *)frame->data[ch];
+            for (i = 0; i < blockstodecode; i++)
+                *sample16++ = s->decoded[ch][i];
         }
         break;
     case 24:
-        sample24 = (int32_t *)s->frame.data[0];
-        for (i = 0; i < blockstodecode; i++) {
-            *sample24++ = s->decoded[0][i] << 8;
-            if (s->channels == 2)
-                *sample24++ = s->decoded[1][i] << 8;
+        for (ch = 0; ch < s->channels; ch++) {
+            sample24 = (int32_t *)frame->data[ch];
+            for (i = 0; i < blockstodecode; i++)
+                *sample24++ = s->decoded[ch][i] << 8;
         }
         break;
     }
 
     s->samples -= blockstodecode;
 
-    *got_frame_ptr   = 1;
-    *(AVFrame *)data = s->frame;
+    *got_frame_ptr = 1;
 
-    return bytes_used;
+    return !s->samples ? avpkt->size : 0;
 }
 
 static void ape_flush(AVCodecContext *avctx)
@@ -995,5 +986,9 @@ AVCodec ff_ape_decoder = {
     .capabilities   = CODEC_CAP_SUBFRAMES | CODEC_CAP_DELAY | CODEC_CAP_DR1,
     .flush          = ape_flush,
     .long_name      = NULL_IF_CONFIG_SMALL("Monkey's Audio"),
+    .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_U8P,
+                                                      AV_SAMPLE_FMT_S16P,
+                                                      AV_SAMPLE_FMT_S32P,
+                                                      AV_SAMPLE_FMT_NONE },
     .priv_class     = &ape_decoder_class,
 };

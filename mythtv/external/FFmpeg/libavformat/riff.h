@@ -1,5 +1,5 @@
 /*
- * RIFF codec tags
+ * RIFF common functions and data
  * copyright (c) 2000 Fabrice Bellard
  *
  * This file is part of FFmpeg.
@@ -51,11 +51,9 @@ int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc);
 enum AVCodecID ff_wav_codec_get_id(unsigned int tag, int bps);
 int ff_get_wav_header(AVIOContext *pb, AVCodecContext *codec, int size);
 
-extern const AVCodecTag ff_codec_bmp_tags[];
+extern const AVCodecTag ff_codec_bmp_tags[]; // exposed through avformat_get_riff_video_tags()
 extern const AVCodecTag ff_codec_wav_tags[];
 
-unsigned int ff_codec_get_tag(const AVCodecTag *tags, enum AVCodecID id);
-enum AVCodecID ff_codec_get_id(const AVCodecTag *tags, unsigned int tag);
 void ff_parse_specific_params(AVCodecContext *stream, int *au_rate, int *au_ssize, int *au_scale);
 
 typedef uint8_t ff_asf_guid[16];
@@ -85,5 +83,15 @@ extern const AVCodecGuid ff_codec_wav_guids[];
 
 #define FF_MEDIASUBTYPE_BASE_GUID \
     0x00,0x00,0x10,0x00,0x80,0x00,0x00,0xAA,0x00,0x38,0x9B,0x71
+
+/**
+ * Write all recognized RIFF tags from s->metadata
+ */
+void ff_riff_write_info(AVFormatContext *s);
+
+/**
+ * Write a single RIFF info tag
+ */
+void ff_riff_write_info_tag(AVIOContext *pb, const char *tag, const char *str);
 
 #endif /* AVFORMAT_RIFF_H */

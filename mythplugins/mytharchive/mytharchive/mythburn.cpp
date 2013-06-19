@@ -26,7 +26,7 @@
 #include <mythuibuttonlist.h>
 #include <mythuiprogressbar.h>
 #include <mythdate.h>
-#include <mythsystem.h>
+#include <mythsystemlegacy.h>
 #include <mythmiscutil.h>
 #include <exitcodes.h>
 
@@ -942,9 +942,8 @@ void MythBurn::runScript()
     QString configDir = tempDir + "config";
     QString commandline;
 
-    // remove existing progress.log if present
-    if (QFile::exists(logDir + "/progress.log"))
-        QFile::remove(logDir + "/progress.log");
+    // remove any existing logs
+    myth_system("rm -f " + logDir + "/*.log");
 
     // remove cancel flag file if present
     if (QFile::exists(logDir + "/mythburncancel.lck"))

@@ -27,6 +27,7 @@
 #include "mpegtables.h"
 #include "ringbuffer.h"
 #include "tv_rec.h"
+#include "mythsystemevent.h"
 
 extern "C" {
 #include "libavcodec/mpegvideo.h"
@@ -544,7 +545,7 @@ bool DTVRecorder::FindMPEG2Keyframes(const TSPacket* tspacket)
     }
 
     // _buffer_packets will only be true if a payload start has been seen
-    if (hasKeyFrame && _buffer_packets)
+    if (hasKeyFrame && (_buffer_packets || _first_keyframe >= 0))
     {
         LOG(VB_RECORD, LOG_DEBUG, LOC + QString
             ("Keyframe @ %1 + %2 = %3")
@@ -717,6 +718,7 @@ bool DTVRecorder::FindAudioKeyframes(const TSPacket*)
         if (!_frames_seen_count)
             _audio_timer.start();
 
+        _buffer_packets = false;
         _frames_seen_count++;
 
         if (1 == (_frames_seen_count & 0x7))
@@ -770,7 +772,11 @@ void DTVRecorder::HandleKeyframe(int64_t extra)
     CheckForRingBufferSwitch();
 
     uint64_t frameNum = _frames_written_count;
-    _first_keyframe = (_first_keyframe < 0) ? frameNum : _first_keyframe;
+    if (_first_keyframe < 0)
+    {
+        _first_keyframe = frameNum;
+        SendMythSystemRecEvent("REC_STARTED_WRITING", curRecording);
+    }
 
     // Add key frame to position map
     positionMapLock.lock();
@@ -917,7 +923,7 @@ bool DTVRecorder::FindH264Keyframes(const TSPacket *tspacket)
     } // for (; i < TSPacket::kSize; ++i)
 
     // _buffer_packets will only be true if a payload start has been seen
-    if (hasKeyFrame && _buffer_packets)
+    if (hasKeyFrame && (_buffer_packets || _first_keyframe >= 0))
     {
         LOG(VB_RECORD, LOG_DEBUG, LOC + QString
             ("Keyframe @ %1 + %2 = %3 AU %4")
@@ -994,6 +1000,7 @@ void DTVRecorder::HandleH264Keyframe(void)
     {
         _first_keyframe = frameNum;
         startpos = 0;
+        SendMythSystemRecEvent("REC_STARTED_WRITING", curRecording);
     }
     else
         startpos = m_h264_parser.keyframeAUstreamOffset();
@@ -1335,8 +1342,6 @@ bool DTVRecorder::ProcessTSPacket(const TSPacket &tspacket)
         // if audio/video key-frames have been found
         if (_wait_for_keyframe_option && _first_keyframe < 0)
             return true;
-
-        _buffer_packets = true;
     }
 
     BufferedWrite(tspacket);

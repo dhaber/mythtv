@@ -6,15 +6,20 @@
 using namespace std;
 
 // MythTV headers
+#include <QObject>
+#if QT_VERSION < 0x050000
 #include <mythhttppool.h>
+#endif
 
 // QT headers
-#include <QString>
-#include <QObject>
-#include <QDateTime>
 #include <QDomDocument>
-#include <QVariant>
 #include <QByteArray>
+#include <QDateTime>
+#include <QVariant>
+#include <QObject>
+#include <QString>
+#include <QMutex>
+#include <QUrl>
 
 // MythNews headers
 #include "newsarticle.h"
@@ -46,7 +51,7 @@ class NewsCategory
 Q_DECLARE_METATYPE(NewsCategory*)
 
 class NewsSite;
-class NewsSite : public QObject, public MythHttpListener
+class NewsSite : public QObject
 {
     Q_OBJECT
 
@@ -77,6 +82,8 @@ class NewsSite : public QObject, public MythHttpListener
              const QDateTime &updated, const bool     podcast);
     virtual void deleteLater();
 
+    void customEvent(QEvent *event);
+
     QString   url(void)  const;
     QString   name(void) const;
     QString   description(void) const;
@@ -98,13 +105,6 @@ class NewsSite : public QObject, public MythHttpListener
 
     bool     successful(void) const;
     QString  errorMsg(void) const;
-
-    virtual void Update(QHttp::Error      error,
-                        const QString    &error_str,
-                        const QUrl       &url,
-                        uint              http_status_id,
-                        const QString    &http_status_str,
-                        const QByteArray &data);
 
   private:
     ~NewsSite();

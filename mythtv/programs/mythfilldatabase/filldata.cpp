@@ -26,7 +26,7 @@ using namespace std;
 #include "mythdate.h"
 #include "mythdirs.h"
 #include "mythdb.h"
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 #include "videosource.h" // for is_grabber..
 
 // filldata headers
@@ -394,14 +394,8 @@ bool FillData::GrabData(Source source, int offset, QDate *qCurrentDate)
     QString command = QString("nice %1 --config-file '%2' --output %3")
         .arg(xmltv_grabber).arg(configfile).arg(filename);
 
-    // The one concession to grabber specific behaviour.
-    // Will be removed when the grabber allows.
-    if (xmltv_grabber == "tv_grab_jp")
-    {
-        command += QString(" --enable-readstr");
-        xmltv_parser.isJapan = true;
-    }
-    else if (source.xmltvgrabber_prefmethod != "allatonce")
+
+    if (source.xmltvgrabber_prefmethod != "allatonce")
     {
         // XMLTV Docs don't recommend grabbing one day at a
         // time but the current MythTV code is heavily geared
@@ -621,8 +615,8 @@ bool FillData::Run(SourceList &sourcelist)
 
         if (is_grabber_external(xmltv_grabber))
         {
-            uint flags = kMSRunShell | kMSStdOut | kMSBuffered;
-            MythSystem grabber_capabilities_proc(xmltv_grabber,
+            uint flags = kMSRunShell | kMSStdOut;
+            MythSystemLegacy grabber_capabilities_proc(xmltv_grabber,
                                                  QStringList("--capabilities"),
                                                  flags);
             grabber_capabilities_proc.Run(25);
@@ -665,8 +659,8 @@ bool FillData::Run(SourceList &sourcelist)
 
         if (hasprefmethod)
         {
-            uint flags = kMSRunShell | kMSStdOut | kMSBuffered;
-            MythSystem grabber_method_proc(xmltv_grabber,
+            uint flags = kMSRunShell | kMSStdOut;
+            MythSystemLegacy grabber_method_proc(xmltv_grabber,
                                            QStringList("--preferredmethod"),
                                            flags);
             grabber_method_proc.Run(15);

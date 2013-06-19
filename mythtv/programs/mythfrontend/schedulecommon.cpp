@@ -187,6 +187,30 @@ void ScheduleCommon::MakeOverride(RecordingInfo *recinfo)
 }
 
 /**
+*  \brief Show the previous recordings for this recording rule
+*/
+void ScheduleCommon::ShowPrevious(ProgramInfo *pginfo) const
+{
+    if (!pginfo)
+        return;
+
+    ShowPrevious(pginfo->GetRecordingRuleID(), pginfo->GetTitle());
+}
+
+/**
+*  \brief Show the previous recordings for this recording rule
+*/
+void ScheduleCommon::ShowPrevious(uint recordid, const QString &title) const
+{
+    MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+    ProgLister *pl = new ProgLister(mainStack, recordid, title);
+    if (pl->Create())
+        mainStack->AddScreen(pl);
+    else
+        delete pl;
+}
+
+/**
 *  \brief Creates a dialog for editing the recording status,
 *         blocking until user leaves dialog.
 */
@@ -260,8 +284,15 @@ void ScheduleCommon::EditRecording(ProgramInfo *pginfo)
         menuPopup->AddButton(tr("Record all showings"),
                              qVariantFromValue(recinfo));
         if (!recinfo.IsGeneric())
-            menuPopup->AddButton(tr("Record one showing (this episode)"),
-                                 qVariantFromValue(recinfo));
+        {
+            if (recinfo.GetCategoryType() == ProgramInfo::kCategoryMovie)
+                menuPopup->AddButton(tr("Record one showing"),
+                                     qVariantFromValue(recinfo));
+            else
+                menuPopup->AddButton(tr("Record one showing (this episode)"),
+                                     qVariantFromValue(recinfo));
+            
+        }
         menuPopup->AddButton(tr("Record all showings (this channel)"),
                              qVariantFromValue(recinfo));
         menuPopup->AddButton(tr("Edit recording rule"),
@@ -333,7 +364,7 @@ void ScheduleCommon::EditRecording(ProgramInfo *pginfo)
             if (recinfo.GetRecordingRuleType() != kOverrideRecord &&
                 !((recinfo.GetFindID() == 0 ||
                    !IsFindApplicable(recinfo)) &&
-                  recinfo.GetCategoryType() == "series" &&
+                  recinfo.GetCategoryType() == ProgramInfo::kCategorySeries &&
                   recinfo.GetProgramID().contains(QRegExp("0000$"))) &&
                 ((!(dupmethod & kDupCheckNone) &&
                   !recinfo.GetProgramID().isEmpty() &&
@@ -406,7 +437,8 @@ void ScheduleCommon::customEvent(QEvent *event)
             }
             else if (resulttext == tr("Record all showings"))
                 recInfo.ApplyRecordStateChange(kAllRecord);
-            else if (resulttext == tr("Record one showing (this episode)"))
+            else if (resulttext == tr("Record one showing (this episode)") ||
+                     resulttext == tr("Record one showing"))
             {
                 recInfo.ApplyRecordStateChange(kOneRecord, false);
                 recInfo.GetRecordingRule()->m_filter |= 64; // This episode

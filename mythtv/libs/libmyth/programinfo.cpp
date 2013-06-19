@@ -81,6 +81,31 @@ static void set_flag(uint32_t &flags, int flag_to_set, bool is_set)
         flags |= flag_to_set;
 }
 
+QString myth_category_type_to_string(ProgramInfo::CategoryType category_type)
+{
+    static int NUM_CAT_TYPES = 5;
+    static const char *cattype[] =
+        { "", "movie", "series", "sports", "tvshow", };
+
+    if ((category_type > ProgramInfo::kCategoryNone) &&
+        ((int)category_type < NUM_CAT_TYPES))
+        return QString(cattype[category_type]);
+
+    return "";
+}
+
+ProgramInfo::CategoryType string_to_myth_category_type(const QString &category_type)
+{
+    static int NUM_CAT_TYPES = 5;
+    static const char *cattype[] =
+        { "", "movie", "series", "sports", "tvshow", };
+
+    for (int i = 1; i < NUM_CAT_TYPES; i++)
+        if (category_type == cattype[i])
+            return (ProgramInfo::CategoryType) i;
+    return ProgramInfo::kCategoryNone;
+}
+
 /** \fn ProgramInfo::ProgramInfo(void)
  *  \brief Null constructor.
  */
@@ -112,7 +137,7 @@ ProgramInfo::ProgramInfo(void) :
     seriesid(),
     programid(),
     inetref(),
-    catType(),
+    catType(kCategoryNone),
 
 
     filesize(0ULL),
@@ -340,7 +365,7 @@ ProgramInfo::ProgramInfo(
     seriesid(_seriesid),
     programid(_programid),
     inetref(_inetref),
-    catType(),
+    catType(kCategoryNone),
 
     filesize(_filesize),
 
@@ -456,7 +481,7 @@ ProgramInfo::ProgramInfo(
     seriesid(_seriesid),
     programid(_programid),
     inetref(_inetref),
-    catType(),
+    catType(kCategoryNone),
 
     filesize(0ULL),
 
@@ -529,7 +554,7 @@ ProgramInfo::ProgramInfo(
 
     const QString &_seriesid,
     const QString &_programid,
-    const QString &_catType,
+    const CategoryType _catType,
 
     float _stars,
     uint _year,
@@ -729,7 +754,7 @@ ProgramInfo::ProgramInfo(
     seriesid(_seriesid),
     programid(_programid),
     inetref(_inetref),
-    catType(),
+    catType(kCategoryNone),
 
     filesize(0ULL),
 
@@ -841,8 +866,8 @@ ProgramInfo::ProgramInfo(const QString &_pathname,
 
     QString pn = _pathname;
     if ((!_pathname.startsWith("myth://")) &&
-        (_pathname.right(4).toLower() == ".iso" ||
-         _pathname.right(4).toLower() == ".img" ||
+        (_pathname.endsWith(".iso", Qt::CaseInsensitive) ||
+         _pathname.endsWith(".img", Qt::CaseInsensitive) ||
          QDir(_pathname + "/VIDEO_TS").exists()))
     {
         pn = QString("dvd:%1").arg(_pathname);
@@ -1049,7 +1074,6 @@ void ProgramInfo::clone(const ProgramInfo &other,
     seriesid.detach();
     programid.detach();
     inetref.detach();
-    catType.detach();
 
     sortTitle.detach();
     inUseForWhat.detach();
@@ -1086,7 +1110,7 @@ void ProgramInfo::clear(void)
     seriesid.clear();
     programid.clear();
     inetref.clear();
-    catType.clear();
+    catType = kCategoryNone;
 
     sortTitle.clear();
 
@@ -1106,6 +1130,7 @@ void ProgramInfo::clear(void)
     lastInUseTime = startts.addSecs(-4 * 60 * 60);
 
     recstatus = rsUnknown;
+    oldrecstatus = rsUnknown;
 
     prefinput = 0;
     recpriority2 = 0;
@@ -1630,7 +1655,7 @@ void ProgramInfo::ToMap(InfoMap &progMap,
     progMap["seriesid"] = seriesid;
     progMap["programid"] = programid;
     progMap["inetref"] = inetref;
-    progMap["catType"] = catType;
+    progMap["catType"] = myth_category_type_to_string(catType);
 
     progMap["year"] = year ? QString::number(year) : "";
 
@@ -1652,7 +1677,7 @@ void ProgramInfo::ToMap(InfoMap &progMap,
         progMap["yearstars"] = "";
 
     if (!originalAirDate.isValid() ||
-        (!programid.isEmpty() && (programid.left(2) == "MV")))
+        (!programid.isEmpty() && programid.startsWith("MV")))
     {
         progMap["originalairdate"] = "";
         progMap["shortoriginalairdate"] = "";
@@ -1710,6 +1735,12 @@ uint ProgramInfo::GetSecondsInRecording(void) const
     return (uint) ((recsecs>0) ? recsecs : max(duration,int64_t(0)));
 }
 
+/// \brief Returns catType as a string
+QString ProgramInfo::GetCategoryTypeString(void) const
+{
+    return myth_category_type_to_string(catType); 
+}
+
 /// \brief Returns last frame in position map or 0
 uint64_t ProgramInfo::QueryLastFrameInPosMap(void) const
 {
@@ -1737,7 +1768,7 @@ bool ProgramInfo::IsGeneric(void) const
         (programid.isEmpty() && subtitle.isEmpty() &&
          description.isEmpty()) ||
         (!programid.isEmpty() && programid.endsWith("0000")
-         && catType == "series");
+         && catType == kCategorySeries);
 }
 
 QString ProgramInfo::toString(const Verbosity v, QString sep, QString grp)
@@ -1826,7 +1857,7 @@ bool ProgramInfo::LoadProgramFromRecorded(
     {
         // These items are not initialized below so they need to be cleared
         // if we're loading in a different program into this ProgramInfo
-        catType.clear();
+        catType = kCategoryNone;
         lastInUseTime = MythDate::current().addSecs(-4 * 60 * 60);
         rectype = kNotRecording;
         oldrecstatus = rsUnknown;
@@ -1936,7 +1967,7 @@ bool ProgramInfo::LoadProgramFromRecorded(
              query.value(31).toInt() == COMM_FLAG_DONE);
     set_flag(programflags, FL_COMMPROCESSING ,
              query.value(31).toInt() == COMM_FLAG_PROCESSING);
-    set_flag(programflags, FL_REPEAT,        query.value(29).toBool());
+    set_flag(programflags, FL_REPEAT,        query.value(32).toBool());
     set_flag(programflags, FL_TRANSCODED,
              query.value(34).toInt() == TRANSCODING_COMPLETE);
     set_flag(programflags, FL_DELETEPENDING, query.value(35).toBool());
@@ -1999,7 +2030,7 @@ bool ProgramInfo::IsSameProgram(const ProgramInfo& other) const
     if (title.compare(other.title, Qt::CaseInsensitive) != 0)
         return false;
 
-    if (catType == "series")
+    if (catType == kCategorySeries)
     {
         if (programid.endsWith("0000"))
             return false;
@@ -2146,13 +2177,13 @@ static ProgramInfoType discover_program_info_type(
         if (fn_lower.startsWith("dvd:") ||
             fn_lower.endsWith(".iso") ||
             fn_lower.endsWith(".img") ||
-            ((pathname.left(1) == "/") &&
+            ((pathname.startsWith("/")) &&
              QDir(pathname + "/VIDEO_TS").exists()))
         {
             pit = kProgramInfoTypeVideoDVD;
         }
         else if (fn_lower.startsWith("bd:") ||
-                 ((pathname.left(1) == "/") &&
+                 ((pathname.startsWith("/")) &&
                   QDir(pathname + "/BDMV").exists()))
         {
             pit = kProgramInfoTypeVideoBD;
@@ -2631,9 +2662,9 @@ void ProgramInfo::SaveDVDBookmark(const QStringList &fields) const
  *
  *  \return string category_type
  */
-QString ProgramInfo::QueryCategoryType(void) const
+ProgramInfo::CategoryType ProgramInfo::QueryCategoryType(void) const
 {
-    QString ret;
+    CategoryType ret = kCategoryNone;
 
     MSqlQuery query(MSqlQuery::InitCon());
 
@@ -2647,7 +2678,7 @@ QString ProgramInfo::QueryCategoryType(void) const
 
     if (query.exec() && query.next())
     {
-        ret = query.value(0).toString();
+        ret = string_to_myth_category_type(query.value(0).toString());
     }
 
     return ret;
@@ -3068,14 +3099,12 @@ AutoExpireType ProgramInfo::QueryAutoExpire(void) const
 
 bool ProgramInfo::QueryCutList(frm_dir_map_t &delMap, bool loadAutoSave) const
 {
-    frm_dir_map_t autosaveMap;
-    QueryMarkupMap(autosaveMap, MARK_TMP_CUT_START);
-    QueryMarkupMap(autosaveMap, MARK_TMP_CUT_END, true);
-    QueryMarkupMap(autosaveMap, MARK_PLACEHOLDER, true);
-    bool result = !autosaveMap.isEmpty();
-
     if (loadAutoSave)
     {
+        frm_dir_map_t autosaveMap;
+        QueryMarkupMap(autosaveMap, MARK_TMP_CUT_START);
+        QueryMarkupMap(autosaveMap, MARK_TMP_CUT_END, true);
+        QueryMarkupMap(autosaveMap, MARK_PLACEHOLDER, true);
         // Convert the temporary marks into regular marks.
         delMap.clear();
         frm_dir_map_t::const_iterator i = autosaveMap.constBegin();
@@ -3097,7 +3126,7 @@ bool ProgramInfo::QueryCutList(frm_dir_map_t &delMap, bool loadAutoSave) const
         QueryMarkupMap(delMap, MARK_PLACEHOLDER, true);
     }
 
-    return result;
+    return !delMap.isEmpty();
 }
 
 void ProgramInfo::SaveCutList(frm_dir_map_t &delMap, bool isAutoSave) const
@@ -3861,6 +3890,40 @@ uint ProgramInfo::QueryAverageFrameRate(void) const
     return load_markup_datum(MARK_VIDEO_RATE, chanid, recstartts);
 }
 
+MarkTypes ProgramInfo::QueryAverageAspectRatio(void ) const
+{
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare("SELECT recordedmarkup.type "
+                "FROM recordedmarkup "
+                "WHERE recordedmarkup.chanid    = :CHANID    AND "
+                "      recordedmarkup.starttime = :STARTTIME AND "
+                "      recordedmarkup.type      >= :ASPECTSTART AND "
+                "      recordedmarkup.type      <= :ASPECTEND "
+                "GROUP BY recordedmarkup.type "
+                "ORDER BY SUM( ( SELECT IFNULL(rm.mark, recordedmarkup.mark)"
+                "                FROM recordedmarkup AS rm "
+                "                WHERE rm.chanid    = recordedmarkup.chanid    AND "
+                "                      rm.starttime = recordedmarkup.starttime AND "
+                "                      rm.type      = recordedmarkup.type      AND "
+                "                      rm.mark      > recordedmarkup.mark "
+                "                ORDER BY rm.mark ASC LIMIT 1 "
+                "              ) - recordedmarkup.mark "
+                "            ) DESC "
+                "LIMIT 1");
+    query.bindValue(":CHANID", chanid);
+    query.bindValue(":STARTTIME", recstartts);
+    query.bindValue(":ASPECTSTART", MARK_ASPECT_4_3); // 11
+    query.bindValue(":ASPECTEND", MARK_ASPECT_CUSTOM); // 14
+
+    if (!query.exec() || !query.next())
+    {
+        MythDB::DBError("QueryAverageAspectRatio", query);
+        return MARK_UNSET;
+    }
+
+    return static_cast<MarkTypes>(query.value(0).toInt());
+}
+
 /** \brief If present in recording this loads total duration of the
  *         main video stream from database's stream markup table.
  */
@@ -3898,7 +3961,11 @@ void ProgramInfo::SaveVideoProperties(uint mask, uint vid_flags)
     query.bindValue(":FLAGS",      vid_flags);
     query.bindValue(":CHANID",     chanid);
     query.bindValue(":STARTTIME",  startts);
-    query.exec();
+    if (!query.exec())
+    {
+        MythDB::DBError("SaveVideoProperties", query);
+        return;
+    }
 
     uint videoproperties = GetVideoProperties();
     videoproperties &= ~mask;
@@ -3960,7 +4027,11 @@ void ProgramInfo::SaveSeasonEpisode(uint seas, uint ep)
     query.bindValue(":CHANID",     chanid);
     query.bindValue(":STARTTIME",  recstartts);
     query.bindValue(":RECORDID",   recordid);
-    query.exec();
+    if (!query.exec())
+    {
+        MythDB::DBError("SaveSeasonEpisode", query);
+        return;
+    }
 
     SendUpdateEvent();
 }
@@ -4068,7 +4139,7 @@ QString ProgramInfo::DiscoverRecordingDirectory(void) const
             return "";
 
         QString path = GetPlaybackURL(false, true);
-        if (path.left(1) == "/")
+        if (path.startsWith("/"))
         {
             QFileInfo testFile(path);
             return testFile.path();
@@ -4469,7 +4540,7 @@ QString ProgramInfo::i18n(const QString &msg)
 void ProgramInfo::SubstituteMatches(QString &str)
 {
     QString pburl = GetPlaybackURL(false, true);
-    if (pburl.left(7) == "myth://")
+    if (pburl.startsWith("myth://"))
     {
         str.replace(QString("%DIR%"), pburl);
     }
@@ -4705,7 +4776,7 @@ bool LoadFromProgram(
 
                 query.value(13).toString(), // seriesid
                 query.value(14).toString(), // programid
-                query.value(18).toString(), // catType
+                string_to_myth_category_type(query.value(18).toString()), // catType
 
                 query.value(16).toDouble(), // stars
                 query.value(15).toUInt(), // year

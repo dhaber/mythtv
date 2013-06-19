@@ -41,7 +41,7 @@ using namespace std;
 #include "mythdirs.h"
 #include "mythlogging.h"
 #include "libmythupnp/httprequest.h"    // for TestMimeType()
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 #include "exitcodes.h"
 
 #ifdef USING_DVB
@@ -135,7 +135,7 @@ class InstanceCount : public TransSpinBoxSetting
                 "programs on a multiplex, if this is set to a value greater "
                 "than one MythTV can sometimes take advantage of this."));
         uint cnt = parent.GetInstanceCount();
-        cnt = (!cnt) ? kDefaultMultirecCount : ((cnt < 1) ? 1 : cnt);
+        cnt = (!cnt) ? kDefaultMultirecCount : cnt;
         setValue(cnt);
     };
 };
@@ -567,8 +567,8 @@ void XMLTVConfig::Load(void)
     QStringList args;
     args += "baseline";
 
-    MythSystem find_grabber_proc("tv_find_grabbers", args, 
-                                 kMSStdOut | kMSBuffered | kMSRunShell);
+    MythSystemLegacy find_grabber_proc("tv_find_grabbers", args, 
+                                 kMSStdOut | kMSRunShell);
     find_grabber_proc.Run(25);
     LOG(VB_GENERAL, LOG_INFO,
         loc + "Running 'tv_find_grabbers " + args.join(" ") + "'.");
@@ -1464,9 +1464,9 @@ void HDHomeRunDeviceIDList::fillSelections(const QString &cur)
     QString sel = man_addr;
     devs.push_back(sel);
 
-    if (3 == devs.size() && current.left(8).toUpper() == "FFFFFFFF")
+    if (3 == devs.size() && current.startsWith("FFFFFFFF", Qt::CaseInsensitive))
     {
-        current = sel = (current.right(1) == "0") ?
+        current = sel = (current.endsWith("0")) ?
             *(devs.begin()) : *(++devs.begin());
     }
     else
@@ -2252,40 +2252,43 @@ CaptureCardGroup::CaptureCardGroup(CaptureCard &parent) :
 
     setTrigger(cardtype);
     setSaveAll(false);
+    
+#ifdef USING_DVB
+    addTarget("DVB",       new DVBConfigurationGroup(parent));
+#endif // USING_DVB
 
 #ifdef USING_V4L2
-    addTarget("V4L",       new V4LConfigurationGroup(parent));
-# ifdef USING_IVTV
-    addTarget("MPEG",      new MPEGConfigurationGroup(parent));
-# endif // USING_IVTV
 # ifdef USING_HDPVR
     addTarget("HDPVR",     new HDPVRConfigurationGroup(parent));
 # endif // USING_HDPVR
 #endif // USING_V4L2
 
-#ifdef USING_DVB
-    addTarget("DVB",       new DVBConfigurationGroup(parent));
-#endif // USING_DVB
+#ifdef USING_HDHOMERUN
+    addTarget("HDHOMERUN", new HDHomeRunConfigurationGroup(parent));
+#endif // USING_HDHOMERUN
 
 #ifdef USING_FIREWIRE
     addTarget("FIREWIRE",  new FirewireConfigurationGroup(parent));
 #endif // USING_FIREWIRE
 
-#ifdef USING_HDHOMERUN
-    addTarget("HDHOMERUN", new HDHomeRunConfigurationGroup(parent));
-#endif // USING_HDHOMERUN
+#ifdef USING_CETON
+    addTarget("CETON",     new CetonConfigurationGroup(parent));
+#endif // USING_CETON
 
 #ifdef USING_IPTV
     addTarget("FREEBOX",   new IPTVConfigurationGroup(parent));
 #endif // USING_IPTV
-
+    
+#ifdef USING_V4L2
+    addTarget("V4L",       new V4LConfigurationGroup(parent));
+# ifdef USING_IVTV
+    addTarget("MPEG",      new MPEGConfigurationGroup(parent));
+# endif // USING_IVTV
+#endif // USING_V4L2
+    
 #ifdef USING_ASI
     addTarget("ASI",       new ASIConfigurationGroup(parent));
 #endif // USING_ASI
-
-#ifdef USING_CETON
-    addTarget("CETON",     new CetonConfigurationGroup(parent));
-#endif // USING_CETON
 
     // for testing without any actual tuner hardware:
     addTarget("IMPORT",    new ImportConfigurationGroup(parent));
@@ -2451,54 +2454,54 @@ CardType::CardType(const CaptureCard &parent) :
 
 void CardType::fillSelections(SelectSetting* setting)
 {
+#ifdef USING_DVB
+    setting->addSelection(
+        QObject::tr("DVB-T/S/C, ATSC or ISDB-T tuner card"), "DVB");
+#endif // USING_DVB
+
 #ifdef USING_V4L2
-    setting->addSelection(
-        QObject::tr("Analog V4L capture card"), "V4L");
-    setting->addSelection(
-        QObject::tr("MJPEG capture card (Matrox G200, DC10)"), "MJPEG");
-# ifdef USING_IVTV
-    setting->addSelection(
-        QObject::tr("MPEG-2 encoder card"), "MPEG");
-# endif // USING_IVTV
 # ifdef USING_HDPVR
     setting->addSelection(
-        QObject::tr("H.264 encoder card (HD-PVR)"), "HDPVR");
+        QObject::tr("HD-PVR H.264 encoder"), "HDPVR");
 # endif // USING_HDPVR
 #endif // USING_V4L2
 
-#ifdef USING_DVB
+#ifdef USING_HDHOMERUN
     setting->addSelection(
-        QObject::tr("DVB DTV capture card (v3.x)"), "DVB");
-#endif // USING_DVB
-
+        QObject::tr("HDHomeRun networked tuner"), "HDHOMERUN");
+#endif // USING_HDHOMERUN
+    
 #ifdef USING_FIREWIRE
     setting->addSelection(
         QObject::tr("FireWire cable box"), "FIREWIRE");
 #endif // USING_FIREWIRE
 
-#ifdef USING_V4L2
+#ifdef USING_CETON
     setting->addSelection(
-        QObject::tr("USB MPEG-4 encoder box (Plextor ConvertX, etc)"),
-        "GO7007");
-#endif // USING_V4L2
-
-#ifdef USING_HDHOMERUN
-    setting->addSelection(
-        QObject::tr("HDHomeRun DTV tuner box"), "HDHOMERUN");
-#endif // USING_HDHOMERUN
+        QObject::tr("Ceton Cablecard tuner"), "CETON");
+#endif // USING_CETON
 
 #ifdef USING_IPTV
     setting->addSelection(QObject::tr("IPTV recorder"), "FREEBOX");
 #endif // USING_IPTV
 
+#ifdef USING_V4L2
+# ifdef USING_IVTV
+    setting->addSelection(
+        QObject::tr("Analog to MPEG-2 encoder card (PVR-150/250/350, etc)"), "MPEG");
+# endif // USING_IVTV
+    setting->addSelection(
+        QObject::tr("Analog to MJPEG encoder card (Matrox G200, DC10, etc)"), "MJPEG");
+    setting->addSelection(
+        QObject::tr("Analog to MPEG-4 encoder (Plextor ConvertX USB, etc)"),
+        "GO7007");
+    setting->addSelection(
+        QObject::tr("Analog capture card"), "V4L");
+#endif // USING_V4L2
+
 #ifdef USING_ASI
     setting->addSelection(QObject::tr("DVEO ASI recorder"), "ASI");
 #endif
-
-#ifdef USING_CETON
-    setting->addSelection(
-        QObject::tr("Ceton Cablecard tuner "), "CETON");
-#endif // USING_CETON
 
     setting->addSelection(QObject::tr("Import test recorder"), "IMPORT");
     setting->addSelection(QObject::tr("Demo test recorder"),   "DEMO");
@@ -3535,19 +3538,19 @@ static QString remove_chaff(const QString &name)
 {
     // Trim off some of the chaff.
     QString short_name = name;
-    if (short_name.left(14) == "LG Electronics")
+    if (short_name.startsWith("LG Electronics"))
         short_name = short_name.right(short_name.length() - 15);
-    if (short_name.left(4) == "Oren")
+    if (short_name.startsWith("Oren"))
         short_name = short_name.right(short_name.length() - 5);
-    if (short_name.left(8) == "Nextwave")
+    if (short_name.startsWith("Nextwave"))
         short_name = short_name.right(short_name.length() - 9);
-    if (short_name.right(8).toLower() == "frontend")
+    if (short_name.startsWith("frontend", Qt::CaseInsensitive))
         short_name = short_name.left(short_name.length() - 9);
-    if (short_name.right(7) == "VSB/QAM")
+    if (short_name.endsWith("VSB/QAM"))
         short_name = short_name.left(short_name.length() - 8);
-    if (short_name.right(3) == "VSB")
+    if (short_name.endsWith("VSB"))
         short_name = short_name.left(short_name.length() - 4);
-    if (short_name.right(5) == "DVB-T")
+    if (short_name.endsWith("DVB-T"))
         short_name = short_name.left(short_name.length() - 6);
 
     // It would be infinitely better if DVB allowed us to query
@@ -3555,19 +3558,19 @@ static QString remove_chaff(const QString &name)
     // demodulator name. This means cards like the Air2PC HD5000
     // and DViCO Fusion HDTV cards are not identified correctly.
     short_name = short_name.simplified();
-    if (short_name.left(7).toLower() == "or51211")
+    if (short_name.startsWith("or51211", Qt::CaseInsensitive))
         short_name = "pcHDTV HD-2000";
-    else if (short_name.left(7).toLower() == "or51132")
+    else if (short_name.startsWith("or51132", Qt::CaseInsensitive))
         short_name = "pcHDTV HD-3000";
-    else if (short_name.left(7).toLower() == "bcm3510")
+    else if (short_name.startsWith("bcm3510", Qt::CaseInsensitive))
         short_name = "Air2PC v1";
-    else if (short_name.left(7).toLower() == "nxt2002")
+    else if (short_name.startsWith("nxt2002", Qt::CaseInsensitive))
         short_name = "Air2PC v2";
-    else if (short_name.left(7).toLower() == "nxt200x")
+    else if (short_name.startsWith("nxt200x", Qt::CaseInsensitive))
         short_name = "Air2PC v2";
-    else if (short_name.left(8).toLower() == "lgdt3302")
+    else if (short_name.startsWith("lgdt3302", Qt::CaseInsensitive))
         short_name = "DViCO HDTV3";
-    else if (short_name.left(8).toLower() == "lgdt3303")
+    else if (short_name.startsWith("lgdt3303", Qt::CaseInsensitive))
         short_name = "DViCO v2 or Air2PC v3 or pcHDTV HD-5500";
 
     return short_name;
@@ -3652,9 +3655,12 @@ void DVBConfigurationGroup::probeCard(const QString &videodevice)
 #if 0 // frontends on hybrid DVB-T/Analog cards
             QString short_name = remove_chaff(frontend_name);
             buttonAnalog->setVisible(
-                short_name.left(15).toLower() == "zarlink zl10353" ||
-                short_name.toLower() == "wintv hvr 900 m/r: 65008/a1c0" ||
-                short_name.left(17).toLower() == "philips tda10046h");
+                short_name.startsWith("zarlink zl10353",
+                                      Qt::CaseInsensitive) ||
+                short_name.startsWith("wintv hvr 900 m/r: 65008/a1c0",
+                                      Qt::CaseInsensitive) ||
+                short_name.startsWith("philips tda10046h",
+                                      Qt::CaseInsensitive));
 #endif
         }
         break;
@@ -3678,9 +3684,9 @@ void DVBConfigurationGroup::probeCard(const QString &videodevice)
             if (frontend_name.toLower().indexOf("usb") < 0)
             {
                 buttonAnalog->setVisible(
-                    short_name.left(6).toLower() == "pchdtv" ||
-                    short_name.left(5).toLower() == "dvico" ||
-                    short_name.left(8).toLower() == "nextwave");
+                    short_name.startsWith("pchdtv", Qt::CaseInsensitive) ||
+                    short_name.startsWith("dvico", Qt::CaseInsensitive) ||
+                    short_name.startsWith("nextwave", Qt::CaseInsensitive));
             }
 #endif
         }

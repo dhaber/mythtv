@@ -71,7 +71,7 @@ typedef struct HLSContext {
 static int read_chomp_line(AVIOContext *s, char *buf, int maxlen)
 {
     int len = ff_get_line(s, buf, maxlen);
-    while (len > 0 && isspace(buf[len - 1]))
+    while (len > 0 && av_isspace(buf[len - 1]))
         buf[--len] = '\0';
     return len;
 }
@@ -293,7 +293,7 @@ retry:
             /* If we need to reload the playlist again below (if
              * there's still no more segments), switch to a reload
              * interval of half the target duration. */
-            reload_interval = s->target_duration * 500000;
+            reload_interval = s->target_duration * 500000LL;
         }
     }
     if (s->cur_seq_no < s->start_seq_no) {

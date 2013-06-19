@@ -3,7 +3,7 @@
 #include "mythcontext.h"
 
 #include "mythmainwindow.h"
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 #include "remoteutil.h"
 #include "lcddevice.h"
 #include "mythmiscutil.h"

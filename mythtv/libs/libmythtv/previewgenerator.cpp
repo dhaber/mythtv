@@ -30,7 +30,7 @@
 #include "playercontext.h"
 #include "mythdirs.h"
 #include "remoteutil.h"
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 #include "exitcodes.h"
 #include "mythlogging.h"
 #include "mythmiscutil.h"
@@ -245,11 +245,10 @@ bool PreviewGenerator::Run(void)
             cmdargs << "--outfile" << outFileName;
 
         // Timeout in 30s
-        MythSystem *ms = new MythSystem(command, cmdargs,
+        MythSystemLegacy *ms = new MythSystemLegacy(command, cmdargs,
                                         kMSDontBlockInputDevs |
                                         kMSDontDisableDrawing |
                                         kMSProcessEvents      |
-                                        kMSNoRunShell         |
                                         kMSAutoCleanup        |
                                         kMSPropagateLogs);
         ms->SetNice(10);
@@ -548,16 +547,6 @@ bool PreviewGenerator::SavePreview(QString filename,
     if (!data || !width || !height)
         return false;
 
-    if( height == 1088 )
-    {
-        // Remove the extra 8 pixels at the bottom of 1080i recordings that
-        // decode to 1088 rows as these are bogus pixels and make the previews
-        // look a bit wrong.  The worst offender seems to be H.264 captures
-        // from HDPVR.  Apparently, BBC HD also may exhibit the same behavior
-        // in the UK, although with a different width.
-        height = 1080;
-    }
-
     const QImage img((unsigned char*) data,
                      width, height, QImage::Format_RGB32);
 
@@ -594,7 +583,14 @@ bool PreviewGenerator::SavePreview(QString filename,
     if (f.open() && small_img.save(&f, "PNG"))
     {
         // Let anybody update it
-        makeFileAccessible(f.fileName().toLocal8Bit().constData());
+        bool ret = makeFileAccessible(f.fileName().toLocal8Bit().constData());
+        if (!ret)
+        {
+            LOG(VB_GENERAL, LOG_ERR, "Unable to change permissions on "
+                                     "preview image. Backends and frontends "
+                                     "running under different users will be "
+                                     "unable to access it");
+        }
         QFile of(filename);
         of.remove();
         if (f.rename(filename))
@@ -732,7 +728,7 @@ bool PreviewGenerator::IsLocal(void) const
 {
     QString tmppathname = pathname;
 
-    if (tmppathname.left(4) == "dvd:")
+    if (tmppathname.startsWith("dvd:"))
         tmppathname = tmppathname.section(":", 1, 1);
 
     if (!QFileInfo(tmppathname).isReadable())
@@ -789,7 +785,7 @@ char *PreviewGenerator::GetScreenGrab(
     }
 
     // pre-test local files for existence and size. 500 ms speed-up...
-    if (filename.left(1)=="/")
+    if (filename.startsWith("/"))
     {
         QFileInfo info(filename);
         bool invalid = (!info.exists() || !info.isReadable() ||

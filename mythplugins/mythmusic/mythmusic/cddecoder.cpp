@@ -20,6 +20,7 @@
 // MythTV
 #include <audiooutput.h>
 #include <mythcontext.h>
+#include <musicmetadata.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -27,7 +28,6 @@ extern "C" {
 
 // MythMusic
 #include "constants.h"
-#include "metadata.h"
 #include "cddb.h"
 
 #define CDEXT ".cda"
@@ -91,9 +91,8 @@ public:
 };
 
 
-CdDecoder::CdDecoder(const QString &file, DecoderFactory *d, QIODevice *i,
-                     AudioOutput *o) :
-    Decoder(d, i, o),
+CdDecoder::CdDecoder(const QString &file, DecoderFactory *d, AudioOutput *o) :
+    Decoder(d, o),
     m_inited(false),   m_user_stop(false),
     m_devicename(""),
     m_stat(DecoderEvent::Error),
@@ -232,7 +231,10 @@ bool CdDecoder::initialize()
             m_end = end2;
         }
 
-        m_paranoia = cdio_paranoia_init(m_device);
+        // FIXME can't use cdio_paranoia until we find a way to cleanly
+        // detect when the user has ejected a CD otherwise we enter a
+        // recursive loop in cdio_paranoia_read_limited()
+        //m_paranoia = cdio_paranoia_init(m_device);
         if (NULL != m_paranoia)
         {
             cdio_paranoia_modeset(m_paranoia, PARANOIA_MODE_DISABLE);
@@ -240,7 +242,7 @@ bool CdDecoder::initialize()
         }
         else
         {
-            LOG(VB_GENERAL, LOG_ERR, "Warn: CD reading with paranoia is disabled");
+            LOG(VB_GENERAL, LOG_WARNING, "CD reading with paranoia is disabled");
         }
     }
     else
@@ -308,7 +310,6 @@ void CdDecoder::deinit()
     m_freq = m_bitrate = 0L;
     m_stat = DecoderEvent::Finished;
     m_chan = 0;
-    setInput(0);
     setOutput(0);
 }
 
@@ -377,6 +378,9 @@ void CdDecoder::run()
                                 arg(m_curpos).arg(c));
                             memset( &m_output_buf[m_output_at],
                                 0, CDIO_CD_FRAMESIZE_RAW);
+
+                            // stop if we got an error
+                            m_user_stop = true;
                         }
                     }
 
@@ -509,22 +513,10 @@ int CdDecoder::getNumCDAudioTracks()
 }
 
 //public
-Metadata* CdDecoder::getMetadata(int track)
+MusicMetadata* CdDecoder::getMetadata(int track)
 {
     m_settracknum = track;
     return getMetadata();
-}
-
-//public
-Metadata *CdDecoder::getLastMetadata()
-{
-    for(int i = getNumTracks(); i > 0; --i)
-    {
-        Metadata *m = getMetadata(i);
-        if(m)
-            return m;
-    }
-    return NULL;
 }
 
 // Create a TOC
@@ -567,7 +559,7 @@ static Cddb::Toc& GetToc(CdIo_t *cdio, Cddb::Toc& toc)
 }
 
 //virtual
-Metadata *CdDecoder::getMetadata()
+MusicMetadata *CdDecoder::getMetadata()
 {
     QString artist, album, compilation_artist, title, genre;
     int year = 0;
@@ -732,7 +724,7 @@ Metadata *CdDecoder::getMetadata()
                 for (Cddb::Matches::match_t::const_iterator it = select;
                     it != r.matches.end(); ++it)
                 {
-                    QString g = it->genre.toLower();
+                    QString g = it->discGenre.toLower();
                     if (g != "misc" && g != "data")
                     {
                         select = it;
@@ -742,14 +734,19 @@ Metadata *CdDecoder::getMetadata()
             }
 
             Cddb::Album info;
-            if (Cddb::Read(info, select->genre, select->discID))
+            if (Cddb::Read(info, select->discGenre, select->discID))
             {
                 isCompilation = info.isCompilation;
-                if (info.genre.toLower() != "misc")
-                    genre = info.genre;
+
+                if (info.genre.toLower() != "unknown")
+                    genre = info.genre[0].toTitleCase() + info.genre.mid(1);
+                else
+                    genre = info.discGenre[0].toTitleCase() + info.discGenre.mid(1);;
+
                 album = info.title;
                 compilation_artist = info.artist;
                 year = info.year;
+
                 if (info.tracks.size() >= tracknum)
                 {
                     const Cddb::Track& track = info.tracks[tracknum - 1];
@@ -776,52 +773,13 @@ Metadata *CdDecoder::getMetadata()
     if (title.isEmpty())
         title = QObject::tr("Track %1").arg(tracknum);
 
-    Metadata *m = new Metadata(getFilename(), artist, compilation_artist,
+    MusicMetadata *m = new MusicMetadata(getFilename(), artist, compilation_artist,
         album, title, genre, year, tracknum, length);
     if (m)
         m->setCompilation(isCompilation);
 
     return m;
 }
-
-// virtual
-void CdDecoder::commitMetadata(Metadata *mdata)
-{
-    QMutexLocker lock(&getCdioMutex());
-
-    StCdioDevice cdio(m_devicename);
-    if (!cdio)
-        return;
-
-    Cddb::Toc toc;
-    GetToc(cdio, toc);
-
-    unsigned secs;
-    Cddb::discid_t discID = Cddb::Discid(secs, toc.data(), toc.size() - 1);
-
-    Cddb::Album album(discID, mdata->Genre().toLower().toUtf8());
-    if (!Cddb::Read(album, album.genre, discID))
-        album.toc = toc;
-
-    album.isCompilation = mdata->Compilation();
-    if (!mdata->Compilation())
-        album.artist = mdata->Artist();
-    else if (mdata->CompilationArtist() != album.artist)
-        album.artist = mdata->CompilationArtist();
-
-    album.title = mdata->Album();
-    album.year = mdata->Year();
-
-    if (album.tracks.size() < m_tracknum)
-        album.tracks.resize(m_tracknum);
-
-    Cddb::Track& track = album.tracks[m_tracknum - 1];
-    track.title = mdata->Title();
-    track.artist = mdata->Artist();
-
-    Cddb::Write(album);
-}
-
 
 // pure virtual
 bool CdDecoderFactory::supports(const QString &source) const
@@ -844,17 +802,18 @@ const QString &CdDecoderFactory::description() const
 }
 
 // pure virtual
-Decoder *CdDecoderFactory::create(const QString &file, QIODevice *input,
-                                  AudioOutput *output, bool deletable)
+Decoder *CdDecoderFactory::create(const QString &file, AudioOutput *output, bool deletable)
 {
    if (deletable)
-        return new CdDecoder(file, this, input, output);
+        return new CdDecoder(file, this, output);
 
     static CdDecoder *decoder;
-    if (! decoder) {
-        decoder = new CdDecoder(file, this, input, output);
-    } else {
-        decoder->setInput(input);
+    if (! decoder)
+    {
+        decoder = new CdDecoder(file, this, output);
+    }
+    else
+    {
         decoder->setFilename(file);
         decoder->setOutput(output);
     }

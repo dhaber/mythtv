@@ -1,6 +1,5 @@
 /* NOTE: Extracted from LIRC release 0.8.4a -- dtk */
 /*       Updated to LIRC release 0.8.6 */
-/* Modified to use myth_system -- Gavin Hurlbut */
 
 /****************************************************************************
  ** lirc_client.c ***********************************************************
@@ -32,7 +31,6 @@
 #include <sys/wait.h>
 
 #include "lirc_client.h"
-#include "mythsystem.h"
 
 
 /* internal defines */
@@ -927,7 +925,7 @@ int lirc_readconfig(const struct lirc_state *state,
 	strcat(command, " ");
 	strcat(command, filename);
 	
-	ret = myth_system_c(command, kMSNone, 0);
+	ret = system(command);
 	free(command);
 	
 	if(ret!=EXIT_SUCCESS)
@@ -1679,7 +1677,9 @@ int lirc_code2char(const struct lirc_state *state, struct lirc_config *config,ch
 {
 	if(config->sockfd!=-1)
 	{
-		char command[10+strlen(code)+1+1];
+		char* command = malloc((10+strlen(code)+1+1) * sizeof(char));
+		if (command == NULL)
+			return LIRC_RET_ERROR;
 		static char buf[LIRC_PACKET_SIZE];
 		size_t buf_len = LIRC_PACKET_SIZE;
 		int success;
@@ -1699,8 +1699,10 @@ int lirc_code2char(const struct lirc_state *state, struct lirc_config *config,ch
 			{
 				*string = NULL;
 			}
+			free(command);
 			return LIRC_RET_SUCCESS;
 		}
+		free(command);
 		return LIRC_RET_ERROR;
 	}
 	return lirc_code2char_internal(state, config, code, string, NULL);
@@ -1863,7 +1865,7 @@ int lirc_nextcode(struct lirc_state *state, char **code)
 		end_len+=len;
 		state->lirc_buffer[end_len]=0;
 		/* return if next code not yet available completely */
-		if((end=strchr(state->lirc_buffer,'\n'))==NULL)
+		if(strchr(state->lirc_buffer,'\n')==NULL)
 		{
 			return(0);
 		}
@@ -2179,11 +2181,14 @@ int lirc_send_command(const struct lirc_state *lstate, int sockfd, const char *c
 
 int lirc_identify(const struct lirc_state *state, int sockfd)
 {
-	char command[10+strlen(state->lirc_prog)+1+1];
+	char* command = malloc((10+strlen(state->lirc_prog)+1+1) * sizeof(char));
+	if (command == NULL)
+		return LIRC_RET_ERROR;
 	int success;
-	
+
 	sprintf(command, "IDENT %s\n", state->lirc_prog);
-	
+
 	(void) lirc_send_command(state, sockfd, command, NULL, NULL, &success);
+	free(command);
 	return success;
 }

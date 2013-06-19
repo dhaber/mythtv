@@ -6,14 +6,15 @@
 #include <audiooutput.h>
 #include <mythobservable.h>
 
+// libmythmetadata
+#include <musicmetadata.h>
+
 // mythmusic
-#include "metadata.h"
 #include "decoderhandler.h"
 
 class AudioOutput;
 class MainVisual;
 class Playlist;
-class CDWatcherThread;
 
 class MusicPlayerEvent : public MythEvent
 {
@@ -51,7 +52,7 @@ class MusicPlayer : public QObject, public MythObservable
     Q_OBJECT
 
   public:
-     MusicPlayer(QObject *parent, const QString &dev);
+     MusicPlayer(QObject *parent);
     ~MusicPlayer(void);
 
     enum PlayMode
@@ -63,15 +64,13 @@ class MusicPlayer : public QObject, public MythObservable
     void setPlayMode(PlayMode mode);
     PlayMode getPlayMode(void) { return m_playMode; }
 
-    void playFile(const Metadata &meta);
+    void playFile(const MusicMetadata &meta);
 
     void addListener(QObject *listener);
     void removeListener(QObject *listener);
 
     void addVisual(MainVisual *visual);
     void removeVisual(MainVisual *visual);
-
-    void setCDDevice(const QString &dev) { m_CDdevice = dev; }
 
     void      toggleMute(void);
     MuteState getMuteState(void) const;
@@ -113,8 +112,9 @@ class MusicPlayer : public QObject, public MythObservable
     AudioOutput    *getOutput(void) { return m_output; }
 
     void         loadPlaylist(void);
+    void         loadStreamPlaylist(void);
     Playlist    *getPlaylist(void) { return m_currentPlaylist; }
-    StreamList  *getStreamList(void) { return gMusicData->all_streams->getStreams(); }
+    StreamList  *getStreamList(void);
 
     // these add and remove tracks from the active playlist
     void         removeTrack(int trackID);
@@ -122,7 +122,7 @@ class MusicPlayer : public QObject, public MythObservable
 
     void         moveTrackUpDown(bool moveUp, int whichTrack);
 
-    QList<Metadata*> &getPlayedTracksList(void) { return m_playedList; }
+    QList<MusicMetadata*> &getPlayedTracksList(void) { return m_playedList; }
 
     int          getCurrentTrackPos(void) { return m_currentTrack; }
     bool         setCurrentTrackPos(int pos);
@@ -136,8 +136,8 @@ class MusicPlayer : public QObject, public MythObservable
     void         setAllowRestorePos(bool allow) { m_allowRestorePos = allow; }
     void         seek(int pos);
 
-    Metadata    *getCurrentMetadata(void);
-    Metadata    *getNextMetadata(void);
+    MusicMetadata *getCurrentMetadata(void);
+    MusicMetadata *getNextMetadata(void);
     void         sendMetadataChangedEvent(int trackID);
     void         sendTrackStatsChangedEvent(int trackID);
     void         sendAlbumArtChangedEvent(int trackID);
@@ -198,15 +198,13 @@ class MusicPlayer : public QObject, public MythObservable
     int          m_currentTrack;
     int          m_currentTime;
 
-    Metadata    *m_currentMetadata;
-    Metadata    *m_oneshotMetadata;
+    MusicMetadata  *m_currentMetadata;
+    MusicMetadata  *m_oneshotMetadata;
 
     AudioOutput    *m_output;
     DecoderHandler *m_decoderHandler;
 
     QSet<QObject*>  m_visualisers;
-
-    QString      m_CDdevice;
 
     PlayMode     m_playMode;
     bool         m_isPlaying;
@@ -225,11 +223,8 @@ class MusicPlayer : public QObject, public MythObservable
 
     float        m_playSpeed;
 
-    // cd stuff
-    CDWatcherThread *m_cdWatcher;
-
     // radio stuff
-    QList<Metadata*>  m_playedList;
+    QList<MusicMetadata*>  m_playedList;
     int               m_lastTrackStart;
     int               m_bufferAvailable;
     int               m_bufferSize;
@@ -241,25 +236,7 @@ Q_DECLARE_METATYPE(MusicPlayer::ShuffleMode);
 // This global variable contains the MusicPlayer instance for the application
 extern MPUBLIC MusicPlayer *gPlayer;
 
-
-///////////////////////////////////////////////////////////////////////////////
-
-class CDWatcherThread : public QThread
-{
-  public:
-
-    CDWatcherThread(const QString &dev);
-    virtual void run(void);
-    bool    statusChanged(void) { return m_cdStatusChanged; }
-    QMutex *getLock(void) { return &m_musicLock; }
-    void    stop(void) { m_stopped = true; }
-
-  private:
-
-    bool    m_stopped;
-    QString m_cdDevice;
-    bool    m_cdStatusChanged;
-    QMutex  m_musicLock;
-};
+ // This stores the last MythMediaDevice that was detected:
+extern MPUBLIC QString gCDdevice;
 
 #endif

@@ -22,8 +22,8 @@ class ProgramInfo;
 class RawDataList
 {
   public:
-    RawDataList(struct rtframeheader frameh, unsigned char *data)
-    { frameheader = frameh; packet = data; }
+    RawDataList(struct rtframeheader frameh, unsigned char *data) :
+        frameheader(frameh), packet(data) {}
    ~RawDataList() { if (packet) delete [] packet; }
   
     struct rtframeheader frameheader;
@@ -112,7 +112,7 @@ class NuppelDecoder : public DecoderBase
     AVCodec *mpa_audcodec;
     AVCodecContext *mpa_audctx;
     AVPicture tmppicture;
-    AVFrame *m_audioFrame;
+    uint8_t *m_audioSamples;
 
     bool directrendering;
 

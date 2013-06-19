@@ -12,14 +12,13 @@
 #include <mythdialogs.h>
 #include <mythscreenstack.h>
 #include <mythprogressdialog.h>
+#include <musicmetadata.h>
+#include <metaio.h>
 
 // MythMusic headers
-#include "decoder.h"
 #include "filescanner.h"
-#include "metadata.h"
-#include "metaio.h"
 
-FileScanner::FileScanner() : m_decoder(NULL)
+FileScanner::FileScanner()
 {
     MSqlQuery query(MSqlQuery::InitCon());
 
@@ -87,7 +86,7 @@ void FileScanner::BuildFileList(QString &directory, MusicLoadedMap &music_files,
     if (!d.exists())
         return;
 
-    d.setFilter(QDir::NoDotAndDotDot);
+    d.setFilter(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
     QFileInfoList list = d.entryInfoList();
     if (list.isEmpty())
         return;
@@ -168,28 +167,31 @@ int FileScanner::GetDirectoryId(const QString &directory, const int &parentid)
                 "WHERE path = :DIRECTORY ;");
     query.bindValue(":DIRECTORY", directory);
 
-    if (query.exec() && query.next())
+    if (!query.exec())
     {
-            return query.value(0).toInt();
-    }
-    else
-    {
-        query.prepare("INSERT INTO music_directories (path, parent_id) "
-                    "VALUES (:DIRECTORY, :PARENTID);");
-        query.bindValue(":DIRECTORY", directory);
-        query.bindValue(":PARENTID", parentid);
-
-        if (!query.exec() || !query.isActive()
-        || query.numRowsAffected() <= 0)
-        {
-            MythDB::DBError("music insert directory", query);
-            return -1;
-        }
-        return query.lastInsertId().toInt();
+        MythDB::DBError("music select directory id", query);
+        return -1;
     }
 
-    MythDB::DBError("music select directory id", query);
-    return -1;
+    if (query.next())
+    {
+        // we have found the directory already in the DB
+        return query.value(0).toInt();
+    }
+
+    // directory is not in the DB so insert it
+    query.prepare("INSERT INTO music_directories (path, parent_id) "
+                "VALUES (:DIRECTORY, :PARENTID);");
+    query.bindValue(":DIRECTORY", directory);
+    query.bindValue(":PARENTID", parentid);
+
+    if (!query.exec() || !query.isActive() || query.numRowsAffected() <= 0)
+    {
+        MythDB::DBError("music insert directory", query);
+        return -1;
+    }
+
+    return query.lastInsertId().toInt();
 }
 
 /*!
@@ -260,10 +262,11 @@ void FileScanner::AddFileToDB(const QString &filename)
 
     LOG(VB_FILE, LOG_INFO,
         QString("Reading metadata from %1").arg(filename));
-    Metadata *data = MetaIO::readMetadata(filename);
-    data->setFileSize((quint64)QFileInfo(filename).size());
+    MusicMetadata *data = MetaIO::readMetadata(filename);
     if (data)
     {
+        data->setFileSize((quint64)QFileInfo(filename).size());
+
         QString album_cache_string;
 
         // Set values from cache
@@ -480,8 +483,8 @@ void FileScanner::UpdateFileInDB(const QString &filename)
     directory.remove(0, m_startdir.length());
     directory = directory.section( '/', 0, -2);
 
-    Metadata *db_meta   = MetaIO::getMetadata(filename);
-    Metadata *disk_meta = MetaIO::readMetadata(filename);
+    MusicMetadata *db_meta   = MetaIO::getMetadata(filename);
+    MusicMetadata *disk_meta = MetaIO::readMetadata(filename);
 
     if (db_meta && disk_meta)
     {

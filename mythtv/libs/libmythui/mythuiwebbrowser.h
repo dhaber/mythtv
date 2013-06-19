@@ -7,6 +7,7 @@
 #include "mythuiexp.h"
 
 #if QT_VERSION >= 0x050000
+#include <QIcon>
 class MUI_PUBLIC MythUIWebBrowser : public MythUIType
 {
   Q_OBJECT
@@ -15,11 +16,26 @@ class MUI_PUBLIC MythUIWebBrowser : public MythUIType
     MythUIWebBrowser(MythUIType *parent, const QString &name) :
     MythUIType(parent, name) {}
     ~MythUIWebBrowser() {}
-    void SetHtml(const QString &, const QUrl &baseUrl = QUrl()) {}
+    void SetHtml(const QString &, const QUrl &baseUrl = QUrl())
+        { (void) baseUrl; }
     void SetZoom(float) {}
     float GetZoom(void) { return 1.0; }
     void ZoomIn(void) {}
     void ZoomOut(void) {}
+
+    void Init(void) {}
+    void SetActive(bool) {}
+    void LoadPage(QUrl) {}
+    void SetDefaultSaveDirectory(const QString &) {}
+    void SetDefaultSaveFilename(const QString &) {}
+    bool CanGoForward(void) { return false; }
+    bool CanGoBack(void) { return false; }
+    void Back(void) {}
+    void Forward(void) {}
+    QIcon GetIcon(void) { return QIcon(); }
+    QUrl GetUrl(void) { return QUrl("http://example.com"); }
+    QString GetTitle(void) { return QString(); }
+    QVariant evaluateJavaScript(const QString&) { return QVariant(); }
 };
 #warning MythUIWebBrowser has not yet been ported to Qt5
 #else
@@ -73,6 +89,16 @@ class BrowserApi : public QObject
     QString    m_answer;
 };
 
+class MythNetworkAccessManager : public QNetworkAccessManager
+{
+  Q_OBJECT
+  public:
+    MythNetworkAccessManager();
+
+  protected:
+    QNetworkReply* createRequest(Operation op, const QNetworkRequest & req, QIODevice * outgoingData = 0);
+};
+
 class MythWebPage : public QWebPage
 {
   Q_OBJECT
@@ -100,7 +126,6 @@ class MythWebView : public QWebView
     ~MythWebView(void);
 
     virtual void keyPressEvent(QKeyEvent *event);
-    virtual void wheelEvent(QWheelEvent *event);
     virtual void customEvent(QEvent *e);
 
   protected slots:
@@ -204,6 +229,8 @@ class MUI_PUBLIC MythUIWebBrowser : public MythUIType
     void slotIconChanged(void);
     void slotLinkClicked(const QUrl &url);
     void slotTopScreenChanged(MythScreenType *screen);
+    void slotScrollBarShowing(void);
+    void slotScrollBarHiding(void);
 
   protected:
     void Finalize(void);
@@ -212,6 +239,7 @@ class MUI_PUBLIC MythUIWebBrowser : public MythUIType
     void SetBackgroundColor(QColor color);
     void ResetScrollBars(void);
     void UpdateScrollBars(void);
+    bool IsOnTopScreen(void);
 
     virtual void DrawSelf(MythPainter *p, int xoffset, int yoffset,
                           int alphaMod, QRect clipRegion);
@@ -225,6 +253,7 @@ class MUI_PUBLIC MythUIWebBrowser : public MythUIType
 
     MythWebView *m_browser;
     MythRect     m_browserArea;
+    MythRect     m_actualBrowserArea;
 
     MythImage   *m_image;
 

@@ -31,8 +31,8 @@
  * special FLIs from the PC games "Magic Carpet" and "X-COM: Terror from the Deep".
  */
 
+#include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/audioconvert.h"
 #include "avformat.h"
 #include "internal.h"
 
@@ -158,7 +158,6 @@ static int flic_read_header(AVFormatContext *s)
         ast->codec->codec_tag = 0;
         ast->codec->sample_rate = FLIC_TFTD_SAMPLE_RATE;
         ast->codec->channels = 1;
-        ast->codec->sample_fmt = AV_SAMPLE_FMT_U8;
         ast->codec->bit_rate = st->codec->sample_rate * 8;
         ast->codec->bits_per_coded_sample = 8;
         ast->codec->channel_layout = AV_CH_LAYOUT_MONO;

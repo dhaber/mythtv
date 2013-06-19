@@ -483,12 +483,12 @@ void PlayerContext::StopPlaying(void)
         player->StopPlaying();
 }
 
-void PlayerContext::UpdateTVChain(void)
+void PlayerContext::UpdateTVChain(const QStringList &data)
 {
     QMutexLocker locker(&deletePlayerLock);
     if (tvchain && player)
     {
-        tvchain->ReloadAll();
+        tvchain->ReloadAll(data);
         player->CheckTVChain();
     }
 }
@@ -749,7 +749,7 @@ QString PlayerContext::GetFilters(const QString &baseFilters) const
         }
         else
         {
-            if (!filters.isEmpty() && (filters.right(1) != ","))
+            if (!filters.isEmpty() && (!filters.endsWith(",")))
                 filters += ",";
 
             filters += chanFilters.mid(1);

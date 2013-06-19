@@ -49,7 +49,7 @@ using namespace std;
 #include "mythlogging.h"
 #include "mythsocket.h"
 #include "mythcoreutil.h"
-#include "mythsystem.h"
+#include "mythsystemlegacy.h"
 
 #include "mythconfig.h" // for CONFIG_DARWIN
 
@@ -421,10 +421,16 @@ QString createTempFile(QString name_template, bool dir)
  *
  *  \param filename   Path of file to make accessible
  */
-void makeFileAccessible(QString filename)
+bool makeFileAccessible(QString filename)
 {
     QByteArray fname = filename.toLatin1();
-    chmod(fname.constData(), 0666);
+    int ret = chmod(fname.constData(), 0666);
+    if (ret == -1)
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Unable to change permissions on file. (%1)").arg(filename));
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -959,7 +965,7 @@ void wrapList(QStringList &list, int width)
         QString left   = string.left(width);
         bool inserted  = false;
 
-        while( !inserted && left.right(1) != " " )
+        while( !inserted && !left.endsWith(" " ))
         {
             if( string.mid(left.size(), 1) == " " )
             {

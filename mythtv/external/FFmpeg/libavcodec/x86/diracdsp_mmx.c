@@ -60,6 +60,9 @@ void ff_diracdsp_init_mmx(DiracDSPContext* c)
 {
     int mm_flags = av_get_cpu_flags();
 
+    if (!(mm_flags & AV_CPU_FLAG_MMX))
+        return;
+
 #if HAVE_YASM
     c->add_dirac_obmc[0] = ff_add_dirac_obmc8_mmx;
 #if !ARCH_X86_64
@@ -78,7 +81,7 @@ void ff_diracdsp_init_mmx(DiracDSPContext* c)
 
 #if HAVE_MMXEXT_INLINE
     if (mm_flags & AV_CPU_FLAG_MMX2) {
-        PIXFUNC(avg, 0, mmx2);
+        PIXFUNC(avg, 0, mmxext);
     }
 #endif
 

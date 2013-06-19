@@ -18,11 +18,10 @@
 
 #include "libavutil/cpu.h"
 #include "libavutil/x86/cpu.h"
-#include "libavcodec/dsputil.h"
 #include "libavcodec/dct.h"
 #include "fft.h"
 
-av_cold void ff_fft_init_mmx(FFTContext *s)
+av_cold void ff_fft_init_x86(FFTContext *s)
 {
     int has_vectors = av_get_cpu_flags();
 #if ARCH_X86_32
@@ -56,7 +55,7 @@ av_cold void ff_fft_init_mmx(FFTContext *s)
 }
 
 #if CONFIG_DCT
-av_cold void ff_dct_init_mmx(DCTContext *s)
+av_cold void ff_dct_init_x86(DCTContext *s)
 {
     int has_vectors = av_get_cpu_flags();
     if (EXTERNAL_SSE(has_vectors))

@@ -378,9 +378,18 @@ PlaybackBox::PlaybackBox(MythScreenStack *parent, QString name,
     : ScheduleCommon(parent, name),
       m_prefixes(QObject::tr("^(The |A |An )")),
       m_titleChaff(" \\(.*\\)$"),
+      // UI variables
+      m_recgroupList(NULL),
+      m_groupList(NULL),
+      m_recordingList(NULL),
+      m_noRecordingsText(NULL),
+      m_previewImage(NULL),
       // Artwork Variables
       m_artHostOverride(),
       // Settings
+      m_titleView(false),
+      m_useCategories(false),
+      m_useRecGroups(false),
       m_watchListAutoExpire(false),
       m_watchListMaxAge(60),              m_watchListBlackOut(2),
       m_listOrder(1),
@@ -397,14 +406,21 @@ PlaybackBox::PlaybackBox(MythScreenStack *parent, QString name,
       m_doToggleMenu(true),
       // Main Recording List support
       m_progsInDB(0),
+      m_isFilling(false),
       // Other state
       m_op_on_playlist(false),
       m_programInfoCache(this),           m_playingSomething(false),
       // Selection state variables
       m_needUpdate(false),
+      m_haveGroupInfoSet(false),
       // Other
       m_player(NULL),
-      m_helper(this)
+      m_helper(this),
+
+      m_firstGroup(true),
+      m_usingGroupSelector(false),
+      m_groupSelected(false),
+      m_passwordEntered(false)
 {
     for (uint i = 0; i < sizeof(m_artImage) / sizeof(MythUIImage*); i++)
     {
@@ -592,6 +608,8 @@ void PlaybackBox::SwitchList()
 
 void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 {
+    m_groupSelected = true;
+
     QString password = m_recGroupPwCache[newRecGroup];
 
     m_newRecGroup = newRecGroup;
@@ -607,9 +625,14 @@ void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 
         connect(pwd, SIGNAL(haveResult(QString)),
                 SLOT(checkPassword(QString)));
+        connect(pwd, SIGNAL(Exiting(void)),
+                SLOT(passwordClosed(void)));
+
+        m_passwordEntered = false;
 
         if (pwd->Create())
             popupStack->AddScreen(pwd, false);
+
         return;
     }
 
@@ -618,9 +641,23 @@ void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 
 void PlaybackBox::checkPassword(const QString &password)
 {
+    m_passwordEntered = true;
+
     QString grouppass = m_recGroupPwCache[m_newRecGroup];
     if (password == grouppass)
         setGroupFilter(m_newRecGroup);
+    else
+        qApp->postEvent(this, new MythEvent("DISPLAY_RECGROUP",
+                                            m_newRecGroup));
+}
+
+void PlaybackBox::passwordClosed(void)
+{
+    if (m_passwordEntered)
+        return;
+
+    if (m_usingGroupSelector || m_firstGroup)
+        showGroupFilter();
 }
 
 void PlaybackBox::updateGroupInfo(const QString &groupname,
@@ -942,7 +979,7 @@ void PlaybackBox::ItemLoaded(MythUIButtonListItem *item)
                 item->DisplayState(sit.value(), "subtitletypes");
         }
 
-        item->DisplayState(pginfo->GetCategoryType(), "categorytype");
+        item->DisplayState(pginfo->GetCategoryTypeString(), "categorytype");
 
         // Mark this button list item as initialized.
         item->SetText("yes", "is_item_initialized");
@@ -1210,7 +1247,7 @@ void PlaybackBox::updateIcons(const ProgramInfo *pginfo)
     iconState = dynamic_cast<MythUIStateType *>(GetChild("categorytype"));
     if (iconState)
     {
-        if (!(pginfo && iconState->DisplayState(pginfo->GetCategoryType())))
+        if (!(pginfo && iconState->DisplayState(pginfo->GetCategoryTypeString())))
             iconState->Reset();
     }
 }
@@ -2258,6 +2295,13 @@ void PlaybackBox::deleteSelected(MythUIButtonListItem *item)
         push_onto_del(m_delList, *pginfo);
         ShowDeletePopup(kDeleteRecording);
     }
+}
+
+void PlaybackBox::previous()
+{
+    ProgramInfo *pginfo = CurrentItem();
+    if (pginfo)
+        ShowPrevious(pginfo);
 }
 
 void PlaybackBox::upcoming()
@@ -3826,6 +3870,8 @@ bool PlaybackBox::keyPressEvent(QKeyEvent *event)
                 upcoming();
             else if (action == ACTION_VIEWSCHEDULED)
                 upcomingScheduled();
+            else if (action == ACTION_PREVRECORDED)
+                previous();
             else
                 handled = false;
         }
@@ -3858,7 +3904,7 @@ void PlaybackBox::customEvent(QEvent *event)
         MythEvent *me = (MythEvent *)event;
         QString message = me->Message();
 
-        if (message.left(21) == "RECORDING_LIST_CHANGE")
+        if (message.startsWith("RECORDING_LIST_CHANGE"))
         {
             QStringList tokens = message.simplified().split(" ");
             uint chanid = 0;
@@ -3894,7 +3940,7 @@ void PlaybackBox::customEvent(QEvent *event)
                 m_programInfoCache.ScheduleLoad();
             }
         }
-        else if (message.left(15) == "NETWORK_CONTROL")
+        else if (message.startsWith("NETWORK_CONTROL"))
         {
             QStringList tokens = message.simplified().split(" ");
             if ((tokens[1] != "ANSWER") && (tokens[1] != "RESPONSE"))
@@ -3922,7 +3968,7 @@ void PlaybackBox::customEvent(QEvent *event)
                                             keyevent);
             }
         }
-        else if (message.left(16) == "UPDATE_FILE_SIZE")
+        else if (message.startsWith("UPDATE_FILE_SIZE"))
         {
             QStringList tokens = message.simplified().split(" ");
             bool ok = false;
@@ -4166,6 +4212,12 @@ void PlaybackBox::customEvent(QEvent *event)
                  message == "CANCEL_PLAYLIST")
         {
             m_playListPlay.clear();
+        }
+        else if ((message == "DISPLAY_RECGROUP") &&
+                 (me->ExtraDataCount() >= 1))
+        {
+            QString recGroup = me->ExtraData(0);
+            displayRecGroup(recGroup);
         }
     }
     else
@@ -4440,6 +4492,8 @@ void PlaybackBox::showGroupFilter(void)
 
     if (recGroupPopup->Create())
     {
+        m_usingGroupSelector = true;
+        m_groupSelected = false;
         connect(recGroupPopup, SIGNAL(result(QString)),
                 SLOT(displayRecGroup(QString)));
         connect(recGroupPopup, SIGNAL(Exiting()),
@@ -4452,9 +4506,13 @@ void PlaybackBox::showGroupFilter(void)
 
 void PlaybackBox::groupSelectorClosed(void)
 {
-    if ((gCoreContext->GetNumSetting("QueryInitialFilter", 0) == 1) &&
-        ((m_titleList.size() <= 1)))
+    if (m_groupSelected)
+        return;
+
+    if (m_firstGroup)
         Close();
+
+    m_usingGroupSelector = false;
 }
 
 void PlaybackBox::setGroupFilter(const QString &recGroup)
@@ -4463,6 +4521,9 @@ void PlaybackBox::setGroupFilter(const QString &recGroup)
 
     if (newRecGroup.isEmpty())
         return;
+
+    m_firstGroup = false;
+    m_usingGroupSelector = false;
 
     if (newRecGroup == ProgramInfo::i18n("Default"))
         newRecGroup = "Default";

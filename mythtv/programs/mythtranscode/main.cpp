@@ -36,7 +36,7 @@ static void CompleteJob(int jobID, ProgramInfo *pginfo, bool useCutlist,
 static int glbl_jobID = -1;
 static QString recorderOptions = "";
 
-static void UpdatePositionMap(frm_pos_map_t &posMap, QString mapfile,
+static void UpdatePositionMap(frm_pos_map_t &posMap, frm_pos_map_t &durMap, QString mapfile,
                        ProgramInfo *pginfo)
 {
     if (pginfo && mapfile.isEmpty())
@@ -44,7 +44,7 @@ static void UpdatePositionMap(frm_pos_map_t &posMap, QString mapfile,
         pginfo->ClearPositionMap(MARK_KEYFRAME);
         pginfo->ClearPositionMap(MARK_GOP_START);
         pginfo->SavePositionMap(posMap, MARK_GOP_BYFRAME);
-        pginfo->SavePositionMap(posMap, MARK_DURATION_MS);
+        pginfo->SavePositionMap(durMap, MARK_DURATION_MS);
     }
     else if (!mapfile.isEmpty())
     {
@@ -60,25 +60,22 @@ static void UpdatePositionMap(frm_pos_map_t &posMap, QString mapfile,
         fprintf (mapfh, "Type: %d\n", keyType);
         for (it = posMap.begin(); it != posMap.end(); ++it)
         {
-            if (it.key() == keyType)
-            {
-                QString str = QString("%1 %2\n").arg(it.key()).arg(*it);
-                fprintf(mapfh, "%s", qPrintable(str));
-            }
+            QString str = QString("%1 %2\n").arg(it.key()).arg(*it);
+            fprintf(mapfh, "%s", qPrintable(str));
         }
         fclose(mapfh);
     }
 }
 
 static int BuildKeyframeIndex(MPEG2fixup *m2f, QString &infile,
-                       frm_pos_map_t &posMap, int jobID)
+                       frm_pos_map_t &posMap, frm_pos_map_t &durMap, int jobID)
 {
     if (jobID < 0 || JobQueue::GetJobCmd(jobID) != JOB_STOP)
     {
         if (jobID >= 0)
             JobQueue::ChangeJobComment(jobID,
                                        QObject::tr("Generating Keyframe Index"));
-        int err = m2f->BuildKeyframeIndex(infile, posMap);
+        int err = m2f->BuildKeyframeIndex(infile, posMap, durMap);
         if (err)
             return err;
         if (jobID >= 0)
@@ -160,7 +157,7 @@ namespace
 
 int main(int argc, char *argv[])
 {
-    uint chanid;
+    uint chanid = 0;
     QDateTime starttime;
     QString infile, outfile;
     QString profilename = QString("autodetect");
@@ -175,7 +172,8 @@ int main(int argc, char *argv[])
     bool cleanCut = false;
     QMap<QString, QString> settingsOverride;
     frm_dir_map_t deleteMap;
-    frm_pos_map_t posMap;
+    frm_pos_map_t posMap; ///< position of keyframes
+    frm_pos_map_t durMap; ///< duration from beginning of keyframes
     int AudioTrackNo = -1;
 
     int found_starttime = 0;
@@ -540,7 +538,7 @@ int main(int argc, char *argv[])
         return QueueTranscodeJob(pginfo, profilename, hostname, useCutlist);
     }
 
-    if (infile.left(7) == "myth://" && (outfile.isEmpty() || outfile != "-") &&
+    if (infile.startsWith("myth://") && (outfile.isEmpty() || outfile != "-") &&
         fifodir.isEmpty() && !cmdline.toBool("hls") && !cmdline.toBool("avf"))
     {
         LOG(VB_GENERAL, LOG_ERR,
@@ -633,8 +631,11 @@ int main(int argc, char *argv[])
     {
         void (*update_func)(float) = NULL;
         int (*check_func)() = NULL;
-        if (useCutlist && !found_infile)
+        if (useCutlist)
+        {
+            LOG(VB_GENERAL, LOG_INFO, "Honoring the cutlist while transcoding");
             pginfo->QueryCutList(deleteMap);
+        }
         if (jobID >= 0)
         {
            glbl_jobID = jobID;
@@ -649,26 +650,26 @@ int main(int argc, char *argv[])
 
         if (build_index)
         {
-            int err = BuildKeyframeIndex(m2f, infile, posMap, jobID);
+            int err = BuildKeyframeIndex(m2f, infile, posMap, durMap, jobID);
             if (err)
                 return err;
             if (update_index)
-                UpdatePositionMap(posMap, NULL, pginfo);
+                UpdatePositionMap(posMap, durMap, NULL, pginfo);
             else
-                UpdatePositionMap(posMap, outfile + QString(".map"), pginfo);
+                UpdatePositionMap(posMap, durMap, outfile + QString(".map"), pginfo);
         }
         else
         {
             result = m2f->Start();
             if (result == REENCODE_OK)
             {
-                result = BuildKeyframeIndex(m2f, outfile, posMap, jobID);
+                result = BuildKeyframeIndex(m2f, outfile, posMap, durMap, jobID);
                 if (result == REENCODE_OK)
                 {
                     if (update_index)
-                        UpdatePositionMap(posMap, NULL, pginfo);
+                        UpdatePositionMap(posMap, durMap, NULL, pginfo);
                     else
-                        UpdatePositionMap(posMap, outfile + QString(".map"),
+                        UpdatePositionMap(posMap, durMap, outfile + QString(".map"),
                                           pginfo);
                 }
             }
@@ -1003,7 +1004,15 @@ static void CompleteJob(int jobID, ProgramInfo *pginfo, bool useCutlist,
                 QFile checkFile(oldfileprev);
 
                 if ((oldfileprev != newfileprev) && (checkFile.exists()))
-                    rename(aoldfileprev.constData(), anewfileprev.constData());
+                {
+                    if(rename(aoldfileprev.constData(), 
+                              anewfileprev.constData()) == -1)
+                    {
+                        LOG(VB_GENERAL, LOG_ERR,
+                            QString("mythtranscode: Error renaming %1 to %2")
+                                    .arg(oldfileprev).arg(newfileprev) + ENO);
+                    }
+                }
             }
         }
 

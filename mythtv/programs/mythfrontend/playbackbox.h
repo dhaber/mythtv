@@ -146,6 +146,7 @@ class PlaybackBox : public ScheduleCommon
 
     void ShowGroupPopup(void);
     void customEdit();
+    void previous();
     void upcoming();
     void upcomingScheduled();
     void details();
@@ -255,6 +256,7 @@ class PlaybackBox : public ScheduleCommon
     void saveViewChanges(void);
 
     void checkPassword(const QString &password);
+    void passwordClosed(void);
 
     void fanartLoad(void);
     void bannerLoad(void);
@@ -432,6 +434,11 @@ class PlaybackBox : public ScheduleCommon
     PlaybackBoxHelper   m_helper;
     /// Outstanding preview image requests
     QSet<QString>       m_preview_tokens;
+
+    bool                m_firstGroup;
+    bool                m_usingGroupSelector;
+    bool                m_groupSelected;
+    bool                m_passwordEntered;
 };
 
 class GroupSelector : public MythScreenType

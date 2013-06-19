@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
 #include "libavcodec/mjpeg.h"
 #include "avformat.h"
@@ -56,6 +57,7 @@ static int mxg_read_header(AVFormatContext *s)
     audio_st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
     audio_st->codec->codec_id = AV_CODEC_ID_PCM_ALAW;
     audio_st->codec->channels = 1;
+    audio_st->codec->channel_layout = AV_CH_LAYOUT_MONO;
     audio_st->codec->sample_rate = 8000;
     audio_st->codec->bits_per_coded_sample = 8;
     audio_st->codec->block_align = 1;
@@ -99,17 +101,19 @@ static int mxg_update_cache(AVFormatContext *s, unsigned int cache_size)
     MXGContext *mxg = s->priv_data;
     unsigned int current_pos = mxg->buffer_ptr - mxg->buffer;
     unsigned int soi_pos;
+    uint8_t *buffer;
     int ret;
 
     /* reallocate internal buffer */
     if (current_pos > current_pos + cache_size)
         return AVERROR(ENOMEM);
     soi_pos = mxg->soi_ptr - mxg->buffer;
-    mxg->buffer = av_fast_realloc(mxg->buffer, &mxg->buffer_size,
-                                  current_pos + cache_size +
-                                  FF_INPUT_BUFFER_PADDING_SIZE);
-    if (!mxg->buffer)
+    buffer = av_fast_realloc(mxg->buffer, &mxg->buffer_size,
+                             current_pos + cache_size +
+                             FF_INPUT_BUFFER_PADDING_SIZE);
+    if (!buffer)
         return AVERROR(ENOMEM);
+    mxg->buffer = buffer;
     mxg->buffer_ptr = mxg->buffer + current_pos;
     if (mxg->soi_ptr) mxg->soi_ptr = mxg->buffer + soi_pos;
 

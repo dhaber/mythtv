@@ -12,7 +12,7 @@ using namespace std;
 #include <mythdirs.h>
 #include <mythuicheckbox.h>
 #include <mythuibuttonlist.h>
-#include <mythsystem.h>
+#include <mythsystemlegacy.h>
 
 // mythbrowser
 #include "bookmarkmanager.h"
@@ -65,7 +65,7 @@ bool BrowserConfig::Create()
     m_commandEdit->SetText(gCoreContext->GetSetting("WebBrowserCommand",
                            "Internal"));
 
-    m_zoomEdit->SetText(gCoreContext->GetSetting("WebBrowserZoomLevel", "1.4"));
+    m_zoomEdit->SetText(gCoreContext->GetSetting("WebBrowserZoomLevel", "1.0"));
 
     int setting = gCoreContext->GetNumSetting("WebBrowserEnablePlugins", 1);
     if (setting == 1)
@@ -372,7 +372,7 @@ void BookmarkManager::slotBookmarkClicked(MythUIButtonListItem *item)
     m_savedBookmark = *site;
 
     QString cmd = gCoreContext->GetSetting("WebBrowserCommand", "Internal");
-    QString zoom = gCoreContext->GetSetting("WebBrowserZoomLevel", "1.4");
+    QString zoom = gCoreContext->GetSetting("WebBrowserZoomLevel", "1.0");
     QStringList urls;
 
     urls.append(site->url);
@@ -385,7 +385,7 @@ void BookmarkManager::slotBookmarkClicked(MythUIButtonListItem *item)
         if (urls[0].startsWith("mythflash://"))
             mythbrowser = new MythFlashPlayer(mainStack, urls);
         else
-            mythbrowser = new MythBrowser(mainStack, urls, zoom.toFloat());
+            mythbrowser = new MythBrowser(mainStack, urls);
 
         if (mythbrowser->Create())
         {
@@ -591,7 +591,7 @@ void BookmarkManager::slotShowMarked(void)
     }
 
     QString cmd = gCoreContext->GetSetting("WebBrowserCommand", "Internal");
-    QString zoom = gCoreContext->GetSetting("WebBrowserZoomLevel", "1.4");
+    QString zoom = gCoreContext->GetSetting("WebBrowserZoomLevel", "1.0");
     QStringList urls;
 
     for (int x = 0; x < m_siteList.size(); x++)
@@ -605,7 +605,7 @@ void BookmarkManager::slotShowMarked(void)
     {
         MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
-        MythBrowser *mythbrowser = new MythBrowser(mainStack, urls, zoom.toFloat());
+        MythBrowser *mythbrowser = new MythBrowser(mainStack, urls);
 
         if (mythbrowser->Create())
         {

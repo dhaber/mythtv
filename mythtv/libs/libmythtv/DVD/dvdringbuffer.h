@@ -78,6 +78,7 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     bool IsWaiting(void) const           { return m_dvdWaiting;          }
     int  NumPartsInTitle(void)     const { return m_titleParts;          }
     void GetMenuSPUPkt(uint8_t *buf, int len, int stream_id);
+    int64_t GetTimeDiff(void)      const { return m_timeDiff; }
 
     // Public menu/button stuff
     AVSubtitle *GetMenuSubtitle(uint &version);
@@ -89,6 +90,7 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
 
     // Subtitles
     uint GetSubtitleLanguage(int key);
+    int GetSubtitleTrackNum(uint stream_id);
     bool DecodeSubtitles(AVSubtitle * sub, int * gotSubtitles,
                          const uint8_t * buf, int buf_size);
 
@@ -119,13 +121,15 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     void SkipStillFrame(void);
     void WaitSkip(void);
     void SkipDVDWaitingForPlayer(void)    { m_playerWait = false;           }
+    void UnblockReading(void)             { m_processState = PROCESS_REPROCESS; }
+    bool IsReadingBlocked(void)           { return (m_processState == PROCESS_WAIT); }
     bool GoToMenu(const QString str);
     void GoToNextProgram(void);
     void GoToPreviousProgram(void);
 
     virtual void IgnoreWaitStates(bool ignore) { m_skipstillorwait = ignore; }
     void AudioStreamsChanged(bool change) { m_audioStreamsChanged = change; }
-    uint GetCurrentTime(void)             { return (m_currentTime / 90000); }
+    int64_t GetCurrentTime(void)          { return (m_currentTime / 90000); }
     uint TitleTimeLeft(void);
     void  SetTrack(uint type, int trackNo);
     int   GetTrack(uint type);
@@ -137,6 +141,14 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     void SetParent(MythDVDPlayer *p) { m_parent = p; }
 
   protected:
+
+    typedef enum
+    {
+        PROCESS_NORMAL,
+        PROCESS_REPROCESS,
+        PROCESS_WAIT
+    }processState_t;
+
     dvdnav_t      *m_dvdnav;
     unsigned char  m_dvdBlockWriteBuf[DVD_BLOCK_SIZE];
     unsigned char *m_dvdBlockReadBuf;
@@ -159,6 +171,8 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     bool           m_gotStop;
     int            m_currentAngle;
     int            m_currentTitleAngleCount;
+    int64_t        m_endPts;
+    int64_t        m_timeDiff;
 
     bool           m_newSequence;
     int            m_still;
@@ -170,6 +184,8 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     long long      m_cellstartPos;
     bool           m_buttonSelected;
     bool           m_buttonExists;
+    bool           m_buttonSeenInCell;
+    bool           m_lastButtonSeenInCell;
     int            m_cellid;
     int            m_lastcellid;
     int            m_vobid;
@@ -179,17 +195,21 @@ class MTV_PUBLIC DVDRingBuffer : public RingBuffer
     int            m_curAudioTrack;
     int8_t         m_curSubtitleTrack;
     bool           m_autoselectsubtitle;
-    long long      m_seekpos;
     const char    *m_dvdname;
     const char    *m_serialnumber;
     bool           m_seeking;
-    uint64_t       m_seektime;
-    uint           m_currentTime;
+    int64_t        m_seektime;
+    int64_t        m_currentTime;
     QMap<uint, uint> m_seekSpeedMap;
     QMap<uint, QList<uint64_t> > m_chapterMap;
 
     MythDVDPlayer *m_parent;
     float          m_forcedAspect;
+
+    processState_t  m_processState;
+    dvdnav_status_t m_dvdStat;
+    int32_t        m_dvdEvent;
+    int32_t        m_dvdEventSize;
 
     // Private menu/button stuff
     void ActivateButton(void);

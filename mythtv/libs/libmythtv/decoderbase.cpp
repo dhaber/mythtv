@@ -12,7 +12,6 @@ using namespace std;
 #include "mythlogging.h"
 #include "decoderbase.h"
 #include "programinfo.h"
-#include "livetvchain.h"
 #include "iso639.h"
 #include "DVD/dvdringbuffer.h"
 #include "Bluray/bdringbuffer.h"
@@ -1102,7 +1101,7 @@ int DecoderBase::AutoSelectTrack(uint type)
     int selTrack = (1 == numStreams) ? 0 : -1;
 
     if ((selTrack < 0) &&
-        wantedTrack[type].language>=-1 && numStreams)
+        wantedTrack[type].language>=-1)
     {
         LOG(VB_PLAYBACK, LOG_INFO, LOC + "Trying to reselect track");
         // Try to reselect user selected track stream.
@@ -1113,13 +1112,16 @@ int DecoderBase::AutoSelectTrack(uint type)
         for (uint i = 0; i < numStreams; i++)
         {
             if (wlang == tracks[type][i].language)
+            {
                 selTrack = i;
-            if (windx == tracks[type][i].language_index)
-                break;
+
+                if (windx == tracks[type][i].language_index)
+                    break;
+            }
         }
     }
 
-    if (selTrack < 0 && numStreams)
+    if (selTrack < 0)
     {
         // Select the best track.  Primary attribute is to favor a
         // forced track.  Secondary attribute is language preference,
@@ -1158,7 +1160,7 @@ int DecoderBase::AutoSelectTrack(uint type)
     }
 
     int oldTrack = currentTrack[type];
-    currentTrack[type] = (selTrack < 0) ? -1 : selTrack;
+    currentTrack[type] = selTrack;
     StreamInfo tmp = tracks[type][currentTrack[type]];
     selectedTrack[type] = tmp;
 
@@ -1167,8 +1169,9 @@ int DecoderBase::AutoSelectTrack(uint type)
 
     int lang = tracks[type][currentTrack[type]].language;
     LOG(VB_PLAYBACK, LOG_INFO, LOC +
-        QString("Selected track #%1 in the %2 language(%3)")
+        QString("Selected track #%1 (type %2) in the %3 language(%4)")
             .arg(currentTrack[type]+1)
+            .arg(type)
             .arg(iso639_key_toName(lang)).arg(lang));
 
     if (m_parent && (oldTrack != currentTrack[type]))
@@ -1206,23 +1209,23 @@ int to_track_type(const QString &str)
 {
     int ret = -1;
 
-    if (str.left(5) == "AUDIO")
+    if (str.startsWith("AUDIO"))
         ret = kTrackTypeAudio;
-    else if (str.left(5) == "VIDEO")
+    else if (str.startsWith("VIDEO"))
         ret = kTrackTypeVideo;
-    else if (str.left(8) == "SUBTITLE")
+    else if (str.startsWith("SUBTITLE"))
         ret = kTrackTypeSubtitle;
-    else if (str.left(5) == "CC608")
+    else if (str.startsWith("CC608"))
         ret = kTrackTypeCC608;
-    else if (str.left(5) == "CC708")
+    else if (str.startsWith("CC708"))
         ret = kTrackTypeCC708;
-    else if (str.left(3) == "TTC")
+    else if (str.startsWith("TTC"))
         ret = kTrackTypeTeletextCaptions;
-    else if (str.left(3) == "TTM")
+    else if (str.startsWith("TTM"))
         ret = kTrackTypeTeletextMenu;
-    else if (str.left(3) == "TFL")
+    else if (str.startsWith("TFL"))
         ret = kTrackTypeTextSubtitle;
-    else if (str.left(7) == "RAWTEXT")
+    else if (str.startsWith("RAWTEXT"))
         ret = kTrackTypeRawText;
     return ret;
 }
@@ -1266,7 +1269,7 @@ void DecoderBase::SaveTotalDuration(void)
     if (!m_playbackinfo || av_q2d(totalDuration) == 0)
         return;
 
-    m_playbackinfo->SaveTotalDuration(1000 * av_q2d(totalDuration));
+    m_playbackinfo->SaveTotalDuration(1000000 * av_q2d(totalDuration));
 }
 
 void DecoderBase::SaveTotalFrames(void)

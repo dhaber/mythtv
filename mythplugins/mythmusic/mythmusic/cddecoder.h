@@ -15,12 +15,12 @@ using std::vector;
 # include <cdio/paranoia.h>
 #endif
 
-class Metadata;
+class MusicMetadata;
 
 class CdDecoder : public Decoder
 {
   public:
-    CdDecoder(const QString &file, DecoderFactory *, QIODevice *, AudioOutput *);
+    CdDecoder(const QString &file, DecoderFactory *, AudioOutput *);
     virtual ~CdDecoder();
 
     // Decoder implementation
@@ -28,14 +28,12 @@ class CdDecoder : public Decoder
     virtual void seek(double);
     virtual void stop();
 
-    // Decoder overrides
-    virtual Metadata *getMetadata(void);
-    virtual void commitMetadata(Metadata *mdata);
+    MusicMetadata *getMetadata(void);
 
-    // The following need to allocate a new Metadata object each time,
-    // because their callers (e.g. databasebox.cpp) free the returned value
-    Metadata *getMetadata(int track);
-    Metadata *getLastMetadata();
+    // The following need to allocate a new MusicMetadata object each time,
+    // because their callers free the returned value
+    // TODO check this is still true
+    MusicMetadata *getMetadata(int track);
 
 #if CONFIG_DARWIN
     double lengthInSeconds();
@@ -43,8 +41,8 @@ class CdDecoder : public Decoder
     int getNumTracks();
     int getNumCDAudioTracks();
 
-    void      setDevice(const QString &dev);
-    void      setCDSpeed(int speed);
+    void setDevice(const QString &dev);
+    void setCDSpeed(int speed);
 
   private:
     void run();
@@ -66,7 +64,6 @@ class CdDecoder : public Decoder
                        m_leadout;       ///< End of last track
     double             m_lengthInSecs;
     vector<int>        m_tracks;        ///< Start block offset of each track
-    vector<Metadata*>  m_mData;         ///< After lookup, details of each trk
 #endif
     static QMutex& getCdioMutex();
 

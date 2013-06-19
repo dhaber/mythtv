@@ -1,15 +1,19 @@
 #ifndef PLAYLIST_H_
 #define PLAYLIST_H_
 
+// qt
 #include <QList>
 #include <QMap>
 
-#include "metadata.h"
+// libmythmetadata
+#include <musicmetadata.h>
+
+// mythmusic
 #include "musicplayer.h"
 
 class PlaylistContainer;
 class Playlist;
-class MythSystem;
+class MythSystemLegacy;
 
 enum InsertPLOption
 {
@@ -32,7 +36,7 @@ struct PlaylistOptions
     PlayPLOption playPLOption;
 };
 
-typedef QList<Metadata*> SongList;
+typedef QList<MusicMetadata*> SongList;
 
 class Playlist : public QObject
 {
@@ -66,23 +70,24 @@ class Playlist : public QObject
                               bool removeDuplicates,
                               InsertPLOption insertOption,
                               int currentTrackID);
-    QString toRawSonglist(bool shuffled = false);
+    QString toRawSonglist(bool shuffled = false, bool tracksOnly = false);
 
     const SongList &getSongs(void) { return m_shuffledSongs; }
-    Metadata* getSongAt(int pos);
+    MusicMetadata* getSongAt(int pos);
 
     int getCount(void) { return m_songs.count(); }
 
     void moveTrackUpDown(bool flag, int where_its_at);
-    void moveTrackUpDown(bool flag, Metadata *the_track);
+    void moveTrackUpDown(bool flag, MusicMetadata *the_track);
 
     bool checkTrack(int a_track_id) const;
 
     void addTrack(int trackID, bool update_display);
-    void addTrack(Metadata *mdata, bool update_display);
+    void addTrack(MusicMetadata *mdata, bool update_display);
 
     void removeTrack(int the_track_id);
     void removeAllTracks(void);
+    void removeAllCDTracks(void);
 
     void copyTracks(Playlist *to_ptr, bool update_display);
 
@@ -119,12 +124,12 @@ class Playlist : public QObject
     QString               m_name;
     SongList              m_songs;
     SongList              m_shuffledSongs;
-    QMap<int, Metadata*>  m_songMap;
+    QMap<int, MusicMetadata*>  m_songMap;
     PlaylistContainer    *m_parent;
     bool                  m_changed;
     bool                  m_doSave;
     MythProgressDialog   *m_progress;
-    MythSystem           *m_proc;
+    MythSystemLegacy           *m_proc;
     uint                  m_procExitVal;
 };
 

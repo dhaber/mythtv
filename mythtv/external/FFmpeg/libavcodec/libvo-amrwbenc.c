@@ -79,7 +79,7 @@ static av_cold int amr_wb_encode_init(AVCodecContext *avctx)
 {
     AMRWBContext *s = avctx->priv_data;
 
-    if (avctx->sample_rate != 16000) {
+    if (avctx->sample_rate != 16000 && avctx->strict_std_compliance > FF_COMPLIANCE_UNOFFICIAL) {
         av_log(avctx, AV_LOG_ERROR, "Only 16000Hz sample rate supported\n");
         return AVERROR(ENOSYS);
     }
@@ -121,7 +121,7 @@ static int amr_wb_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     const int16_t *samples = (const int16_t *)frame->data[0];
     int size, ret;
 
-    if ((ret = ff_alloc_packet2(avctx, avpkt, MAX_PACKET_SIZE)))
+    if ((ret = ff_alloc_packet2(avctx, avpkt, MAX_PACKET_SIZE)) < 0)
         return ret;
 
     if (s->last_bitrate != avctx->bit_rate) {

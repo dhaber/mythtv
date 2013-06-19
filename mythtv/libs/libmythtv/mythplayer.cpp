@@ -237,7 +237,7 @@ MythPlayer::MythPlayer(PlayerFlags flags)
 
     defaultDisplayAspect =
         gCoreContext->GetFloatSettingOnHost("XineramaMonitorAspectRatio",
-                                            gCoreContext->GetHostName(), 1.3333);
+                                            gCoreContext->GetHostName(), 1.7777);
     captionsEnabledbyDefault = gCoreContext->GetNumSetting("DefaultCCMode");
     decode_extra_audio = gCoreContext->GetNumSetting("DecodeExtraAudio", 0);
     itvEnabled         = gCoreContext->GetNumSetting("EnableMHEG", 0);
@@ -509,7 +509,7 @@ bool MythPlayer::InitVideo(void)
                     decoder->GetCodecDecoderName(),
                     decoder->GetVideoCodecID(),
                     decoder->GetVideoCodecPrivate(),
-                    pipState, video_disp_dim, video_aspect,
+                    pipState, video_dim, video_disp_dim, video_aspect,
                     parentWidget, embedRect,
                     video_frame_rate, (uint)playerFlags);
 
@@ -613,7 +613,7 @@ void MythPlayer::ReinitVideo(void)
         videoOutput->SetVideoFrameRate(video_frame_rate);
         float aspect = (forced_video_aspect > 0) ? forced_video_aspect :
                                                video_aspect;
-        if (!videoOutput->InputChanged(video_disp_dim, aspect,
+        if (!videoOutput->InputChanged(video_dim, video_disp_dim, aspect,
                                        decoder->GetVideoCodecID(),
                                        decoder->GetVideoCodecPrivate(),
                                        aspect_only))
@@ -914,7 +914,7 @@ void MythPlayer::CreateDecoder(char *testbuf, int testreadsize)
 int MythPlayer::OpenFile(uint retries)
 {
     // Disable hardware acceleration for second PBP
-    if ((player_ctx->IsPBP() && !player_ctx->IsPrimaryPBP()) &&
+    if (player_ctx && (player_ctx->IsPBP() && !player_ctx->IsPrimaryPBP()) &&
         FlagIsSet(kDecodeAllowGPU))
     {
         playerFlags = (PlayerFlags)(playerFlags - kDecodeAllowGPU);
@@ -1071,7 +1071,7 @@ void MythPlayer::InitFilters(void)
         }
         else
         {
-            if ((filters.length() > 1) && (filters.right(1) != ","))
+            if ((filters.length() > 1) && (!filters.endsWith(",")))
                 filters += ",";
             filters += videoFiltersForProgram.mid(1);
         }
@@ -2547,7 +2547,8 @@ void MythPlayer::SwitchToProgram(void)
     {
         // Restore original ringbuffer
         ICRingBuffer *ic = dynamic_cast< ICRingBuffer* >(player_ctx->buffer);
-        player_ctx->buffer = ic->Take();
+        if (ic) // should always be true
+            player_ctx->buffer = ic->Take();
         delete ic;
     }
 
@@ -2689,7 +2690,8 @@ void MythPlayer::JumpToProgram(void)
     {
         // Restore original ringbuffer
         ICRingBuffer *ic = dynamic_cast< ICRingBuffer* >(player_ctx->buffer);
-        player_ctx->buffer = ic->Take();
+        if (ic) // should always be true
+            player_ctx->buffer = ic->Take();
         delete ic;
     }
 
@@ -3259,6 +3261,9 @@ void MythPlayer::DecoderLoop(bool pause)
 
 bool MythPlayer::DecoderGetFrameFFREW(void)
 {
+    if (!decoder)
+        return false;
+
     if (ffrew_skip > 0)
     {
         long long delta = decoder->GetFramesRead() - framesPlayed;
@@ -3990,11 +3995,11 @@ void MythPlayer::DisableEdit(int howToSave)
         SetOSDStatus(tr("Paused"), kOSDTimeout_None);
 }
 
-bool MythPlayer::HandleProgramEditorActions(QStringList &actions,
-                                             long long frame)
+bool MythPlayer::HandleProgramEditorActions(QStringList &actions)
 {
     bool handled = false;
     bool refresh = true;
+    long long frame = GetFramesPlayed();
 
     for (int i = 0; i < actions.size() && !handled; i++)
     {
@@ -4100,7 +4105,7 @@ bool MythPlayer::HandleProgramEditorActions(QStringList &actions,
         {
             QString undoMessage = deleteMap.GetUndoMessage();
             QString redoMessage = deleteMap.GetRedoMessage();
-            handled = deleteMap.HandleAction(action, frame, framesPlayed);
+            handled = deleteMap.HandleAction(action, frame);
             if (handled && (action == "CUTTOBEGINNING" ||
                 action == "CUTTOEND" || action == "NEWCUT"))
             {
@@ -4369,8 +4374,8 @@ char *MythPlayer::GetScreenGrabAtFrame(uint64_t frameNum, bool absolute,
         &retbuf, PIX_FMT_RGB32, &orig, PIX_FMT_YUV420P,
                 video_dim.width(), video_dim.height());
 
-    vw = video_dim.width();
-    vh = video_dim.height();
+    vw = video_disp_dim.width();
+    vh = video_disp_dim.height();
     ar = frame->aspect;
 
     DiscardVideoFrame(frame);
