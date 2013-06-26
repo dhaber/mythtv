@@ -2,12 +2,53 @@
 #include "mythdvdplayer.h"
 #include "avformatdecoderdvd.h"
 
+extern "C" {
+#include "libavcodec/avcodec.h"
+}
+
 #define LOC QString("AFD_DVD: ")
+#define INVALID_LBA 0xbfffffff
 
 AvFormatDecoderDVD::AvFormatDecoderDVD(
     MythPlayer *parent, const ProgramInfo &pginfo, PlayerFlags flags)
   : AvFormatDecoder(parent, pginfo, flags)
+  , m_curContext(NULL)
+  , m_lastVideoPkt(NULL)
+  , m_lbaLastVideoPkt(INVALID_LBA)
+  , m_framesReq(0)
+  , m_returnContext(NULL)
 {
+}
+
+AvFormatDecoderDVD::~AvFormatDecoderDVD()
+{
+    ReleaseContext(m_curContext);
+    ReleaseContext(m_returnContext);
+
+    while (m_contextList.size() > 0)
+        m_contextList.takeFirst()->DecrRef();
+
+    ReleaseLastVideoPkt();
+}
+
+void AvFormatDecoderDVD::ReleaseLastVideoPkt()
+{
+    if (m_lastVideoPkt)
+    {
+        av_free_packet(m_lastVideoPkt);
+        delete m_lastVideoPkt;
+        m_lastVideoPkt = NULL;
+        m_lbaLastVideoPkt = INVALID_LBA;
+    }
+}
+
+void AvFormatDecoderDVD::ReleaseContext(MythDVDContext *&context)
+{
+    if (context)
+    {
+        context->DecrRef();
+        context = NULL;
+    }
 }
 
 void AvFormatDecoderDVD::Reset(bool reset_video_data, bool seek_reset, bool reset_file)
@@ -32,46 +73,296 @@ bool AvFormatDecoderDVD::GetFrame(DecodeType decodetype)
     return AvFormatDecoder::GetFrame( kDecodeAV );
 }
 
-int64_t AvFormatDecoderDVD::AdjustTimestamp(int64_t timestamp)
-{
-    int64_t newTimestamp = timestamp;
-
-    if (newTimestamp != AV_NOPTS_VALUE)
-    {
-        int64_t timediff = ringBuffer->DVD()->GetTimeDiff();
-        if (newTimestamp >= timediff)
-        {
-            newTimestamp -= timediff;
-        }
-    }
-
-    return newTimestamp;
-}
-
 int AvFormatDecoderDVD::ReadPacket(AVFormatContext *ctx, AVPacket* pkt)
 {
-    int result = av_read_frame(ctx, pkt);
+    int result = 0;
 
-    while (result == AVERROR_EOF && errno == EAGAIN)
+    if (m_framesReq > 0)
     {
-        if (ringBuffer->DVD()->IsReadingBlocked())
+        m_framesReq--;
+
+        if (m_lastVideoPkt)
         {
-            ringBuffer->DVD()->UnblockReading();
-            result = av_read_frame(ctx, pkt);
+            av_copy_packet(pkt, m_lastVideoPkt);
+
+            if (m_lastVideoPkt->pts != AV_NOPTS_VALUE)
+                m_lastVideoPkt->pts += pkt->duration;
+
+            if (m_lastVideoPkt->dts != AV_NOPTS_VALUE)
+                m_lastVideoPkt->dts += pkt->duration;
         }
         else
         {
-            break;
+            LOG(VB_GENERAL, LOG_ERR, LOC + QString( "Need to generate frame @ %1 - %2 but no frame available!")
+                .arg(pkt->pts)
+                .arg(m_framesReq));
         }
     }
-
-    if (result >= 0)
+    else
     {
-        pkt->dts = AdjustTimestamp(pkt->dts);
-        pkt->pts = AdjustTimestamp(pkt->pts);
+        bool gotPacket;
+
+        do
+        {
+            gotPacket = true;
+
+            result = av_read_frame(ctx, pkt);
+
+            while (result == AVERROR_EOF && errno == EAGAIN)
+            {
+                if (ringBuffer->DVD()->IsReadingBlocked())
+                {
+                    if (ringBuffer->DVD()->GetLastEvent() == DVDNAV_HOP_CHANNEL)
+                    {
+                        // Non-seamless jump - clear all buffers
+                        m_framesReq = 0;
+                        ReleaseContext(m_curContext);
+
+                        while (m_contextList.size() > 0)
+                            m_contextList.takeFirst()->DecrRef();
+
+                        Reset(true, false, false);
+                        m_audio->Reset();
+                        m_parent->DiscardVideoFrames(false);
+                    }
+                    ringBuffer->DVD()->UnblockReading();
+                    result = av_read_frame(ctx, pkt);
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            if (result >= 0)
+            {
+                pkt->dts = ringBuffer->DVD()->AdjustTimestamp(pkt->dts);
+                pkt->pts = ringBuffer->DVD()->AdjustTimestamp(pkt->pts);
+
+                if (m_returnContext)
+                {
+                    // We've jumped in a slideshow and have had to jump again
+                    // to find the right video packet to show so only allow
+                    // the packets through that let us find it.
+                    gotPacket = false;
+
+                    AVStream *curstream = ic->streams[pkt->stream_index];
+
+                    if ((curstream->codec->codec_type == AVMEDIA_TYPE_VIDEO) ||
+                        (curstream->codec->codec_id == AV_CODEC_ID_DVD_NAV))
+                    {
+                        // Allow video or NAV packets through
+                        gotPacket = true;
+                    }
+                }
+            }
+        }while(!gotPacket);
     }
 
     return result;
+}
+
+void AvFormatDecoderDVD::CheckContext(int64_t pts)
+{
+    if (pts != AV_NOPTS_VALUE)
+    {
+        // Remove any contexts we should have
+        // already processed.(but have somehow jumped past)
+        while (m_contextList.size() > 0 &&
+               pts >= m_contextList.first()->GetEndPTS())
+        {
+            ReleaseContext(m_curContext);
+            m_curContext = m_contextList.takeFirst();
+
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("DVD context missed! lba: %1, curpts: %2, nav end pts: %3")
+                .arg(m_curContext->GetLBA())
+                .arg(pts)
+                .arg(m_curContext->GetEndPTS()));
+        }
+
+        // See whether we can take the next context from the list
+        if (m_contextList.size() > 0 &&
+            pts >= m_contextList.first()->GetStartPTS())
+        {
+            ReleaseContext(m_curContext);
+            m_curContext = m_contextList.takeFirst();
+
+            if (m_curContext->GetLBAPrevVideoFrame() != m_lbaLastVideoPkt)
+                ReleaseLastVideoPkt();
+
+            if (m_curContext->GetNumFramesPresent() == 0)
+            {
+                if (m_lastVideoPkt)
+                {
+                    // No video frames present, so we need to generate
+                    // them based on the last 'sequence end' video packet.
+                    m_framesReq = m_curContext->GetNumFrames();
+                }
+                else
+                {
+                    // There are no video frames in this VOBU and
+                    // we don't have one stored.  We've probably
+                    // jumped into the middle of a cell.
+                    // Jump back to the first VOBU that contains
+                    // video so we can get the video frame we need
+                    // before jumping back again.
+                    m_framesReq = 0;
+                    uint32_t lastVideoSector = m_curContext->GetLBAPrevVideoFrame();
+
+                    if (lastVideoSector != INVALID_LBA)
+                    {
+                        LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString( "Missing video.  Jumping to sector %1")
+                            .arg(lastVideoSector));
+
+                        ringBuffer->DVD()->SectorSeek(lastVideoSector);
+
+                        m_returnContext = m_curContext;
+                        m_curContext = NULL;
+                    }
+                    else
+                    {
+                        LOG(VB_GENERAL, LOG_ERR, LOC +
+                            QString("Missing video frame and no previous frame available! lba: %1")
+                            .arg(m_curContext->GetLBA()));
+                    }
+                }
+            }
+            else
+            {
+                // Normal VOBU with at least one video frame so we don't need to generate frames.
+                m_framesReq = 0;
+                ReleaseLastVideoPkt();
+            }
+        }
+    }
+}
+
+
+bool AvFormatDecoderDVD::ProcessVideoPacket(AVStream *stream, AVPacket *pkt)
+{
+    int64_t pts = pkt->pts;
+
+    if (pts == AV_NOPTS_VALUE)
+        pts = pkt->dts;
+
+    CheckContext(pts);
+
+    bool ret = AvFormatDecoder::ProcessVideoPacket(stream, pkt);
+        
+    if( ret &&
+        m_curContext &&
+        pts != AV_NOPTS_VALUE &&
+        pts + pkt->duration == m_curContext->GetSeqEndPTS())
+    {
+        // If this video frame is the last in the sequence,
+        // make a copy of it so we can 'generate' more
+        // to fill in the gaps (e.g. when a single frame
+        // should be displayed with audio)
+        if (!m_lastVideoPkt)
+        {
+            m_lastVideoPkt = new AVPacket;
+            memset(m_lastVideoPkt, 0, sizeof(AVPacket));
+        }
+        else
+        {
+            av_free_packet(m_lastVideoPkt);
+        }
+
+        av_init_packet(m_lastVideoPkt);
+        av_copy_packet(m_lastVideoPkt, pkt);
+        m_lbaLastVideoPkt = m_curContext->GetLBA();
+
+        if (m_returnContext)
+        {
+            // After seeking in a slideshow, we needed to find
+            // the previous video frame to display.
+            // We've found it now, so we need to jump back to
+            // where we originally wanted to be.
+            LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString( "Found video packet, jumping back to sector %1")
+                .arg(m_returnContext->GetLBA()));
+
+            ringBuffer->DVD()->SectorSeek(m_returnContext->GetLBA());
+            ReleaseContext(m_returnContext);
+        }
+        else
+        {
+            if (m_lastVideoPkt->pts != AV_NOPTS_VALUE)
+                m_lastVideoPkt->pts += pkt->duration;
+
+            if (m_lastVideoPkt->dts != AV_NOPTS_VALUE)
+                m_lastVideoPkt->dts += pkt->duration;
+
+            m_framesReq = m_curContext->GetNumFrames() - m_curContext->GetNumFramesPresent();
+
+            LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString( "SeqEnd @ %1 - require %2 frame(s)")
+                .arg(pkt->pts)
+                .arg(m_framesReq));
+        }
+    }
+
+    return ret;
+}
+
+bool AvFormatDecoderDVD::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
+{
+    bool ret = true;
+
+    if (m_returnContext == NULL)
+    {
+        // Only process video frames if we're not searching for
+        // the previous video frame after seeking in a slideshow.
+        ret = AvFormatDecoder::ProcessVideoFrame(stream, mpa_pic);
+    }
+
+    return ret;
+}
+
+bool AvFormatDecoderDVD::ProcessDataPacket(AVStream *curstream, AVPacket *pkt,
+                                           DecodeType decodetype)
+{
+    bool ret = true;
+
+    if (curstream->codec->codec_id == AV_CODEC_ID_DVD_NAV)
+    {
+        MythDVDContext* context = ringBuffer->DVD()->GetDVDContext();
+
+        if (context)
+            m_contextList.append(context);
+
+        if (m_curContext == NULL)
+        {
+            // If we don't have a current context, use
+            // the first in the list
+            CheckContext(m_contextList.first()->GetStartPTS());
+
+            if (m_lastVideoPkt && m_curContext)
+            {
+                // If there was no current context but there was
+                // a video packet, we've almost certainly been
+                // seeking so set the timestamps of the video
+                // packet to the new context to ensure we don't
+                // get sync errors.
+                m_lastVideoPkt->pts = m_curContext->GetStartPTS();
+                m_lastVideoPkt->dts = m_lastVideoPkt->pts;
+            }
+        }
+        else
+        if (m_lastVideoPkt)
+        {
+            // If we've been generating frames, see whether this
+            // new context should be used already (handles
+            // situations where a VOBU consists of only a NAV
+            // packet and nothing else)
+            CheckContext(m_lastVideoPkt->pts);
+        }
+    }
+    else
+    {
+        ret = AvFormatDecoder::ProcessDataPacket(curstream, pkt, decodetype);
+    }
+
+    return ret;
 }
 
 void AvFormatDecoderDVD::PostProcessTracks(void)
@@ -85,18 +376,35 @@ void AvFormatDecoderDVD::PostProcessTracks(void)
     {
         stable_sort(tracks[kTrackTypeAudio].begin(),
                     tracks[kTrackTypeAudio].end());
-        sinfo_vec_t::iterator it = tracks[kTrackTypeAudio].begin();
-        for (; it != tracks[kTrackTypeAudio].end(); ++it)
+
+        int trackNo = -1;
+        int dvdTrack = ringBuffer->DVD()->GetTrack(kTrackTypeAudio);
+
+        for (uint i = 0; i < GetTrackCount(kTrackTypeAudio); i++)
         {
             LOG(VB_PLAYBACK, LOG_INFO, LOC +
-                QString("DVD Audio Track Map Stream id #%1, MPEG stream %2")
-                    .arg(it->stream_id)
-                    .arg(ic->streams[it->av_stream_index]->id));
+                QString("DVD Audio Track Map Stream id #%1, av_stream_idx %2, MPEG stream 0x%3, lang %4")
+                    .arg(tracks[kTrackTypeAudio][i].stream_id)
+                    .arg(tracks[kTrackTypeAudio][i].av_stream_index)
+                    .arg(ic->streams[tracks[kTrackTypeAudio][i].av_stream_index]->id,0,16)
+                    .arg(iso639_key_toName(tracks[kTrackTypeAudio][i].language)));
+
+            // Find the audio track in our list that maps to the
+            // selected track in the ringbuffer (the ringbuffer's
+            // list should be in the same order but can have gaps,
+            // so we look for the track with the same index)
+            if (tracks[kTrackTypeAudio][i].stream_id == dvdTrack)
+                trackNo = i;
         }
-        int trackNo = ringBuffer->DVD()->GetTrack(kTrackTypeAudio);
-        if (trackNo >= (int)GetTrackCount(kTrackTypeAudio))
-            trackNo = GetTrackCount(kTrackTypeAudio) - 1;
-        SetTrack(kTrackTypeAudio, trackNo);
+
+        if (trackNo < 0 && GetTrackCount(kTrackTypeAudio) > 0)
+        {
+            // Take the first track
+            trackNo = 0;
+        }
+
+        if (trackNo >= 0)
+            SetTrack(kTrackTypeAudio, trackNo);
     }
 
     if (tracks[kTrackTypeSubtitle].size() > 0)
@@ -238,7 +546,15 @@ void AvFormatDecoderDVD::StreamChangeCheck(void)
 
     // Always use the first video stream
     // (must come after ScanStreams above)
-    selectedTrack[kTrackTypeVideo].av_stream_index = 0;
+    for (uint i = 0; i < ic->nb_streams; i++)
+    {
+        AVStream *st = ic->streams[i];
+        if (st && st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+        {
+            selectedTrack[kTrackTypeVideo].av_stream_index = i;
+            break;
+        }
+    }
 }
 
 int AvFormatDecoderDVD::GetAudioLanguage(uint audio_index, uint stream_index)
@@ -290,8 +606,11 @@ AudioTrackType AvFormatDecoderDVD::GetAudioTrackType(uint stream_index)
     int type = 0;
     
     if (ringBuffer && ringBuffer->DVD())
-        type = ringBuffer->DVD()->GetAudioTrackType(stream_index);
-    
+    {
+        int logical_idx = ringBuffer->DVD()->GetAudioTrackNum(ic->streams[stream_index]->id);
+        type = ringBuffer->DVD()->GetAudioTrackType(logical_idx);
+    }
+
     if (type > 0 && type < 5) // These are the only types defined in unofficial documentation
     {
         AudioTrackType ret = kAudioTypeNormal;

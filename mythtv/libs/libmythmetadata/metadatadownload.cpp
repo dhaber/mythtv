@@ -368,7 +368,7 @@ MetadataLookupList MetadataDownload::readMXML(QString MXMLpath,
         if (MXMLpath.startsWith("myth://"))
         {
             RemoteFile *rf = new RemoteFile(MXMLpath);
-            if (rf && rf->Open())
+            if (rf && rf->isOpen())
             {
                 bool loaded = rf->SaveAs(mxmlraw);
                 if (loaded)
@@ -384,7 +384,6 @@ MetadataLookupList MetadataDownload::readMXML(QString MXMLpath,
                         LOG(VB_GENERAL, LOG_ERR,
                             QString("Corrupt or invalid MXML file."));
                 }
-                rf->Close();
             }
 
             delete rf;
@@ -433,7 +432,7 @@ MetadataLookupList MetadataDownload::readNFO(QString NFOpath,
         if (NFOpath.startsWith("myth://"))
         {
             RemoteFile *rf = new RemoteFile(NFOpath);
-            if (rf && rf->Open())
+            if (rf && rf->isOpen())
             {
                 bool loaded = rf->SaveAs(nforaw);
                 if (loaded)
@@ -448,7 +447,6 @@ MetadataLookupList MetadataDownload::readNFO(QString NFOpath,
                         LOG(VB_GENERAL, LOG_ERR,
                             QString("PIRATE ERROR: Invalid NFO file found."));
                 }
-                rf->Close();
             }
 
             delete rf;

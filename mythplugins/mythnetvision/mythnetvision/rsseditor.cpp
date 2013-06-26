@@ -13,10 +13,10 @@
 #include <mythdate.h>
 #include <mythcontext.h>
 #include <mythdbcon.h>
-#include <httpcomms.h>
 #include <mythdirs.h>
 #include <netutils.h>
 #include <rssparse.h>
+#include <mythdownloadmanager.h>
 
 // RSS headers
 #include "rsseditor.h"
@@ -300,14 +300,23 @@ void RSSEditPopup::slotSave(QNetworkReply* reply)
 
             filename = QString("%1/%2").arg(fileprefix).arg(rawFilename);
 
-            bool exists = QFile::exists(filename);
-            if (!exists)
-                HttpComms::getHttpFile(filename, thumbnailURL, 20000, 1, 2);
+            if (!QFile::exists(filename))
+            {
+                if (!GetMythDownloadManager()->download(thumbnailURL, filename))
+                {
+                    LOG(VB_GENERAL, LOG_ERR,
+                        QString("RSSEditPopup: failed to download thumbnail from: %1")
+                                .arg(thumbnailURL));
+                    filename = "";
+                }
+            }
         }
+
         if (insertInDB(new RSSSite(title, filename, VIDEO_PODCAST, description, link,
                 author, download, MythDate::current())))
             emit saving();
     }
+
     Close();
 }
 
