@@ -7,6 +7,7 @@
 #include "mthread.h"
 #include "mythlogging.h"
 #include "mythcorecontext.h"
+#include "mythuinotificationcenter.h"
 
 #include "bonjourregister.h"
 #include "mythraopconnection.h"
@@ -60,7 +61,6 @@ bool MythRAOPDevice::Create(void)
             gMythRAOPDevice,                  SLOT(Stop()));
         gMythRAOPDeviceThread->start(QThread::LowestPriority);
     }
-
 
     LOG(VB_GENERAL, LOG_INFO, LOC + "Created RAOP device objects.");
     return true;
@@ -169,15 +169,13 @@ bool MythRAOPDevice::RegisterForBonjour(void)
     name.append(gCoreContext->GetHostName());
     QByteArray type = "_raop._tcp";
     QByteArray txt;
-    txt.append(6); txt.append("tp=UDP");
-    txt.append(8); txt.append("sm=false");
-    txt.append(8); txt.append("sv=false");
-    txt.append(4); txt.append("ek=1");      //
-    txt.append(6); txt.append("et=0,1");    // encryption type: no, RSA
-    txt.append(6); txt.append("cn=0,1");    // audio codec: pcm, alac
+    txt.append(9); txt.append("txtvers=1"); // TXT record version 1
     txt.append(4); txt.append("ch=2");      // audio channels
-    txt.append(5); txt.append("ss=16");     // sample size
-    txt.append(8); txt.append("sr=44100");  // sample rate
+    txt.append(6); txt.append("cn=0,1");    // audio codec: pcm, alac
+    txt.append(4); txt.append("ek=1");      // without this, iTunes doesn't see us
+    txt.append(7); txt.append("da=true");
+    txt.append(6); txt.append("et=0,1");    // encryption type: no, RSA
+    txt.append(8); txt.append("md=0,1,2");  // metadata-type: text, artwork, progress
     if (gCoreContext->GetNumSetting("AirPlayPasswordEnabled"))
     {
         txt.append(7); txt.append("pw=true");
@@ -186,11 +184,14 @@ bool MythRAOPDevice::RegisterForBonjour(void)
     {
         txt.append(8); txt.append("pw=false");
     }
-    txt.append(4); txt.append("vn=3");
-    txt.append(9); txt.append("txtvers=1"); // TXT record version 1
-    txt.append(8); txt.append("md=0,1,2");  // metadata-type: text, artwork, progress
+    txt.append(8); txt.append("sv=false");
+    txt.append(8); txt.append("sr=44100");  // sample rate
+    txt.append(5); txt.append("ss=16");     // sample size
+    txt.append(6); txt.append("tp=UDP");
+    txt.append(8); txt.append("vn=65537");
     txt.append(9); txt.append("vs=130.14");
-    txt.append(7); txt.append("da=true");
+    txt.append(13); txt.append("am=AppleTV2,1");
+    txt.append(6); txt.append("sf=0x4");
 
     LOG(VB_GENERAL, LOG_INFO, QString("Registering service %1.%2 port %3 TXT %4")
         .arg(QString(name)).arg(QString(type)).arg(m_setupPort).arg(QString(txt)));
@@ -208,6 +209,10 @@ void MythRAOPDevice::newConnection(QTcpSocket *client)
     QMutexLocker locker(m_lock);
     LOG(VB_GENERAL, LOG_INFO, LOC + QString("New connection from %1:%2")
         .arg(client->peerAddress().toString()).arg(client->peerPort()));
+
+    MythNotification n(tr("New Connection"), tr("AirTunes"),
+                       tr("from %1:%2").arg(client->peerAddress().toString()).arg(client->peerPort()));
+    MythUINotificationCenter::GetInstance()->Queue(n);
 
     MythRAOPConnection *obj =
             new MythRAOPConnection(this, client, m_hardwareId, 6000);
@@ -233,6 +238,9 @@ void MythRAOPDevice::deleteClient(void)
     QMutexLocker locker(m_lock);
     QList<MythRAOPConnection *>::iterator it = m_clients.begin();
 
+    MythNotification n(tr("Client disconnected"), tr("AirTunes"));
+    MythUINotificationCenter::GetInstance()->Queue(n);
+
     while (it != m_clients.end())
     {
         if ((*it)->GetSocket()->state() == QTcpSocket::UnconnectedState)
@@ -240,7 +248,7 @@ void MythRAOPDevice::deleteClient(void)
             LOG(VB_GENERAL, LOG_INFO, LOC + "Removing client connection.");
             delete *it;
             m_clients.erase(it);
-            return;
+            break;
         }
         ++it;
     }

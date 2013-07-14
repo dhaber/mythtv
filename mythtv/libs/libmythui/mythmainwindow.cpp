@@ -83,6 +83,8 @@ using namespace std;
 #include "mythpainter_d3d9.h"
 #endif
 
+#include "mythuinotificationcenter.h"
+
 #define GESTURE_TIMEOUT 1000
 #define STANDBY_TIMEOUT 90 // Minutes
 
@@ -191,7 +193,8 @@ class MythMainWindowPrivate
 
         idleTimer(NULL),
         standby(false),
-        enteringStandby(false)
+        enteringStandby(false),
+        NC(NULL)
     {
     }
 
@@ -284,6 +287,7 @@ class MythMainWindowPrivate
     QTimer *idleTimer;
     bool standby;
     bool enteringStandby;
+    MythUINotificationCenter *NC;
 };
 
 // Make keynum in QKeyEvent be equivalent to what's in QKeySequence
@@ -369,6 +373,14 @@ void DestroyMythMainWindow(void)
 MythPainter *GetMythPainter(void)
 {
     return MythMainWindow::getMainWindow()->GetCurrentPainter();
+}
+
+MythUINotificationCenter *GetNotificationCenter(void)
+{
+    if (!mainWin ||
+        !mainWin->GetCurrentNotificationCenter())
+        return NULL;
+    return mainWin->GetCurrentNotificationCenter();
 }
 
 #ifdef USE_OPENGL_PAINTER
@@ -583,12 +595,20 @@ MythMainWindow::~MythMainWindow()
         delete d->cecAdapter;
 #endif
 
+    delete d->NC;
+
     delete d;
+
 }
 
 MythPainter *MythMainWindow::GetCurrentPainter(void)
 {
     return d->painter;
+}
+
+MythUINotificationCenter *MythMainWindow::GetCurrentNotificationCenter(void)
+{
+    return d->NC;
 }
 
 QWidget *MythMainWindow::GetPaintWindow(void)
@@ -1086,6 +1106,8 @@ void MythMainWindow::Init(QString forcedpainter)
         d->m_themeBase->Reload();
     else
         d->m_themeBase = new MythThemeBase();
+
+    d->NC = new MythUINotificationCenter();
 }
 
 void MythMainWindow::InitKeys()
@@ -2403,6 +2425,10 @@ void MythMainWindow::customEvent(QEvent *ce)
 
         if (!message.isEmpty())
             ShowOkPopup(message);
+    }
+    else if ((MythEvent::Type)(ce->type()) == MythUINotificationCenterEvent::kEventType)
+    {
+        MythUINotificationCenter::GetInstance()->ProcessQueue();
     }
 }
 

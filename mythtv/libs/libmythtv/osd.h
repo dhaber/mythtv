@@ -1,6 +1,12 @@
 #ifndef OSD_H
 #define OSD_H
 
+// Qt headers
+
+#include <QCoreApplication>
+
+// MythTV headers
+
 #include "mythtvexp.h"
 #include "programtypes.h"
 #include "mythscreentype.h"
@@ -122,6 +128,8 @@ class MythOSDWindow : public MythScreenType
 
 class OSD
 {
+    Q_DECLARE_TR_FUNCTIONS(OSD)
+
   public:
     OSD(MythPlayer *player, QObject *parent, MythPainter *painter);
    ~OSD();
@@ -130,7 +138,7 @@ class OSD
     void    SetPainter(MythPainter *painter);
     QRect   Bounds(void) const { return m_Rect; }
     int     GetFontStretch(void) const { return m_fontStretch; }
-    void    OverrideUIScale(void);
+    void    OverrideUIScale(bool log = true);
     void    RevertUIScale(void);
     bool    Reinit(const QRect &rect, float font_aspect);
     void    DisableFade(void) { m_Effects = false; }
@@ -139,7 +147,8 @@ class OSD
     void    SetTimeouts(int _short, int _medium, int _long);
 
     bool    IsVisible(void);
-    void    HideAll(bool keepsubs = true, MythScreenType *except = NULL);
+    void    HideAll(bool keepsubs = true, MythScreenType *except = NULL,
+                    bool dropnotification = false);
 
     MythScreenType *GetWindow(const QString &window);
     void    SetExpiry(const QString &window, enum OSDTimeout timeout,

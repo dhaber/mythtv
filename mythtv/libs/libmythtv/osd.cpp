@@ -15,6 +15,7 @@
 #include "mythuibutton.h"
 #include "mythuieditbar.h"
 #include "mythuistatetype.h"
+#include "mythuinotificationcenter.h"
 
 // libmythtv
 #include "channelutil.h"
@@ -105,9 +106,8 @@ bool ChannelEditor::keyPressEvent(QKeyEvent *event)
     if (GetFocusWidget()->keyPressEvent(event))
         return true;
 
-    bool handled = false;
     QStringList actions;
-    handled = GetMythMainWindow()->TranslateKeyPress("qt", event, actions);
+    bool handled = GetMythMainWindow()->TranslateKeyPress("qt", event, actions);
 
     for (int i = 0; i < actions.size() && !handled; i++)
     {
@@ -210,7 +210,7 @@ void OSD::SetPainter(MythPainter *painter)
     }
 }
 
-void OSD::OverrideUIScale(void)
+void OSD::OverrideUIScale(bool log)
 {
     QRect uirect = GetMythMainWindow()->GetUIScreenRect();
     if (uirect == m_Rect)
@@ -224,13 +224,16 @@ void OSD::OverrideUIScale(void)
                                                  height, m_SavedHMult);
     QSize theme_size = MythUIHelper::getMythUI()->GetBaseSize();
     m_SavedUIRect = uirect;
-    LOG(VB_GENERAL, LOG_INFO, LOC + QString("Base theme size: %1x%2")
-               .arg(theme_size.width()).arg(theme_size.height()));
     float tmp_wmult = (float)m_Rect.size().width() / (float)theme_size.width();
     float tmp_hmult = (float)m_Rect.size().height() /
                       (float)theme_size.height();
-    LOG(VB_GENERAL, LOG_INFO, LOC + QString("Scaling factors: %1x%2")
-               .arg(tmp_wmult).arg(tmp_hmult));
+    if (log)
+    {
+        LOG(VB_GENERAL, LOG_INFO, LOC + QString("Base theme size: %1x%2")
+            .arg(theme_size.width()).arg(theme_size.height()));
+        LOG(VB_GENERAL, LOG_INFO, LOC + QString("Scaling factors: %1x%2")
+            .arg(tmp_wmult).arg(tmp_hmult));
+    }
     m_UIScaleOverride = true;
     GetMythMainWindow()->SetScalingFactors(tmp_wmult, tmp_hmult);
     GetMythMainWindow()->SetUIScreenRect(m_Rect);
@@ -266,19 +269,29 @@ bool OSD::Reinit(const QRect &rect, float font_aspect)
 
 bool OSD::IsVisible(void)
 {
+    if (MythUINotificationCenter::GetInstance()->DisplayedNotifications() > 0)
+        return true;
+
     foreach(MythScreenType* child, m_Children)
+    {
         if (child->IsVisible() &&
             child->objectName() != OSD_WIN_SUBTITLE &&
             child->objectName() != OSD_WIN_TELETEXT &&
             child->objectName() != OSD_WIN_BDOVERLAY &&
             child->objectName() != OSD_WIN_INTERACT)
             return true;
+    }
 
     return false;
 }
 
-void OSD::HideAll(bool keepsubs, MythScreenType* except)
+void OSD::HideAll(bool keepsubs, MythScreenType* except, bool dropnotification)
 {
+    if (dropnotification)
+    {
+        if (MythUINotificationCenter::GetInstance()->RemoveFirst())
+            return; // we've removed the top window, don't process any further
+    }
     QMutableMapIterator<QString, MythScreenType*> it(m_Children);
     while (it.hasNext())
     {
@@ -304,22 +317,20 @@ void OSD::LoadWindows(void)
     {
         const char* window = default_windows[i];
         MythOSDWindow *win = new MythOSDWindow(NULL, window, true);
-        if (win)
+
+        win->SetPainter(m_CurrentPainter);
+        if (win->Create())
         {
-            win->SetPainter(m_CurrentPainter);
-            if (win->Create())
-            {
-                PositionWindow(win);
-                LOG(VB_PLAYBACK, LOG_INFO, LOC +
-                    QString("Loaded window %1").arg(window));
-                m_Children.insert(window, win);
-            }
-            else
-            {
-                LOG(VB_GENERAL, LOG_ERR, LOC + QString("Failed to load window %1")
-                    .arg(window));
-                delete win;
-            }
+            PositionWindow(win);
+            LOG(VB_PLAYBACK, LOG_INFO, LOC +
+                QString("Loaded window %1").arg(window));
+            m_Children.insert(window, win);
+        }
+        else
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + QString("Failed to load window %1")
+                .arg(window));
+            delete win;
         }
     }
 }
@@ -615,21 +626,64 @@ bool OSD::DrawDirect(MythPainter* painter, QSize size, bool repaint)
     QMap<QString,MythScreenType*>::const_iterator it;
     for (it = m_Children.begin(); it != m_Children.end(); ++it)
     {
-        if (it.value()->IsVisible())
+        if ((*it)->IsVisible())
         {
             visible = true;
-            it.value()->Pulse();
-            if (m_Effects && m_ExpireTimes.contains(it.value()))
+            (*it)->Pulse();
+            if (m_Effects && m_ExpireTimes.contains((*it)))
             {
-                QTime expires = m_ExpireTimes.value(it.value()).time();
+                QTime expires = m_ExpireTimes.value((*it)).time();
                 int left = now.msecsTo(expires);
                 if (left < m_FadeTime)
                     (*it)->SetAlpha((255 * left) / m_FadeTime);
             }
-            if (it.value()->NeedsRedraw())
+            if ((*it)->NeedsRedraw())
                 redraw = true;
         }
     }
+
+    MythUINotificationCenter *nc = MythUINotificationCenter::GetInstance();
+    QList<MythScreenType*> notifications;
+    nc->GetNotificationScreens(notifications);
+    QList<MythScreenType*>::iterator it2 = notifications.begin();
+    while (it2 != notifications.end())
+    {
+        if (!MythUINotificationCenter::GetInstance()->ScreenCreated(*it2))
+        {
+            if (!m_UIScaleOverride)
+            {
+                OverrideUIScale(false);
+            }
+            (*it2)->SetPainter(m_CurrentPainter);
+            if (!(*it2)->Create())
+            {
+                it2 = notifications.erase(it2);
+                continue;
+            }
+        }
+        if ((*it2)->IsVisible())
+        {
+            if (!m_UIScaleOverride)
+            {
+                OverrideUIScale(false);
+            }
+            nc->UpdateScreen(*it2);
+
+            visible = true;
+            (*it2)->Pulse();
+            if (m_Effects)
+            {
+                QTime expires = nc->ScreenExpiryTime(*it2).time();
+                int left = now.msecsTo(expires);
+                if (expires.isValid() && left < m_FadeTime)
+                    (*it2)->SetAlpha((255 * left) / m_FadeTime);
+            }
+            if ((*it2)->NeedsRedraw())
+                redraw = true;
+        }
+        ++it2;
+    }
+    RevertUIScale();
 
     redraw |= repaint;
 
@@ -639,11 +693,20 @@ bool OSD::DrawDirect(MythPainter* painter, QSize size, bool repaint)
         painter->Begin(NULL);
         for (it = m_Children.begin(); it != m_Children.end(); ++it)
         {
-            if (it.value()->IsVisible())
+            if ((*it)->IsVisible())
             {
-                it.value()->Draw(painter, 0, 0, 255, cliprect);
-                it.value()->SetAlpha(255);
-                it.value()->ResetNeedsRedraw();
+                (*it)->Draw(painter, 0, 0, 255, cliprect);
+                (*it)->SetAlpha(255);
+                (*it)->ResetNeedsRedraw();
+            }
+        }
+        for (it2 = notifications.begin(); it2 != notifications.end(); ++it2)
+        {
+            if ((*it2)->IsVisible())
+            {
+                (*it2)->Draw(painter, 0, 0, 255, cliprect);
+                (*it2)->SetAlpha(255);
+                (*it2)->ResetNeedsRedraw();
             }
         }
         painter->End();
@@ -671,31 +734,84 @@ QRegion OSD::Draw(MythPainter* painter, QPaintDevice *device, QSize size,
     QMap<QString,MythScreenType*>::const_iterator it;
     for (it = m_Children.begin(); it != m_Children.end(); ++it)
     {
-        if (it.value()->IsVisible())
+        if ((*it)->IsVisible())
         {
-            QRect vis = it.value()->GetArea().toQRect();
+            QRect vis = (*it)->GetArea().toQRect();
             if (visible.isEmpty())
                 visible = QRegion(vis);
             else
                 visible = visible.united(vis);
 
-            it.value()->Pulse();
-            if (m_Effects && m_ExpireTimes.contains(it.value()))
+            (*it)->Pulse();
+            if (m_Effects && m_ExpireTimes.contains((*it)))
             {
-                QTime expires = m_ExpireTimes.value(it.value()).time();
+                QTime expires = m_ExpireTimes.value((*it)).time();
                 int left = now.msecsTo(expires);
                 if (left < m_FadeTime)
                     (*it)->SetAlpha((255 * left) / m_FadeTime);
             }
         }
 
-        if (it.value()->NeedsRedraw())
+        if ((*it)->NeedsRedraw())
         {
-            QRegion area = it.value()->GetDirtyArea();
+            QRegion area = (*it)->GetDirtyArea();
             dirty = dirty.united(area);
             redraw = true;
         }
     }
+
+    MythUINotificationCenter *nc = MythUINotificationCenter::GetInstance();
+    QList<MythScreenType*> notifications;
+    nc->GetNotificationScreens(notifications);
+    QList<MythScreenType*>::iterator it2 = notifications.begin();
+    while (it2 != notifications.end())
+    {
+        if (!MythUINotificationCenter::GetInstance()->ScreenCreated(*it2))
+        {
+            if (!m_UIScaleOverride)
+            {
+                OverrideUIScale(false);
+            }
+            (*it2)->SetPainter(m_CurrentPainter);
+            if (!(*it2)->Create())
+            {
+                it2 = notifications.erase(it2);
+                continue;
+            }
+        }
+        if ((*it2)->IsVisible())
+        {
+            if (!m_UIScaleOverride)
+            {
+                OverrideUIScale(false);
+            }
+            nc->UpdateScreen(*it2);
+
+            QRect vis = (*it2)->GetArea().toQRect();
+            if (visible.isEmpty())
+                visible = QRegion(vis);
+            else
+                visible = visible.united(vis);
+
+            (*it2)->Pulse();
+            if (m_Effects)
+            {
+                QTime expires = nc->ScreenExpiryTime(*it2).time();
+                int left = now.msecsTo(expires);
+                if (expires.isValid() && left < m_FadeTime)
+                    (*it2)->SetAlpha((255 * left) / m_FadeTime);
+            }
+        }
+
+        if ((*it2)->NeedsRedraw())
+        {
+            QRegion area = (*it2)->GetDirtyArea();
+            dirty = dirty.united(area);
+            redraw = true;
+        }
+        ++it2;
+    }
+    RevertUIScale();
 
     if (redraw)
     {
@@ -705,10 +821,19 @@ QRegion OSD::Draw(MythPainter* painter, QPaintDevice *device, QSize size,
         // set redraw for any widgets that may now need a partial repaint
         for (it = m_Children.begin(); it != m_Children.end(); ++it)
         {
-            if (it.value()->IsVisible() && !it.value()->NeedsRedraw() &&
-                dirty.intersects(it.value()->GetArea().toQRect()))
+            if ((*it)->IsVisible() && !(*it)->NeedsRedraw() &&
+                dirty.intersects((*it)->GetArea().toQRect()))
             {
-                it.value()->SetRedraw();
+                (*it)->SetRedraw();
+            }
+        }
+
+        for (it2 = notifications.begin(); it2 != notifications.end(); ++it2)
+        {
+            if ((*it2)->IsVisible() && !(*it2)->NeedsRedraw() &&
+                dirty.intersects((*it2)->GetArea().toQRect()))
+            {
+                (*it2)->SetRedraw();
             }
         }
 
@@ -719,14 +844,26 @@ QRegion OSD::Draw(MythPainter* painter, QPaintDevice *device, QSize size,
         // TODO painting in reverse may be more efficient...
         for (it = m_Children.begin(); it != m_Children.end(); ++it)
         {
-            if (it.value()->NeedsRedraw())
+            if ((*it)->NeedsRedraw())
             {
-                if (it.value()->IsVisible())
-                    it.value()->Draw(painter, 0, 0, 255, cliprect);
-                it.value()->SetAlpha(255);
-                it.value()->ResetNeedsRedraw();
+                if ((*it)->IsVisible())
+                    (*it)->Draw(painter, 0, 0, 255, cliprect);
+                (*it)->SetAlpha(255);
+                (*it)->ResetNeedsRedraw();
             }
         }
+
+        for (it2 = notifications.begin(); it2 != notifications.end(); ++it2)
+        {
+            if ((*it2)->NeedsRedraw())
+            {
+                if ((*it2)->IsVisible())
+                    (*it2)->Draw(painter, 0, 0, 255, cliprect);
+                (*it2)->SetAlpha(255);
+                (*it2)->ResetNeedsRedraw();
+            }
+        }
+
         painter->End();
     }
 
@@ -777,8 +914,13 @@ void OSD::CheckExpiry(void)
                 MythDialogBox *dialog = dynamic_cast<MythDialogBox*>(m_Dialog);
                 if (dialog)
                 {
-                    QString replace = QObject::tr("%n second(s)", NULL,
-                                                  now.secsTo(it.value()));
+                    // The disambiguation string must be an empty string and not a
+                    // NULL to get extracted by the Qt tools.
+                    QString replace = QCoreApplication::translate("(Common)", 
+                                          "%n second(s)", 
+                                          "", 
+                                          QCoreApplication::UnicodeUTF8, 
+                                          now.secsTo(it.value()));
                     dialog->SetText(newtext.replace("%d", replace));
                 }
                 MythConfirmationDialog *cdialog = dynamic_cast<MythConfirmationDialog*>(m_Dialog);
@@ -867,30 +1009,24 @@ MythScreenType *OSD::GetWindow(const QString &window)
 
     if (window == OSD_WIN_INTERACT)
     {
-        InteractiveScreen *screen = new InteractiveScreen(m_parent, window);
-        new_window = (MythScreenType*) screen;
+        new_window = new InteractiveScreen(m_parent, window);
     }
     else if (window == OSD_WIN_BDOVERLAY)
     {
-        BDOverlayScreen *screen = new BDOverlayScreen(m_parent, window);
-        new_window = (MythScreenType*) screen;
+        new_window = new BDOverlayScreen(m_parent, window);
     }
     else
     {
-        MythOSDWindow *screen = new MythOSDWindow(NULL, window, false);
-        new_window = (MythScreenType*) screen;
+        new_window = new MythOSDWindow(NULL, window, false);
     }
 
-    if (new_window)
+    new_window->SetPainter(m_CurrentPainter);
+    if (new_window->Create())
     {
-        new_window->SetPainter(m_CurrentPainter);
-        if (new_window->Create())
-        {
-            m_Children.insert(window, new_window);
-            LOG(VB_PLAYBACK, LOG_INFO, LOC +
-                QString("Created window %1").arg(window));
-            return new_window;
-        }
+        m_Children.insert(window, new_window);
+        LOG(VB_PLAYBACK, LOG_INFO, LOC +
+            QString("Created window %1").arg(window));
+        return new_window;
     }
 
     LOG(VB_GENERAL, LOG_ERR, LOC + QString("Failed to create window %1")
@@ -1079,20 +1215,18 @@ TeletextScreen* OSD::InitTeletext(void)
     {
         OverrideUIScale();
         tt = new TeletextScreen(m_parent, OSD_WIN_TELETEXT, m_fontStretch);
-        if (tt)
+
+        tt->SetPainter(m_CurrentPainter);
+        if (tt->Create())
         {
-            tt->SetPainter(m_CurrentPainter);
-            if (tt->Create())
-            {
-                m_Children.insert(OSD_WIN_TELETEXT, tt);
-                LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("Created window %1")
-                    .arg(OSD_WIN_TELETEXT));
-            }
-            else
-            {
-                delete tt;
-                tt = NULL;
-            }
+            m_Children.insert(OSD_WIN_TELETEXT, tt);
+            LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("Created window %1")
+                .arg(OSD_WIN_TELETEXT));
+        }
+        else
+        {
+            delete tt;
+            tt = NULL;
         }
         RevertUIScale();
     }
@@ -1167,20 +1301,17 @@ SubtitleScreen* OSD::InitSubtitles(void)
     {
         OverrideUIScale();
         sub = new SubtitleScreen(m_parent, OSD_WIN_SUBTITLE, m_fontStretch);
-        if (sub)
+        sub->SetPainter(m_CurrentPainter);
+        if (sub->Create())
         {
-            sub->SetPainter(m_CurrentPainter);
-            if (sub->Create())
-            {
-                m_Children.insert(OSD_WIN_SUBTITLE, sub);
-                LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("Created window %1")
-                    .arg(OSD_WIN_SUBTITLE));
-            }
-            else
-            {
-                delete sub;
-                sub = NULL;
-            }
+            m_Children.insert(OSD_WIN_SUBTITLE, sub);
+            LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("Created window %1")
+                .arg(OSD_WIN_SUBTITLE));
+        }
+        else
+        {
+            delete sub;
+            sub = NULL;
         }
         RevertUIScale();
     }

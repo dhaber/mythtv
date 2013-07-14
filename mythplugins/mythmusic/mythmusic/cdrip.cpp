@@ -247,7 +247,7 @@ void CDRipperThread::run(void)
 
     if (LCD *lcd = LCD::Get())
     {
-        QString lcd_tots = QObject::tr("Importing ") + tots;
+        QString lcd_tots = tr("Importing %1").arg(tots);
         QList<LCDTextItem> textItems;
         textItems.append(LCDTextItem(1, ALIGN_CENTERED,
                                          lcd_tots, "Generic", false));
@@ -654,7 +654,7 @@ void Ripper::startScanCD(void)
     if (m_scanThread)
         return;
 
-    QString message = QObject::tr("Scanning CD. Please Wait ...");
+    QString message = tr("Scanning CD. Please Wait ...");
     OpenBusyPopup(message);
 
     m_scanThread = new CDScannerThread(this);

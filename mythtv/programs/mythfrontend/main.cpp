@@ -70,6 +70,7 @@ using namespace std;
 #include "mythmainwindow.h"
 #include "mythcontrols.h"
 #include "mythuihelper.h"
+#include "mythuinotificationcenter.h"
 #include "mythdirs.h"
 #include "mythdb.h"
 #include "backendconnectionmanager.h"
@@ -116,6 +117,8 @@ void handleSIGUSR2(void);
 #if CONFIG_DARWIN
 static bool gLoaded = false;
 #endif
+
+static const QString _Location = QObject::tr("MythFrontend");
 
 namespace
 {
@@ -737,10 +740,10 @@ static void playDisc()
                 command_string =
                         command_string.replace(QRegExp("%d"), dvd_device);
             }
-            sendPlaybackStart();
+            gCoreContext->emitTVPlaybackStarted();
             GetMythMainWindow()->PauseIdleTimer(true);
             myth_system(command_string);
-            sendPlaybackEnd();
+            gCoreContext->emitTVPlaybackStopped();
             GetMythMainWindow()->PauseIdleTimer(false);
             if (GetMythMainWindow())
             {
@@ -1126,7 +1129,7 @@ static int internal_play_media(const QString &mrl, const QString &plot,
     if (pginfo->IsVideoDVD())
     {
         DVDInfo *dvd = new DVDInfo(pginfo->GetPlaybackURL());
-        if (dvd && dvd->IsValid())
+        if (dvd->IsValid())
         {
             QString name;
             QString serialid;
@@ -1138,8 +1141,9 @@ static int internal_play_media(const QString &mrl, const QString &plot,
         }
         else
         {
-            if (dvd)
-                delete dvd;
+            ShowNotificationError(QObject::tr("DVD Failure"),
+                                  _Location, dvd->GetLastError());
+            delete dvd;
             delete pginfo;
             return res;
         }
@@ -1577,17 +1581,6 @@ int main(int argc, char **argv)
     }
 #endif
 
-#ifdef USING_AIRPLAY
-    if (gCoreContext->GetNumSetting("AirPlayEnabled", true))
-    {
-        MythRAOPDevice::Create();
-        if (!gCoreContext->GetNumSetting("AirPlayAudioOnly", false))
-        {
-            MythAirplayServer::Create();
-        }
-    }
-#endif
-
     LCD::SetupLCD();
     if (LCD *lcd = LCD::Get())
         lcd->setupLEDs(RemoteGetRecordingMask);
@@ -1622,6 +1615,17 @@ int main(int argc, char **argv)
     mainWindow->Init();
 #endif
     mainWindow->setWindowTitle(QObject::tr("MythTV Frontend"));
+
+#ifdef USING_AIRPLAY
+    if (gCoreContext->GetNumSetting("AirPlayEnabled", true))
+    {
+        MythRAOPDevice::Create();
+        if (!gCoreContext->GetNumSetting("AirPlayAudioOnly", false))
+        {
+            MythAirplayServer::Create();
+        }
+    }
+#endif
 
     // We must reload the translation after a language change and this
     // also means clearing the cached/loaded theme strings, so reload the

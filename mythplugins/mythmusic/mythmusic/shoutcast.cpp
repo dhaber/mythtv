@@ -431,9 +431,6 @@ qint64 ShoutCastIODevice::readData(char *data, qint64 maxlen)
     // the decoder wants more data from the stream
     // but first we must filter out any headers and metadata
 
-    // first fill our buffer with as much data as is available
-    socketReadyRead();
-
     if (m_buffer->readBufAvail() == 0)
     {
         LOG(VB_PLAYBACK, LOG_ERR, "ShoutCastIODevice: No data in buffer!!");
@@ -865,8 +862,8 @@ void DecoderIOFactoryShoutCast::periodicallyCheckBuffered(void)
         doConnectDecoder("create-aac-decoder.aac");
     else
     {
-        doFailed(QObject::tr("Unsupported content type for ShoutCast stream: %1")
-                             .arg (response.getContent()));
+        doFailed(tr("Unsupported content type for ShoutCast stream: %1")
+                    .arg (response.getContent()));
     }
 
     m_timer->disconnect();

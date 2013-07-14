@@ -20,12 +20,15 @@ class MythDVDPlayer : public MythPlayer
 
     // Gets
     virtual uint64_t GetBookmark(void);
-    virtual  int64_t GetSecondsPlayed(bool honorCutList);
-    virtual  int64_t GetTotalSeconds(void) const;
+    virtual  int64_t GetSecondsPlayed(bool honorCutList,
+                                      int divisor = 1000) const;
+    virtual  int64_t GetTotalSeconds(bool honorCutList,
+                                     int divisor = 1000) const;
 
     // DVD public stuff
     virtual bool GoToMenu(QString str);
     virtual void GoToDVDProgram(bool direction);
+    virtual bool IsInStillFrame() const;
 
     // DVD ringbuffer methods
     void ResetStillFrameTimer(void);
