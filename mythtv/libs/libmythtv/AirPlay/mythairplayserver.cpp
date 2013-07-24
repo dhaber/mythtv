@@ -558,12 +558,16 @@ void MythAirplayServer::deleteConnection(QTcpSocket *socket)
             .arg(remove.data()));
         m_connections.remove(remove);
 
-        // close any photos that could be displayed
-        MythUINotificationCenter::GetInstance()->UnRegister(this, m_id);
-        m_id = -1;
-
+        if (m_id > 0)
+        {
+            // close any photos that could be displayed
+            MythUINotificationCenter::GetInstance()->UnRegister(this, m_id);
+            m_id = -1;
+        }
         MythNotification n(tr("Client disconnected"), tr("AirPlay"),
                            tr("from %1").arg(socket->peerAddress().toString()));
+        // Don't show it during playback
+        n.SetVisibility(n.GetVisibility() & ~MythNotification::kPlayback);
         MythUINotificationCenter::GetInstance()->Queue(n);
     }
 
@@ -704,10 +708,9 @@ void MythAirplayServer::HandleResponse(APHTTPRequest *req,
 
         MythNotification n(tr("New Connection"), tr("AirPlay"),
                            tr("from %1").arg(socket->peerAddress().toString()));
+        // Don't show it during playback
+        n.SetVisibility(n.GetVisibility() & ~MythNotification::kPlayback);
         MythUINotificationCenter::GetInstance()->Queue(n);
-
-        m_id = MythUINotificationCenter::GetInstance()->Register(this);
-
     }
 
     double position    = 0.0f;
@@ -829,6 +832,10 @@ void MythAirplayServer::HandleResponse(APHTTPRequest *req,
             LOG(VB_GENERAL, LOG_INFO, LOC +
                 QString("Received %1 photo").arg(png ? "jpeg" : "png"));
 
+            if (m_id < 0)
+            {
+                m_id = MythUINotificationCenter::GetInstance()->Register(this);
+            }
             // send full screen display notification
             MythImageNotification n(MythNotification::New, image);
             n.SetId(m_id);
@@ -1147,6 +1154,12 @@ void MythAirplayServer::StartPlayback(const QString &pathname)
     gCoreContext->WaitUntilSignals(SIGNAL(TVPlaybackStarted()),
                                    SIGNAL(TVPlaybackAborted()),
                                    NULL);
+    if (TV::IsTVRunning() && m_id > 0)
+    {
+        // playback has started, dismiss the photo is we were showing one
+        MythUINotificationCenter::GetInstance()->UnRegister(this, m_id);
+        m_id = -1;
+    }
     LOG(VB_PLAYBACK, LOG_DEBUG, LOC +
         QString("ACTION_HANDLEMEDIA completed"));
 }
