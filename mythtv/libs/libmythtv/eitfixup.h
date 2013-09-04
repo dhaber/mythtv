@@ -62,6 +62,7 @@ class EITFixUp
         kEFixForceISO8859_1  = 0x2000,
         kEFixForceISO8859_15 = 0x4000,
         kEFixForceISO8859_9  = 0x80000,
+        kEFixForceISO8859_2  = 0x100000,
     };
 
     EITFixUp();
@@ -125,6 +126,7 @@ class EITFixUp
     const QRegExp m_dishPPVCode;
     const QRegExp m_ukThen;
     const QRegExp m_ukNew;
+    const QRegExp m_ukNewTitle;
     const QRegExp m_ukCEPQ;
     const QRegExp m_ukColonPeriod;
     const QRegExp m_ukDotSpaceStart;

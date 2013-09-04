@@ -2982,6 +2982,7 @@ void MythPlayer::EventLoop(void)
             videoOutput && videoOutput->ValidVideoFrames() < 1;
         bool audioDrained =
             !audio.GetAudioOutput() ||
+            audio.IsPaused() ||
             audio.GetAudioOutput()->GetAudioBufferedTime() < 100;
         if (eof != kEofStateDelayed || (videoDrained && audioDrained))
         {
@@ -3258,7 +3259,7 @@ void MythPlayer::DecoderLoop(bool pause)
                 if (((uint64_t)decoderSeek < framesPlayed) && decoder)
                     decoder->DoRewind(decoderSeek);
                 else if (decoder)
-                    decoder->DoFastForward(decoderSeek);
+                    decoder->DoFastForward(decoderSeek, !transcoding);
                 decoderSeek = -1;
                 decoderSeekLock.unlock();
             }
@@ -4459,12 +4460,8 @@ void MythPlayer::SeekForScreenGrab(uint64_t &number, uint64_t frameNum,
         }
     }
 
-    // Only do seek if we have position map
-    if (hasFullPositionMap)
-    {
-        DiscardVideoFrame(videoOutput->GetLastDecodedFrame());
-        DoJumpToFrame(number, kInaccuracyNone);
-    }
+    DiscardVideoFrame(videoOutput->GetLastDecodedFrame());
+    DoJumpToFrame(number, kInaccuracyNone);
 }
 
 /** \fn MythPlayer::GetRawVideoFrame(long long)
@@ -4524,16 +4521,17 @@ void MythPlayer::GetCodecDescription(InfoMap &infoMap)
     infoMap["videoheight"]    = QString::number(height);
     infoMap["videoframerate"] = QString::number(video_frame_rate, 'f', 2);
 
-    if (height < 480)
+    if (width < 640)
         return;
 
     bool interlaced = is_interlaced(m_scan);
-    if (height == 480 || height == 576)
-        infoMap["videodescrip"] = "SD";
+    if (width == 1920 || height == 1080 || height == 1088)
+        infoMap["videodescrip"] = interlaced ? "HD_1080_I" : "HD_1080_P";
     else if (height == 720 && !interlaced)
         infoMap["videodescrip"] = "HD_720_P";
-    else if (height == 1080 || height == 1088)
-        infoMap["videodescrip"] = interlaced ? "HD_1080_I" : "HD_1080_P";
+    else if (height >= 720)
+        infoMap["videodescrip"] = "HD";
+    else infoMap["videodescrip"] = "SD";
 }
 
 bool MythPlayer::GetRawAudioState(void) const
@@ -4942,7 +4940,8 @@ uint64_t MythPlayer::TranslatePositionFrameToMs(uint64_t position,
                                                 bool use_cutlist) const
 {
     float frameRate = GetFrameRate();
-    if (position == (uint64_t)-1)
+    if (position == (uint64_t)-1 &&
+        player_ctx->recorder && player_ctx->recorder->IsValidRecorder())
     {
         float recorderFrameRate = player_ctx->recorder->GetFrameRate();
         if (recorderFrameRate > 0)

@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QMutex>
+#include <QRunnable>
 #include <QWaitCondition>
 #include <QNetworkInterface>
 #include <QAbstractSocket>
@@ -93,7 +94,11 @@ class MythCoreContextPrivate : public QObject
     bool m_inwanting;
     bool m_intvwanting;
 
+    bool m_announcedProtocol;
+
     MythPluginManager *m_pluginmanager;
+
+    bool m_isexiting;
 };
 
 MythCoreContextPrivate::MythCoreContextPrivate(MythCoreContext *lparent,
@@ -115,7 +120,9 @@ MythCoreContextPrivate::MythCoreContextPrivate(MythCoreContext *lparent,
       m_blockingClient(false),
       m_inwanting(false),
       m_intvwanting(false),
-      m_pluginmanager(NULL)
+      m_announcedProtocol(false),
+      m_pluginmanager(NULL),
+      m_isexiting(false)
 {
     MThread::ThreadSetup("CoreContext");
     srandom(MythDate::current().toTime_t() ^ QTime::currentTime().msec());
@@ -957,7 +964,7 @@ bool MythCoreContext::SendReceiveStringList(
         for (uint i=0; i<(uint)strlist.size() && i<2; i++)
             msg += (i?",":"") + strlist[i];
         msg += (strlist.size() > 2) ? "...)" : ")";
-        LOG(VB_GENERAL, LOG_WARNING, msg + " called from UI thread");
+        LOG(VB_GENERAL, LOG_DEBUG, msg + " called from UI thread");
     }
 
     QString query_type = "UNKNOWN";
@@ -1212,8 +1219,13 @@ bool MythCoreContext::CheckProtoVersion(MythSocket *socket, uint timeout_ms,
     }
     else if (strlist[0] == "ACCEPT")
     {
-        LOG(VB_GENERAL, LOG_INFO, QString("Using protocol version %1")
-                                      .arg(MYTH_PROTO_VERSION));
+        if (!d->m_announcedProtocol)
+        {
+            d->m_announcedProtocol = true;
+            LOG(VB_GENERAL, LOG_INFO, QString("Using protocol version %1")
+                                              .arg(MYTH_PROTO_VERSION));
+        }
+
         return true;
     }
 
@@ -1558,6 +1570,16 @@ void MythCoreContext::SetPluginManager(MythPluginManager *pmanager)
 MythPluginManager *MythCoreContext::GetPluginManager(void)
 {
     return d->m_pluginmanager;
+}
+
+void MythCoreContext::SetExiting(bool exiting)
+{
+    d->m_isexiting = exiting;
+}
+
+bool MythCoreContext::IsExiting(void)
+{
+    return d->m_isexiting;
 }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

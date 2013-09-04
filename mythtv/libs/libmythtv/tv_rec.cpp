@@ -3932,6 +3932,9 @@ MPEGStreamData *TVRec::TuningSignalCheck(void)
         {
             scanner->StopActiveScan();
             ClearFlags(kFlagEITScannerRunning);
+            eitScanStartTime = MythDate::current();
+            eitScanStartTime = eitScanStartTime.addSecs(eitCrawlIdleStart +
+                                  eit_start_rand(cardid, eitTransportTimeout));
         }
     }
     else
@@ -4710,4 +4713,3 @@ static void apply_broken_dvb_driver_crc_hack(ChannelBase*, MPEGStreamData*) {}
 #endif // USING_DVB
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */
-

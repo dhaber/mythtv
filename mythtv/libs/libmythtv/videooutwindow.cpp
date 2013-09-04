@@ -17,7 +17,7 @@
  *
  *   You should have received a copy of the GNU General Public License
  *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
 #include <cmath>
@@ -943,7 +943,7 @@ QString VideoOutWindow::GetZoomString(void) const
     float zh = GetMzScaleH();
     float zv = GetMzScaleV();
     QPoint zo = GetMzMove();
-    return QObject::tr("Zoom %1x%2 @ (%3,%4)")
+    return tr("Zoom %1x%2 @ (%3,%4)")
         .arg(zh, 0, 'f', 2).arg(zv, 0, 'f', 2).arg(zo.x()).arg(zo.y());
 }
 

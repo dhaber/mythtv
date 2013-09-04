@@ -587,8 +587,6 @@ bool AvFormatDecoder::DoFastForward(long long desiredFrame, bool discardFrames)
             break;
         }
     }
-    if (!st)
-        return false;
 
     int seekDelta = desiredFrame - framesPlayed;
 
@@ -622,7 +620,7 @@ bool AvFormatDecoder::DoFastForward(long long desiredFrame, bool discardFrames)
 
     int normalframes = 0;
 
-    if (st->cur_dts != (int64_t)AV_NOPTS_VALUE)
+    if (st && st->cur_dts != (int64_t)AV_NOPTS_VALUE)
     {
 
         int64_t adj_cur_dts = st->cur_dts;
@@ -694,6 +692,8 @@ void AvFormatDecoder::SeekReset(long long newKey, uint skipFrames,
             .arg((discardFrames) ? "do" : "don't"));
 
     DecoderBase::SeekReset(newKey, skipFrames, doflush, discardFrames);
+
+    QMutexLocker locker(avcodeclock);
 
     if (doflush)
     {
@@ -871,8 +871,8 @@ extern "C" void HandleStreamChange(void *data)
         QString("streams_changed 0x%1 -- stream count %2")
             .arg((uint64_t)data,0,16).arg(cnt));
 
-    QMutexLocker locker(avcodeclock);
     decoder->SeekReset(0, 0, true, true);
+    QMutexLocker locker(avcodeclock);
     decoder->ScanStreams(false);
 }
 
@@ -887,8 +887,8 @@ extern "C" void HandleDVDStreamChange(void *data)
         QString("streams_changed 0x%1 -- stream count %2")
             .arg((uint64_t)data,0,16).arg(cnt));
 
-    QMutexLocker locker(avcodeclock);
     //decoder->SeekReset(0, 0, true, true);
+    QMutexLocker locker(avcodeclock);
     decoder->ScanStreams(true);
 }
 
@@ -4661,10 +4661,14 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
             }
 
             int retval = 0;
+            avcodeclock->lock();
             if (!ic || ((retval = ReadPacket(ic, pkt, storevideoframes)) < 0))
             {
                 if (retval == -EAGAIN)
+                {
+                    avcodeclock->unlock();
                     continue;
+                }
 
 		if (retval == AVERROR_EOF) {
 	            LOG(VB_GENERAL, LOG_ERR, QString("av_read_frame returned AVERROR_EOF; ignoring"));
@@ -4678,8 +4682,10 @@ bool AvFormatDecoder::GetFrame(DecodeType decodetype)
                 delete pkt;
                 errno = -retval;
                 LOG(VB_GENERAL, LOG_ERR, QString("decoding error") + ENO);
+                avcodeclock->unlock();
                 return false;
             }
+            avcodeclock->unlock();
 
             if (waitingForChange && pkt->pos >= readAdjust)
                 FileChanged();

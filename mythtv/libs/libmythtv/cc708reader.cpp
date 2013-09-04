@@ -14,7 +14,7 @@
 CC708Reader::CC708Reader(MythPlayer *owner)
   : currentservice(1), parent(owner), enabled(false)
 {
-    for (uint i=0; i<64; i++)
+    for (uint i=0; i < k708MaxServices; i++)
     {
         buf_alloc[i] = 512;
         buf[i]       = (unsigned char*) malloc(buf_alloc[i]);
@@ -30,7 +30,7 @@ CC708Reader::CC708Reader(MythPlayer *owner)
 
 CC708Reader::~CC708Reader()
 {
-    for (uint i=0; i<64; i++)
+    for (uint i=0; i < k708MaxServices; i++)
     {
         free(buf[i]);
         free(temp_str[i]);
@@ -39,7 +39,7 @@ CC708Reader::~CC708Reader()
 
 void CC708Reader::ClearBuffers(void)
 {
-    for (uint i = 1; i < 64; i++)
+    for (uint i = 1; i < k708MaxServices; i++)
         DeleteWindows(i, 0xff);
 }
 
@@ -119,8 +119,7 @@ void CC708Reader::DisplayWindows(uint service_num, int window_map)
             CC708Window &win = GetCCWin(service_num, i);
             QMutexLocker locker(&win.lock);
 
-            win.exists  = false;
-            win.changed = true;
+            win.SetExists(false);
             if (win.text)
             {
                 delete [] win.text;
@@ -135,8 +134,7 @@ void CC708Reader::DisplayWindows(uint service_num, int window_map)
         if ((1 << i ) & window_map)
         {
             CC708Window &win = GetCCWin(service_num, i);
-            win.visible = true;
-            win.changed = true;
+            win.SetVisible(true);
             LOG(VB_VBI, LOG_INFO, LOC +
                 QString("DisplayedWindow(%1, %2)").arg(service_num).arg(i));
         }
@@ -154,8 +152,7 @@ void CC708Reader::HideWindows(uint service_num, int window_map)
         if ((1 << i) & window_map)
         {
             CC708Window &win = GetCCWin(service_num, i);
-            win.visible = false;
-            win.changed = true;
+            win.SetVisible(false);
         }
     }
 }
@@ -182,8 +179,7 @@ void CC708Reader::ToggleWindows(uint service_num, int window_map)
         if ((1 << i) & window_map)
         {
             CC708Window &win = GetCCWin(service_num, i);
-            win.visible = !win.visible;
-            win.changed = true;
+            win.SetVisible(!win.GetVisible());
         }
     }
 }
@@ -241,8 +237,10 @@ void CC708Reader::SetPenColor(
     int edge_color)
 {
     CHECKENABLED;
-    LOG(VB_VBI, LOG_INFO, LOC + QString("SetPenColor(%1...)")
-            .arg(service_num));
+    LOG(VB_VBI, LOG_INFO,
+        LOC + QString("SetPenColor(service=%1, fg%2.%3, bg=%4.%5, edge=%6)")
+        .arg(service_num).arg(fg_color).arg(fg_opacity)
+        .arg(bg_color).arg(bg_opacity).arg(edge_color));
 
     CC708CharacterAttribute &attr = GetCCWin(service_num).pen.attr;
 

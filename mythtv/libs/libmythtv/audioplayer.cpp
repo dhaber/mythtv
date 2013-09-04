@@ -1,7 +1,6 @@
 #include "mythplayer.h"
 #include "audiooutput.h"
 #include "audioplayer.h"
-#include "mythuinotificationcenter.h"
 
 #define LOC QString("AudioPlayer: ")
 
@@ -109,10 +108,6 @@ QString AudioPlayer::ReinitAudio(void)
     bool want_audio = m_parent->IsAudioNeeded();
     QString errMsg = QString::null;
     QMutexLocker lock(&m_lock);
-
-    bool firstinit = (m_format == FORMAT_NONE &&
-                      m_channels < 0 &&
-                      m_samplerate == 44100);
 
     if ((m_format == FORMAT_NONE) ||
         (m_channels <= 0) ||

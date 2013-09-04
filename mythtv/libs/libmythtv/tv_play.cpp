@@ -51,7 +51,6 @@ using namespace std;
 #include "channelutil.h"
 #include "compat.h"
 #include "mythuihelper.h"
-#include "mythuinotificationcenter.h"
 #include "mythdialogbox.h"
 #include "mythmainwindow.h"
 #include "mythscreenstack.h"
@@ -4144,10 +4143,12 @@ bool TV::AudioSyncHandleAction(PlayerContext *ctx,
     else if (has_action(ACTION_RIGHT, actions))
         ChangeAudioSync(ctx, 1);
     else if (has_action(ACTION_UP, actions))
-        ChangeAudioSync(ctx, -10);
-    else if (has_action(ACTION_DOWN, actions))
         ChangeAudioSync(ctx, 10);
+    else if (has_action(ACTION_DOWN, actions))
+        ChangeAudioSync(ctx, -10);
     else if (has_action(ACTION_TOGGELAUDIOSYNC, actions))
+        ClearOSD(ctx);
+    else if (has_action(ACTION_SELECT, actions))
         ClearOSD(ctx);
     else
         handled = false;
@@ -4168,10 +4169,12 @@ bool TV::SubtitleZoomHandleAction(PlayerContext *ctx,
     else if (has_action(ACTION_RIGHT, actions))
         ChangeSubtitleZoom(ctx, 1);
     else if (has_action(ACTION_UP, actions))
-        ChangeSubtitleZoom(ctx, -10);
-    else if (has_action(ACTION_DOWN, actions))
         ChangeSubtitleZoom(ctx, 10);
+    else if (has_action(ACTION_DOWN, actions))
+        ChangeSubtitleZoom(ctx, -10);
     else if (has_action(ACTION_TOGGLESUBTITLEZOOM, actions))
+        ClearOSD(ctx);
+    else if (has_action(ACTION_SELECT, actions))
         ClearOSD(ctx);
     else
         handled = false;
@@ -4192,10 +4195,12 @@ bool TV::SubtitleDelayHandleAction(PlayerContext *ctx,
     else if (has_action(ACTION_RIGHT, actions))
         ChangeSubtitleDelay(ctx, 5);
     else if (has_action(ACTION_UP, actions))
-        ChangeSubtitleDelay(ctx, -25);
-    else if (has_action(ACTION_DOWN, actions))
         ChangeSubtitleDelay(ctx, 25);
+    else if (has_action(ACTION_DOWN, actions))
+        ChangeSubtitleDelay(ctx, -25);
     else if (has_action(ACTION_TOGGLESUBTITLEDELAY, actions))
+        ClearOSD(ctx);
+    else if (has_action(ACTION_SELECT, actions))
         ClearOSD(ctx);
     else
         handled = false;
@@ -8792,7 +8797,7 @@ void TV::ChangeTimeStretch(PlayerContext *ctx, int dir, bool allowEdit)
                             QString::number(ctx->ts_normal),
                             kOSDFunctionalType_TimeStretchAdjust, "X",
                             (int)(ctx->ts_normal*(1000/kTimeStretchMax)),
-                            kOSDTimeout_Med);
+                            kOSDTimeout_None);
             SetUpdateOSDPosition(false);
         }
     }
@@ -8845,7 +8850,7 @@ void TV::ChangeSubtitleZoom(PlayerContext *ctx, int dir)
         UpdateOSDStatus(ctx, tr("Adjust Subtitle Zoom"), tr("Subtitle Zoom"),
                         QString::number(newval),
                         kOSDFunctionalType_SubtitleZoomAdjust,
-                        "%", newval * 1000 / 200, kOSDTimeout_Long);
+                        "%", newval * 1000 / 200, kOSDTimeout_None);
         SetUpdateOSDPosition(false);
         if (subs)
             subs->SetZoom(newval);
@@ -8883,7 +8888,7 @@ void TV::ChangeSubtitleDelay(PlayerContext *ctx, int dir)
         UpdateOSDStatus(ctx, tr("Adjust Subtitle Delay"), tr("Subtitle Delay"),
                         QString::number(newval),
                         kOSDFunctionalType_SubtitleDelayAdjust,
-                        "ms", newval / 10 + 500, kOSDTimeout_Long);
+                        "ms", newval / 10 + 500, kOSDTimeout_None);
         SetUpdateOSDPosition(false);
         if (subs)
             subs->SetDelay(newval);
@@ -8912,7 +8917,7 @@ void TV::ChangeAudioSync(PlayerContext *ctx, int dir, int newsync)
         UpdateOSDStatus(ctx, tr("Adjust Audio Sync"), tr("Audio Sync"),
                         QString::number(val),
                         kOSDFunctionalType_AudioSyncAdjust,
-                        "ms", (val/2) + 500, kOSDTimeout_Med);
+                        "ms", (val/2) + 500, kOSDTimeout_None);
         SetUpdateOSDPosition(false);
     }
 }

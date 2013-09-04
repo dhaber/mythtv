@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
    Or, point your browser to http://www.gnu.org/copyleft/gpl.html
 
 */
@@ -1346,22 +1346,37 @@ bool MHEngine::GetEngineSupport(const MHOctetString &feature)
         // The UK profile 1.06 seems a bit confused on this point.  It is not clear whether
         // we are supposed to return true for UKEngineProfile(2) or not.
         if (strings[1] == "2")
-        {
             return true;
-        }
-        else
-        {
-            return false;
-        }
+        if (strings[1] == "1")
+            return true;
+        // 'The Space' on Freeview checks this...
+        if (strings[1] == "PANT11001")
+            return true;
+        return false;
     }
 
     // InteractionChannelExtension.
     if (strings[0] == "ICProfile" || strings[0] == "ICP") {
-        if (strings.count() != 2) return false;
+        if (strings.count() < 2) return false;
         if (strings[1] == "0")
-            return true; // // InteractionChannelExtension.
+            return true; // InteractionChannelExtension.
         if (strings[1] == "1")
-            return false; // ICStreamingExtension.
+            return true; // ICStreamingExtension. This is a deliberate lie
+        return false;
+    }
+
+    if (strings[0] == "HDExtension" || strings[0] == "HDE") {
+        if (strings.count() < 2) return false;
+        if (strings[1] == "0")
+            return false; // HDVideoExtension.
+        if (strings[1] == "1")
+            return false; // HDGraphicsPlaneExtension
+        return false;
+    }
+    if (strings[0] == "HDGraphicsPlaneExtension" || strings[0] == "HDG") {
+        if (strings.count() < 2) return false;
+        if (strings[1] == "0")
+            return true; // HDGraphicsPlaneExtension
         return false;
     }
 

@@ -484,6 +484,14 @@ void MythSocket::SetAnnounce(const QStringList &new_announce)
 
 void MythSocket::DisconnectFromHost(void)
 {
+    if (QThread::currentThread() != m_thread->qthread() &&
+        gCoreContext && gCoreContext->IsExiting())
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Programmer error, QEventLoop isn't running and deleting "
+                    "MythSocket(0x%1)").arg(reinterpret_cast<intptr_t>(this),0,16));
+        return;
+    }
     QMetaObject::invokeMethod(
         this, "DisconnectFromHostReal",
         (QThread::currentThread() != m_thread->qthread()) ?
@@ -926,7 +934,7 @@ void MythSocket::ReadReal(char *data, int size, int max_wait_ms, int *ret)
 
     if (t.elapsed() > 50)
     {
-        LOG(VB_GENERAL, LOG_INFO,
+        LOG(VB_NETWORK, LOG_INFO,
             QString("ReadReal(?, %1, %2) -> %3 took %4 ms")
             .arg(size).arg(max_wait_ms).arg(*ret)
             .arg(t.elapsed()));

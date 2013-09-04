@@ -23,7 +23,6 @@
 #include "recordinginfo.h"
 #include "recordingrule.h"
 #include "mythuihelper.h"
-#include "mythuinotificationcenter.h"
 #include "storagegroup.h"
 #include "mythuibutton.h"
 #include "mythlogging.h"
@@ -644,22 +643,17 @@ void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 
 void PlaybackBox::checkPassword(const QString &password)
 {
-    m_passwordEntered = true;
-
-    QString grouppass = m_recGroupPwCache[m_newRecGroup];
-    if (password == grouppass)
+    if (password == m_recGroupPwCache[m_newRecGroup])
+    {
+        m_passwordEntered = true;
         setGroupFilter(m_newRecGroup);
-    else
-        qApp->postEvent(this, new MythEvent("DISPLAY_RECGROUP",
-                                            m_newRecGroup));
+    }
 }
 
 void PlaybackBox::passwordClosed(void)
 {
-    if (m_passwordEntered)
-        return;
-
-    if (m_usingGroupSelector || m_firstGroup)
+    if (!m_passwordEntered &&
+        (m_usingGroupSelector || m_firstGroup))
         showGroupFilter();
 }
 
@@ -2379,7 +2373,9 @@ void PlaybackBox::popupClosed(QString which, int result)
             {
                 m_helper.CheckAvailability(*pginfo, kCheckForMenuAction);
 
-                if (asPendingDelete == pginfo->GetAvailableStatus())
+                if ((asPendingDelete == pginfo->GetAvailableStatus()) ||
+                    (asDeleted == pginfo->GetAvailableStatus()) ||
+                    (asNotYetAvailable == pginfo->GetAvailableStatus()))
                 {
                     ShowAvailabilityPopup(*pginfo);
                 }
@@ -2755,8 +2751,9 @@ MythMenu* PlaybackBox::createPlaylistStorageMenu()
     menu->AddItem(tr("Change Playback Group"), SLOT(ShowPlayGroupChangerUsePlaylist()));
     menu->AddItem(tr("Disable Auto Expire"), SLOT(doPlaylistExpireSetOff()));
     menu->AddItem(tr("Enable Auto Expire"), SLOT(doPlaylistExpireSetOn()));
-    menu->AddItem(tr("Mark As Watched"), SLOT(doPlaylistWatchedSetOn()));
-    menu->AddItem(tr("Mark As Unwatched"), SLOT(doPlaylistWatchedSetOff()));
+    menu->AddItem(tr("Mark as Watched"), SLOT(doPlaylistWatchedSetOn()));
+    menu->AddItem(tr("Mark as Unwatched"), SLOT(doPlaylistWatchedSetOff()));
+    menu->AddItem(tr("Allow Re-record"), SLOT(doPlaylistAllowRerecord()));
 
     return menu;
 }
@@ -2921,7 +2918,8 @@ void PlaybackBox::ShowMenu()
                 *pginfo, kCheckForMenuAction);
 
             if ((asPendingDelete == pginfo->GetAvailableStatus()) ||
-                (asPendingDelete == pginfo->GetAvailableStatus()))
+                (asDeleted == pginfo->GetAvailableStatus()) ||
+                (asNotYetAvailable == pginfo->GetAvailableStatus()))
             {
                 ShowAvailabilityPopup(*pginfo);
             }
@@ -3324,6 +3322,25 @@ void PlaybackBox::doAllowRerecord()
     RecordingInfo ri(*pginfo);
     ri.ForgetHistory();
     *pginfo = ri;
+}
+
+void PlaybackBox::doPlaylistAllowRerecord()
+{
+    ProgramInfo *pginfo;
+    QStringList::Iterator it;
+
+    for (it = m_playList.begin(); it != m_playList.end(); ++it)
+    {
+        if ((pginfo = FindProgramInUILists(*it)))
+        {
+            RecordingInfo ri(*pginfo);
+            ri.ForgetHistory();
+            *pginfo = ri;
+        }
+    }
+
+    doClearPlaylist();
+    UpdateUILists();
 }
 
 void PlaybackBox::doJobQueueJob(int jobType, int jobFlags)
@@ -4223,12 +4240,6 @@ void PlaybackBox::customEvent(QEvent *event)
                  message == "CANCEL_PLAYLIST")
         {
             m_playListPlay.clear();
-        }
-        else if ((message == "DISPLAY_RECGROUP") &&
-                 (me->ExtraDataCount() >= 1))
-        {
-            QString recGroup = me->ExtraData(0);
-            displayRecGroup(recGroup);
         }
     }
     else

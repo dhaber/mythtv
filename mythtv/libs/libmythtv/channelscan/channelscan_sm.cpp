@@ -22,7 +22,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
  *
  */
@@ -177,6 +177,23 @@ ChannelScanSM::ChannelScanSM(
     {
         LOG(VB_CHANSCAN, LOG_INFO, LOC + "Connecting up DTVSignalMonitor");
         ScanStreamData *data = new ScanStreamData();
+
+    	MSqlQuery query(MSqlQuery::InitCon());
+    	query.prepare(
+        	"SELECT dvb_nit_id "
+        	"FROM videosource "
+        	"WHERE videosource.sourceid = :SOURCEID");
+    	query.bindValue(":SOURCEID", _sourceID);
+	if (!query.exec() || !query.isActive())
+        {
+            MythDB::DBError("ChannelScanSM", query);
+        }
+        else if (query.next())
+	{
+	    uint nitid = query.value(0).toInt();
+            data->SetRealNetworkID(nitid);
+       	    LOG(VB_CHANSCAN, LOG_INFO, LOC + QString("Setting NIT-ID to %1").arg(nitid));
+	}
 
         dtvSigMon->SetStreamData(data);
         dtvSigMon->AddFlags(SignalMonitor::kDTVSigMon_WaitForMGT |

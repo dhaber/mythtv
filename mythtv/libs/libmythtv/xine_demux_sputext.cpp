@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  *
  * code based on old libsputext/xine_decoder.c
  *
@@ -107,14 +107,14 @@ static char *read_line_from_input(demux_sputext_t *demuxstr, char *line, off_t l
     nread = len - demuxstr->buflen;
     if (nread > demuxstr->rbuffer_len - demuxstr->rbuffer_cur)
         nread = demuxstr->rbuffer_len - demuxstr->rbuffer_cur;
-    memcpy(&demuxstr->buf[demuxstr->buflen],
-           &demuxstr->rbuffer_text[demuxstr->rbuffer_cur],
-           nread);
-    demuxstr->rbuffer_cur += nread;
     if (nread < 0) {
       printf("read failed.\n");
       return NULL;
     }
+    memcpy(&demuxstr->buf[demuxstr->buflen],
+           &demuxstr->rbuffer_text[demuxstr->rbuffer_cur],
+           nread);
+    demuxstr->rbuffer_cur += nread;
   }
 
   if (!nread)

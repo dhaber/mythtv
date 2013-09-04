@@ -17,7 +17,7 @@
  *
  *   You should have received a copy of the GNU General Public License
  *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
 #include <iostream>
@@ -402,16 +402,16 @@ void MythCCExtractorPlayer::Ingest708Captions(void)
     CC708Info::const_iterator it = m_cc708_info.begin();
     for (; it != m_cc708_info.end(); ++it)
     {
-        for (uint serviceIdx = 1; serviceIdx < 64; ++serviceIdx)
+        for (uint serviceIdx = 1; serviceIdx < k708MaxServices; ++serviceIdx)
         {
             CC708Service *service = (*it).reader->GetService(serviceIdx);
             for (uint windowIdx = 0; windowIdx < 8; ++windowIdx)
             {
                 CC708Window &win = service->windows[windowIdx];
-                if (win.changed)
+                if (win.GetChanged())
                 {
                     vector<CC708String*> strings;
-                    if (win.visible)
+                    if (win.GetVisible())
                         strings = win.GetStrings();
                     Ingest708Caption(it.key(), serviceIdx, windowIdx,
                                      win.pen.row, win.pen.column, win, strings);
@@ -420,7 +420,7 @@ void MythCCExtractorPlayer::Ingest708Captions(void)
                         delete strings.back();
                         strings.pop_back();
                     }
-                    service->windows[windowIdx].changed = false;
+                    service->windows[windowIdx].ResetChanged();
                 }
             }
         }

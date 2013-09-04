@@ -21,7 +21,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
  *
  */
@@ -40,12 +40,14 @@
 
 class PaneExistingScanImport : public VerticalConfigurationGroup
 {
+    Q_DECLARE_TR_FUNCTIONS(PaneExistingScanImport)
+
   public:
     PaneExistingScanImport() :
         VerticalConfigurationGroup(false,false,true,false),
         sourceid(0), scanSelect(new TransComboBoxSetting())
     {
-        scanSelect->setLabel(QObject::tr("Scan to Import"));
+        scanSelect->setLabel(tr("Scan to Import"));
         addChild(scanSelect);
     }
 
@@ -64,7 +66,7 @@ class PaneExistingScanImport : public VerticalConfigurationGroup
             QString scanDate = MythDate::toString(
                 scans[i].scandate, MythDate::kDateTimeFull);
             QString proc     = (scans[i].processed) ?
-                QObject::tr("processed") : QObject::tr("unprocessed");
+                tr("processed") : tr("unprocessed");
 
             scanSelect->addSelection(
                 QString("%1 %2").arg(scanDate).arg(proc),

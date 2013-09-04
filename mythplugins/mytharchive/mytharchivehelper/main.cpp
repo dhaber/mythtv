@@ -19,7 +19,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
  *
  */
@@ -146,7 +146,7 @@ NativeArchive::~NativeArchive(void)
 
 bool NativeArchive::copyFile(const QString &source, const QString &destination)
 {
-    QString command = QString("mythutil --copyfile --infile %1 --outfile %2")
+    QString command = QString("mythutil --copyfile --infile '%1' --outfile '%2'")
                               .arg(source).arg(destination);
     uint res = myth_system(command);
     if (res != GENERIC_EXIT_OK)
@@ -1066,7 +1066,7 @@ int NativeArchive::importRecording(const QDomElement &itemNode,
         {
             // delete any records for this recordings
             query.prepare("DELETE FROM recordedmarkup "
-                          "WHERE chanid = CHANID AND starttime = STARTTIME;");
+                          "WHERE chanid = :CHANID AND starttime = :STARTTIME;");
                 query.bindValue(":CHANID", chanID);
                 query.bindValue(":STARTTIME", startTime);
             query.exec();
@@ -1119,7 +1119,7 @@ int NativeArchive::importRecording(const QDomElement &itemNode,
         {
             // delete any records for this recordings
             query.prepare("DELETE FROM recordedseek "
-                          "WHERE chanid = CHANID AND starttime = STARTTIME;");
+                          "WHERE chanid = :CHANID AND starttime = :STARTTIME;");
                 query.bindValue(":CHANID", chanID);
                 query.bindValue(":STARTTIME", startTime);
             query.exec();
@@ -1980,7 +1980,7 @@ static int getFileInfo(QString inFile, QString outFile, int lenMethod)
         return 1;
     }
 
-    av_estimate_timings(inputFC, 0);
+    // av_estimate_timings(inputFC, 0);
 
     // Dump stream information
     av_dump_format(inputFC, 0, inFileBA.constData(), 0);

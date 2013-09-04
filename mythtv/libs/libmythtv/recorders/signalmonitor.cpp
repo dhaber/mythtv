@@ -191,16 +191,16 @@ SignalMonitor::SignalMonitor(int _capturecardnum, ChannelBase *_channel,
       update_rate(25),                 minimum_update_rate(5),
       update_done(false),              notify_frontend(true),
       tablemon(false),                 eit_scan(false),
-      signalLock    (QObject::tr("Signal Lock"),  "slock",
-                     1, true, 0,   1, 0),
-      signalStrength(QObject::tr("Signal Power"), "signal",
-                     0, true, 0, 100, 0),
-      scriptStatus  (QObject::tr("Script Status"), "script",
-                     3, true, 0, 3, 0),
+      signalLock    (QCoreApplication::translate("(Common)", "Signal Lock"),
+                     "slock", 1, true, 0,   1, 0),
+      signalStrength(QCoreApplication::translate("(Common)", "Signal Power"),
+                     "signal", 0, true, 0, 100, 0),
+      scriptStatus  (QCoreApplication::translate("(Common)", "Script Status"),
+                     "script", 3, true, 0, 3, 0),
       running(false),                  exit(false),
       statusLock(QMutex::Recursive)
 {
-    if (!channel->IsExternalChannelChangeSupported())
+    if (!channel->IsExternalChannelChangeInUse())
     {
         scriptStatus.SetValue(3);
     }
@@ -413,7 +413,7 @@ void SignalMonitor::SendMessage(
 void SignalMonitor::UpdateValues(void)
 {
     QMutexLocker locker(&statusLock);
-    if (channel->IsExternalChannelChangeSupported() &&
+    if (channel->IsExternalChannelChangeInUse() &&
         (scriptStatus.GetValue() < 2))
     {
         scriptStatus.SetValue(channel->GetScriptStatus());

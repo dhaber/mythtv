@@ -46,6 +46,7 @@ class IPTVChannel : QObject, public DTVChannel
 
   protected:
     void timerEvent(QTimerEvent*);
+    virtual bool IsExternalChannelChangeSupported(void) { return true; }
 
   private:
     void SetStreamDataInternal(MPEGStreamData*, bool closeimmediately);
