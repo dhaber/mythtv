@@ -246,7 +246,7 @@ void LookerUpper::customEvent(QEvent *levent)
 
             for (int p = 0; p != list.size(); ++p)
             {
-                ProgramInfo *pginfo = qVariantValue<ProgramInfo *>(list[p]->GetData());
+                ProgramInfo *pginfo = list[p]->GetData().value<ProgramInfo *>();
 
                 if (pginfo && !pginfo->GetSeriesID().isEmpty() &&
                     pginfo->GetSeriesID() == (list[p])->GetTMSref())
@@ -280,7 +280,7 @@ void LookerUpper::customEvent(QEvent *levent)
             if (yearindex > -1)
             {
                 MetadataLookup *lookup = list[yearindex];
-                ProgramInfo *pginfo = qVariantValue<ProgramInfo *>(lookup->GetData());
+                ProgramInfo *pginfo = lookup->GetData().value<ProgramInfo *>();
                 if (!lookup->GetSubtype() == kProbableGenericTelevision)
                     pginfo->SaveSeasonEpisode(lookup->GetSeason(), lookup->GetEpisode());
                 pginfo->SaveInetRef(lookup->GetInetref());
@@ -292,7 +292,7 @@ void LookerUpper::customEvent(QEvent *levent)
                                       "You may wish to manually set the season, episode, and "
                                       "inetref in the 'Watch Recordings' screen.");
 
-            ProgramInfo *pginfo = qVariantValue<ProgramInfo *>(list[0]->GetData());
+            ProgramInfo *pginfo = list[0]->GetData().value<ProgramInfo *>();
 
             if (pginfo)
             {
@@ -313,7 +313,7 @@ void LookerUpper::customEvent(QEvent *levent)
         if (!lookup)
             return;
 
-        ProgramInfo *pginfo = qVariantValue<ProgramInfo *>(lookup->GetData());
+        ProgramInfo *pginfo = lookup->GetData().value<ProgramInfo *>();
 
         // This null check could hang us as this pginfo would then never be
         // removed
@@ -383,7 +383,7 @@ void LookerUpper::customEvent(QEvent *levent)
         if (!lookup)
             return;
 
-        ProgramInfo *pginfo = qVariantValue<ProgramInfo *>(lookup->GetData());
+        ProgramInfo *pginfo = lookup->GetData().value<ProgramInfo *>();
 
         // This null check could hang us as this pginfo would then never be removed
         if (!pginfo)

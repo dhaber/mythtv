@@ -1570,7 +1570,7 @@ void ProgLister::RestoreSelection(const ProgramInfo *selected,
 
 void ProgLister::HandleVisible(MythUIButtonListItem *item)
 {
-    ProgramInfo *pginfo = qVariantValue<ProgramInfo*>(item->GetData());
+    ProgramInfo *pginfo = item->GetData().value<ProgramInfo*>();
 
     if (item->GetText("is_item_initialized").isNull())
     {
@@ -1626,7 +1626,7 @@ void ProgLister::HandleSelected(MythUIButtonListItem *item)
         return;
     }
 
-    ProgramInfo *pginfo = qVariantValue<ProgramInfo*> (item->GetData());
+    ProgramInfo *pginfo = item->GetData().value<ProgramInfo*> ();
     if (!pginfo)
     {
         ClearCurrentProgramInfo();
@@ -1717,7 +1717,7 @@ void ProgLister::customEvent(QEvent *event)
         else if (resultid == "deleterule")
         {
             RecordingRule *record =
-                qVariantValue<RecordingRule *>(dce->GetData());
+                dce->GetData().value<RecordingRule *>();
             if (record && buttonnum > 0 && !record->Delete())
             {
                 LOG(VB_GENERAL, LOG_ERR, LOC +

@@ -30,7 +30,7 @@
    mythtv/bindings/python/MythTV/static.py (version number)
    mythtv/bindings/python/MythTV/mythproto.py (layout)
 */
-#define NUMPROGRAMLINES 47
+#define NUMPROGRAMLINES 49
 
 class ProgramInfo;
 typedef AutoDeleteDeque<ProgramInfo*> ProgramList;
@@ -88,6 +88,7 @@ class MPUBLIC ProgramInfo
                 const QString &description,
                 uint season,
                 uint episode,
+                uint totalepisodes,
                 const QString &syndicatedepisode,
                 const QString &category,
 
@@ -108,6 +109,7 @@ class MPUBLIC ProgramInfo
                 const QString &seriesid,
                 const QString &programid,
                 const QString &inetref,
+                CategoryType  catType,
 
                 int recpriority,
 
@@ -212,6 +214,10 @@ class MPUBLIC ProgramInfo
                 uint audioprops,
                 uint subtitletype,
 
+                uint season,
+                uint episode,
+                uint totalepisodes,
+
                 const ProgramList &schedList);
     /// Constructs a basic ProgramInfo (used by RecordingInfo)
     ProgramInfo(const QString &title,
@@ -219,6 +225,7 @@ class MPUBLIC ProgramInfo
                 const QString &description,
                 uint season,
                 uint episode,
+                uint totalepisodes,
                 const QString &category,
 
                 uint chanid,
@@ -335,6 +342,7 @@ class MPUBLIC ProgramInfo
     QString GetDescription(void)  const { return description; }
     uint    GetSeason(void)       const { return season; }
     uint    GetEpisode(void)      const { return episode; }
+    uint    GetEpisodeTotal(void) const { return totalepisodes; }
     QString GetCategory(void)     const { return category; }
     /// This is the unique key used in the database to locate tuning
     /// information. [1..2^32] are valid keys, 0 is not.
@@ -600,6 +608,23 @@ class MPUBLIC ProgramInfo
                          int64_t min_frm = -1, int64_t max_frm = -1) const;
     void SavePositionMapDelta(frm_pos_map_t &, MarkTypes type) const;
 
+    // Get/set all markup
+    struct MarkupEntry
+    {
+        int type; // MarkTypes
+        uint64_t frame;
+        uint64_t data;
+        bool isDataNull;
+        MarkupEntry(int t, uint64_t f, uint64_t d, bool n)
+            : type(t), frame(f), data(d), isDataNull(n) {}
+        MarkupEntry(void)
+            : type(-1), frame(0), data(0), isDataNull(true) {}
+    };
+    void QueryMarkup(QVector<MarkupEntry> &mapMark,
+                     QVector<MarkupEntry> &mapSeek) const;
+    void SaveMarkup(const QVector<MarkupEntry> &mapMark,
+                    const QVector<MarkupEntry> &mapSeek) const;
+
     /// Sends event out that the ProgramInfo should be reloaded.
     void SendUpdateEvent(void);
     /// Sends event out that the ProgramInfo should be added to lists.
@@ -657,14 +682,16 @@ class MPUBLIC ProgramInfo
     QString description;
     uint    season;
     uint    episode;
+    uint    totalepisodes;
     QString syndicatedepisode;
     QString category;
+    QString director;
 
     int32_t recpriority;
 
     uint32_t chanid;
-    QString chanstr;
-    QString chansign;
+    QString chanstr; // Channum
+    QString chansign; // Callsign
     QString channame;
     QString chanplaybackfilters;
 
@@ -743,6 +770,9 @@ MPUBLIC bool LoadFromProgram(
     const QString      &sql,
     const MSqlBindings &bindings,
     const ProgramList  &schedList);
+
+MPUBLIC ProgramInfo*  LoadProgramFromProgram(
+        const uint chanid, const QDateTime &starttime);
 
 MPUBLIC bool LoadFromOldRecorded(
     ProgramList        &destination,

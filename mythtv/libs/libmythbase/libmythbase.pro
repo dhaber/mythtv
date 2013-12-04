@@ -30,7 +30,7 @@ HEADERS += plist.h bswap.h signalhandling.h mythtimezone.h mythdate.h
 HEADERS += mythplugin.h mythpluginapi.h housekeeper.h
 HEADERS += ffmpeg-mmx.h
 HEADERS += mythsystemlegacy.h mythtypes.h
-HEADERS += threadedfilewriter.h
+HEADERS += threadedfilewriter.h mythsingledownload.h
 
 SOURCES += mthread.cpp mthreadpool.cpp
 SOURCES += mythsocket.cpp
@@ -48,7 +48,7 @@ SOURCES += filesysteminfo.cpp hardwareprofile.cpp serverpool.cpp
 SOURCES += plist.cpp signalhandling.cpp mythtimezone.cpp mythdate.cpp
 SOURCES += mythplugin.cpp housekeeper.cpp
 SOURCES += mythsystemlegacy.cpp mythtypes.cpp
-SOURCES += threadedfilewriter.cpp
+SOURCES += threadedfilewriter.cpp mythsingledownload.cpp
 
 # This stuff is not Qt5 compatible..
 contains(QT_VERSION, ^4\\.[0-9]\\..*) {
@@ -61,7 +61,7 @@ unix {
     HEADERS += mythsystemunix.h
 }
 
-mingw {
+mingw | win32-msvc* {
     SOURCES += mythsystemwindows.cpp
     HEADERS += mythsystemwindows.h
 }
@@ -83,7 +83,7 @@ inc.files += filesysteminfo.h hardwareprofile.h bonjourregister.h serverpool.h
 inc.files += plist.h bswap.h signalhandling.h ffmpeg-mmx.h mythdate.h
 inc.files += mythplugin.h mythpluginapi.h mythqtcompat.h
 inc.files += remotefile.h mythsystemlegacy.h mythtypes.h
-inc.files += threadedfilewriter.h
+inc.files += threadedfilewriter.h mythsingledownload.h
 
 # Allow both #include <blah.h> and #include <libmythbase/blah.h>
 inc2.path  = $${PREFIX}/include/mythtv/libmythbase
@@ -135,6 +135,22 @@ using_libudf {
 using_x11:DEFINES += USING_X11
 
 mingw:LIBS += -lws2_32
+
+win32-msvc* {
+
+    LIBS += -lws2_32
+    EXTRA_LIBS += -lzlib
+    DEFINES += NOLOGSERVER
+
+    # we need to make sure version.h is generated.
+
+    versionTarget.target  = version.h
+    versionTarget.depends = FORCE
+    versionTarget.commands = powershell -noprofile -executionpolicy bypass -File ..\..\version.ps1 ..\..
+
+    PRE_TARGETDEPS += version.h
+    QMAKE_EXTRA_TARGETS += versionTarget
+}
 
 QT += xml sql network
 

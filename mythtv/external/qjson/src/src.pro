@@ -7,7 +7,9 @@ TEMPLATE = lib
 QT      -= gui
 TARGET   = mythqjson
 target.path = $${LIBDIR}
-DESTDIR  = $$QJSON_BASE/lib
+
+!win32-msvc*:DESTDIR  = $$QJSON_BASE/lib
+
 #CONFIG += create_prl
 INSTALLS = target
 
@@ -17,6 +19,7 @@ INSTALLS = target
 
 windows: {
   DEFINES += QJSON_MAKEDLL
+  VERSION = 
 }
 
 # MythTV OS X build fix. We want a dynamic library (like all our other libs),

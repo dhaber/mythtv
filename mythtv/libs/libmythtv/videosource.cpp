@@ -567,6 +567,7 @@ void XMLTVConfig::Load(void)
 
     grabber->addSelection(QObject::tr("No grabber"), "/bin/true");
 
+
     QString validValues;
     validValues += "schedulesdirect1";
     validValues += "eitonly";
@@ -574,6 +575,11 @@ void XMLTVConfig::Load(void)
 
     QString gname, d1, d2, d3;
     SourceUtil::GetListingsLoginData(parent.getSourceID(), gname, d1, d2, d3);
+
+#ifdef _MSC_VER
+    #pragma message( "tv_find_grabbers is not supported yet on windows." )
+    //-=>TODO:Screen doesn't show up if the call to MythSysemLegacy is executed
+#else
 
     QString loc = "XMLTVConfig::Load: ";
     QString loc_err = "XMLTVConfig::Load, Error: ";
@@ -612,6 +618,7 @@ void XMLTVConfig::Load(void)
         LOG(VB_GENERAL, LOG_ERR, loc + "Failed to run tv_find_grabbers");
 
     LoadXMLTVGrabbers(name_list, prog_list);
+#endif
 
     TriggeredConfigurationGroup::Load();
 
@@ -2912,7 +2919,7 @@ CardInput::CardInput(const QString & cardtype,
     if (CardUtil::IsEncoder(cardtype) || CardUtil::IsUnscanable(cardtype))
     {
         basic->addChild(new ExternalChannelCommand(*this));
-        if (!CardUtil::IsEncoder(cardtype))
+        if (CardUtil::IsV4L(cardtype) && cardtype != "HDPVR")
             basic->addChild(new PresetTuner(*this));
     }
     else

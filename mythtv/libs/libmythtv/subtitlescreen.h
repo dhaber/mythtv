@@ -29,10 +29,11 @@ class SubtitleScreen;
 class FormattedTextChunk
 {
 public:
-    FormattedTextChunk(const QString &t, CC708CharacterAttribute formatting,
+    FormattedTextChunk(const QString &t,
+                       const CC708CharacterAttribute &formatting,
                        SubtitleScreen *p)
         : text(t), m_format(formatting), parent(p), textFont(NULL) {}
-    FormattedTextChunk(void) : parent(NULL) {}
+    FormattedTextChunk(void) : parent(NULL), textFont(NULL) {}
 
     QSize CalcSize(float layoutSpacing = 0.0f) const;
     void CalcPadding(bool isFirst, bool isLast, int &left, int &right) const;
@@ -89,7 +90,6 @@ protected:
     QString m_base;
     QVector<FormattedTextLine> m_lines;
     const QRect m_safeArea;
-    int m_cacheNum;
     uint64_t m_start;
     uint64_t m_duration;
     SubtitleScreen *m_subScreen; // where fonts and sizes are kept

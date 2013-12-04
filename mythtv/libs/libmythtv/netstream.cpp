@@ -241,7 +241,7 @@ bool NetStream::Request(const QUrl& url)
                 if (f.open(QIODevice::ReadOnly))
                 {
                     QSslKey key(&f, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey,
-                        gCoreContext->GetSetting("MhegClientKeyPass", "").toAscii());
+                        gCoreContext->GetSetting("MhegClientKeyPass", "").toLatin1());
                     if (!key.isNull())
                         ssl.setPrivateKey(key);
                     else
@@ -740,9 +740,16 @@ void NAMThread::run()
 
     // Setup cache
     QScopedPointer<QNetworkDiskCache> cache(new QNetworkDiskCache());
-    cache->setCacheDirectory(
-        QDesktopServices::storageLocation(QDesktopServices::CacheLocation) );
-    m_nam->setCache(cache.take());
+
+#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
+	cache->setCacheDirectory(
+		QStandardPaths::standardLocations(
+		    QStandardPaths::CacheLocation).value(0) );
+#else
+	cache->setCacheDirectory(
+		QDesktopServices::storageLocation(QDesktopServices::CacheLocation) );
+#endif
+	m_nam->setCache(cache.take());
 
     // Setup a network proxy
     QString proxy(getenv("HTTP_PROXY"));

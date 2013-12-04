@@ -142,18 +142,14 @@ void MythSystemLegacy::SetCommand(const QString &command,
         if (GetSetting("UseShell") && m_args.isEmpty())
         {
             m_command += logPropagateArgs;
-            if (logPropagateQuiet())
+            if (!logPropagateQuiet())
                 m_command += " --quiet";
-            if (logPropagateNoServer())
-                m_command += " --nologserver";
         }
         else
         {
             m_args << logPropagateArgList;
-            if (logPropagateQuiet())
+            if (!logPropagateQuiet())
                 m_args << "--quiet";
-            if (logPropagateNoServer())
-                m_args << "--nologserver";
         }
     }
 

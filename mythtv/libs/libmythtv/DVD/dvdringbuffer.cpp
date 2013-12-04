@@ -942,7 +942,10 @@ int DVDRingBuffer::safe_read(void *data, uint sz)
                     m_endPts = pci->pci_gi.vobu_e_ptm;
                     m_inMenu = (pci->hli.hl_gi.btn_ns > 0);
 
-                    if (m_inMenu && (dsi->synci.sp_synca[0] & 0x80000000) && !m_buttonExists)
+                    if (m_inMenu &&
+                        m_seeking &&
+                        (dsi->synci.sp_synca[0] & 0x80000000) &&
+                        !m_buttonExists)
                     {
                         LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString("Jumped into middle of menu: lba %1, dest %2")
                             .arg(pci->pci_gi.nv_pck_lbn)
@@ -2124,7 +2127,7 @@ bool DVDRingBuffer::GetDVDStateSnapshot(QString& state)
  */
 bool DVDRingBuffer::RestoreDVDStateSnapshot(QString& state)
 {
-    QByteArray ba_state = state.toAscii();
+    QByteArray ba_state = state.toUtf8();
 
     return (dvdnav_set_state(m_dvdnav, ba_state.constData()) == DVDNAV_STATUS_OK);
 }

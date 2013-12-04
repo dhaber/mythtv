@@ -10,6 +10,7 @@
 #include "mythcorecontext.h"
 #include "storagegroup.h"
 #include "programtypes.h"
+#include "recordingtypes.h"
 
 // Libmythtv
 #include "playgroup.h"
@@ -43,7 +44,7 @@
 
 #define ENUM_TO_QVARIANT(a) qVariantFromValue(static_cast<int>(a))
 
-static const QString _Location = QObject::tr("Schedule Editor");
+//static const QString _Location = QObject::tr("Schedule Editor");
 
 // Define the strings inserted into the recordfilter table in the
 // database.  This should make them available to the translators.
@@ -261,19 +262,19 @@ void ScheduleEditor::Load()
                                          ENUM_TO_QVARIANT(kNotRecording));
             }
             new MythUIButtonListItem(m_rulesList,
-                                     tr("Modify this recording rule template"),
+                                     toDescription(kTemplateRecord),
                                      ENUM_TO_QVARIANT(kTemplateRecord));
         }
         else if (m_recordingRule->m_isOverride)
         {
             new MythUIButtonListItem(m_rulesList,
-                                 tr("Record this showing with normal options"),
+                                     tr("Record this showing with normal options"),
                                      ENUM_TO_QVARIANT(kNotRecording));
             new MythUIButtonListItem(m_rulesList,
-                               tr("Record this showing with override options"),
+                                     toDescription(kOverrideRecord),
                                      ENUM_TO_QVARIANT(kOverrideRecord));
             new MythUIButtonListItem(m_rulesList,
-                                tr("Do not record this showing"),
+                                     toDescription(kDontRecord),
                                      ENUM_TO_QVARIANT(kDontRecord));
         }
         else
@@ -282,27 +283,27 @@ void ScheduleEditor::Load()
             bool isManual = (m_recordingRule->m_searchType == kManualSearch);
 
             new MythUIButtonListItem(m_rulesList,
-                                     tr("Do not record this program"),
+                                     toDescription(kNotRecording),
                                      ENUM_TO_QVARIANT(kNotRecording));
             if (hasChannel)
                 new MythUIButtonListItem(m_rulesList,
-                                         tr("Record only this showing"),
+                                         toDescription(kSingleRecord),
                                          ENUM_TO_QVARIANT(kSingleRecord));
             if (!isManual)
                 new MythUIButtonListItem(m_rulesList,
-                                         tr("Record only one showing"),
+                                         toDescription(kOneRecord),
                                          ENUM_TO_QVARIANT(kOneRecord));
             if (!hasChannel || isManual)
                 new MythUIButtonListItem(m_rulesList,
-                                         tr("Record one showing every week"),
+                                         toDescription(kWeeklyRecord),
                                          ENUM_TO_QVARIANT(kWeeklyRecord));
             if (!hasChannel || isManual)
                 new MythUIButtonListItem(m_rulesList,
-                                         tr("Record one showing every day"),
+                                         toDescription(kDailyRecord),
                                          ENUM_TO_QVARIANT(kDailyRecord));
             if (!isManual)
                 new MythUIButtonListItem(m_rulesList,
-                                         tr("Record all showings"),
+                                         toDescription(kAllRecord),
                                          ENUM_TO_QVARIANT(kAllRecord));
         }
 
@@ -589,7 +590,8 @@ void ScheduleEditor::customEvent(QEvent *event)
         }
         else if (resultid == "newrecgroup")
         {
-            StoreOptMixin::SetRecGroup(resulttext);
+            int groupID = CreateRecordingGroup(resulttext);
+            StoreOptMixin::SetRecGroup(groupID, resulttext);
         }
     }
 }
@@ -1112,7 +1114,7 @@ void SchedFilterEditor::Load()
     for (idx = 0; idx < end; ++idx)
     {
         button = m_filtersList->GetItemAt(idx);
-        int filterid = qVariantValue<int>(button->GetData());
+        int filterid = button->GetData().value<int>();
         button->setChecked(m_recordingRule->m_filter & (1 << filterid) ?
                            MythUIButtonListItem::FullChecked :
                            MythUIButtonListItem::NotChecked);
@@ -1142,7 +1144,7 @@ void SchedFilterEditor::Save()
     {
         if ((button = m_filtersList->GetItemAt(idx)) &&
             button->state() == MythUIButtonListItem::FullChecked)
-            filter_mask |= (1 << qVariantValue<uint32_t>(button->GetData()));
+            filter_mask |= (1 << button->GetData().value<uint32_t>());
     }
     m_recordingRule->m_filter = filter_mask;
 }
@@ -1226,7 +1228,8 @@ void StoreOptEditor::customEvent(QEvent *event)
 
         if (resultid == "newrecgroup")
         {
-            StoreOptMixin::SetRecGroup(resulttext);
+            int groupID = CreateRecordingGroup(resulttext);
+            StoreOptMixin::SetRecGroup(groupID, resulttext);
         }
     }
 }
@@ -1402,11 +1405,11 @@ bool MetadataOptions::Create()
 
     // Season
     m_seasonSpin->SetRange(0,9999,1,5);
-    m_seasonSpin->SetValue(m_recordingRule->m_season);
+    m_seasonSpin->SetValue(m_recordingRule->m_season != 0 ? m_recordingRule->m_season : m_recInfo->GetSeason());
 
     // Episode
     m_episodeSpin->SetRange(0,9999,1,10);
-    m_episodeSpin->SetValue(m_recordingRule->m_episode);
+    m_episodeSpin->SetValue(m_recordingRule->m_episode != 0 ? m_recordingRule->m_episode : m_recInfo->GetEpisode());
 
     if (m_coverart)
     {
@@ -1459,11 +1462,12 @@ void MetadataOptions::PerformQuery()
 
     lookup->SetStep(kLookupSearch);
     lookup->SetType(kMetadataRecording);
-    if (m_seasonSpin->GetIntValue() > 0 ||
-           m_episodeSpin->GetIntValue() > 0)
-        lookup->SetSubtype(kProbableTelevision);
-    else
+    if ((m_recInfo->GetCategoryType() == ProgramInfo::kCategoryMovie) ||
+        (m_seasonSpin->GetIntValue() == 0 &&
+         m_episodeSpin->GetIntValue() == 0))
         lookup->SetSubtype(kProbableMovie);
+    else
+        lookup->SetSubtype(kProbableTelevision);
     lookup->SetAllowGeneric(true);
     lookup->SetAutomatic(false);
     lookup->SetHandleImages(false);
@@ -1658,11 +1662,12 @@ void MetadataOptions::FindNetArt(VideoArtworkType type)
     lookup->SetType(kMetadataVideo);
     lookup->SetAutomatic(true);
     lookup->SetHandleImages(false);
-    if (m_seasonSpin->GetIntValue() > 0 ||
-           m_episodeSpin->GetIntValue() > 0)
-        lookup->SetSubtype(kProbableTelevision);
-    else
+    if ((m_recInfo->GetCategoryType() == ProgramInfo::kCategoryMovie) ||
+        (m_seasonSpin->GetIntValue() == 0 &&
+         m_episodeSpin->GetIntValue() == 0))
         lookup->SetSubtype(kProbableMovie);
+    else
+        lookup->SetSubtype(kProbableTelevision);
     lookup->SetAllowGeneric(true);
     lookup->SetData(qVariantFromValue<VideoArtworkType>(type));
     lookup->SetHost(gCoreContext->GetMasterHostName());
@@ -1687,12 +1692,12 @@ void MetadataOptions::OnArtworkSearchDone(MetadataLookup *lookup)
         m_busyPopup = NULL;
     }
 
-    VideoArtworkType type = qVariantValue<VideoArtworkType>(lookup->GetData());
+    VideoArtworkType type = lookup->GetData().value<VideoArtworkType>();
     ArtworkList list = lookup->GetArtwork(type);
 
     if (list.isEmpty())
     {
-        MythWarningNotification n(tr("No image found"), _Location);
+        MythWarningNotification n(tr("No image found"), tr("Schedule Editor"));
         GetNotificationCenter()->Queue(n);
         return;
     }
@@ -1942,7 +1947,7 @@ void MetadataOptions::customEvent(QEvent *levent)
             m_busyPopup = NULL;
         }
         MythErrorNotification n(tr("Failed to retrieve image(s)"),
-                                _Location,
+                                tr("Schedule Editor"),
                                 tr("Check logs"));
         GetNotificationCenter()->Queue(n);
     }
@@ -2072,19 +2077,19 @@ void SchedOptMixin::Load(void)
             RecordingDupMethodType dupMethod = m_rule->m_dupMethod;
 
             new MythUIButtonListItem(m_dupmethodList,
-               QObject::tr("Match duplicates using subtitle & description"),
+                                     toDescription(kDupCheckSubDesc),
                                      ENUM_TO_QVARIANT(kDupCheckSubDesc));
             new MythUIButtonListItem(m_dupmethodList,
-               QObject::tr("Match duplicates using subtitle then description"),
+                                     toDescription(kDupCheckSubThenDesc),
                                      ENUM_TO_QVARIANT(kDupCheckSubThenDesc));
             new MythUIButtonListItem(m_dupmethodList,
-               QObject::tr("Match duplicates using subtitle"),
+                                     toDescription(kDupCheckSub),
                                      ENUM_TO_QVARIANT(kDupCheckSub));
             new MythUIButtonListItem(m_dupmethodList,
-               QObject::tr("Match duplicates using description"),
+                                     toDescription(kDupCheckDesc),
                                      ENUM_TO_QVARIANT(kDupCheckDesc));
             new MythUIButtonListItem(m_dupmethodList,
-               QObject::tr("Don't match duplicates"),
+                                     toDescription(kDupCheckNone),
                                      ENUM_TO_QVARIANT(kDupCheckNone));
 
             m_rule->m_dupMethod = dupMethod;
@@ -2098,19 +2103,19 @@ void SchedOptMixin::Load(void)
         if (!m_loaded)
         {
             new MythUIButtonListItem(m_dupscopeList,
-                QObject::tr("Look for duplicates in current and previous "
-                            "recordings"), ENUM_TO_QVARIANT(kDupsInAll));
+                                     toDescription(kDupsInAll),
+                                     ENUM_TO_QVARIANT(kDupsInAll));
             new MythUIButtonListItem(m_dupscopeList,
-                QObject::tr("Look for duplicates in current recordings only"),
+                                     toDescription(kDupsInRecorded),
                                      ENUM_TO_QVARIANT(kDupsInRecorded));
             new MythUIButtonListItem(m_dupscopeList,
-                QObject::tr("Look for duplicates in previous recordings only"),
+                                     toDescription(kDupsInOldRecorded),
                                      ENUM_TO_QVARIANT(kDupsInOldRecorded));
             if (m_haveRepeats && !m_newrepeatList &&
                 (!m_other || !m_other->m_newrepeatList))
             {
                 new MythUIButtonListItem(m_dupscopeList,
-                    QObject::tr("Record new episodes only"),
+                                 toDescription(kDupsNewEpi),
                                  ENUM_TO_QVARIANT(kDupsNewEpi|kDupsInAll));
             }
         }
@@ -2312,14 +2317,20 @@ void StoreOptMixin::Load(void)
         if (!m_loaded)
         {
             label = QObject::tr("Record using the %1 profile");
-            QMap<int, QString> profiles = RecordingProfile::listProfiles(0);
-            QMap<int, QString>::iterator pit;
-            for (pit = profiles.begin(); pit != profiles.end(); ++pit)
-            {
-                new MythUIButtonListItem(m_recprofileList,
-                                         label.arg(pit.value()),
-                                         qVariantFromValue(pit.value()));
-            }
+
+            new MythUIButtonListItem(m_recprofileList,
+                                        label.arg(QObject::tr("Default")),
+                                        qVariantFromValue(QString("Default")));
+            // LiveTV profile - it's for LiveTV not scheduled recordings??
+            new MythUIButtonListItem(m_recprofileList,
+                                        label.arg(QObject::tr("LiveTV")),
+                                        qVariantFromValue(QString("LiveTV")));
+            new MythUIButtonListItem(m_recprofileList,
+                                        label.arg(QObject::tr("High Quality")),
+                                        qVariantFromValue(QString("High Quality")));
+            new MythUIButtonListItem(m_recprofileList,
+                                        label.arg(QObject::tr("Low Quality")),
+                                        qVariantFromValue(QString("Low Quality")));
         }
         m_recprofileList->SetValueByData(m_rule->m_recProfile);
     }
@@ -2333,39 +2344,27 @@ void StoreOptMixin::Load(void)
             new MythUIButtonListItem(m_recgroupList,
                                   QObject::tr("Create a new recording group"),
                                   qVariantFromValue(QString("__NEW_GROUP__")));
-            new MythUIButtonListItem(m_recgroupList,
-                                     label.arg(QObject::tr("Default")),
-                                     qVariantFromValue(QString("Default")));
 
-            groups.clear();
-            if (m_rule->m_recGroup != "Default" &&
-                m_rule->m_recGroup != "__NEW_GROUP__")
-                groups << m_rule->m_recGroup;
-            query.prepare("SELECT DISTINCT recgroup FROM recorded "
-                          "WHERE recgroup <> 'Default' AND "
-                          "      recgroup <> 'Deleted'");
+            query.prepare("SELECT recgroupid, recgroup FROM recgroups "
+                          "WHERE recgroup <> 'Deleted' AND "
+                          "      recgroup <> 'LiveTV' "
+                          "ORDER BY special DESC, recgroup ASC"); // Special groups first
             if (query.exec())
             {
                 while (query.next())
-                    groups += query.value(0).toString();
-            }
-            query.prepare("SELECT DISTINCT recgroup FROM record "
-                          "WHERE recgroup <> 'Default'");
-            if (query.exec())
-            {
-                while (query.next())
-                    groups += query.value(0).toString();
+                {
+                    int id = query.value(0).toInt();
+                    QString name = query.value(1).toString();
+
+                    if (name == "Default")
+                        name = QObject::tr("Default");
+                    new MythUIButtonListItem(m_recgroupList, label.arg(name),
+                                             qVariantFromValue(id));
+                }
             }
 
-            groups.sort();
-            groups.removeDuplicates();
-            for (it = groups.begin(); it != groups.end(); ++it)
-            {
-                new MythUIButtonListItem(m_recgroupList, label.arg(*it),
-                                         qVariantFromValue(*it));
-            }
         }
-        m_recgroupList->SetValueByData(m_rule->m_recGroup);
+        m_recgroupList->SetValueByData(m_rule->m_recGroupID);
     }
 
     // Storage Group
@@ -2460,8 +2459,8 @@ void StoreOptMixin::Save(void)
         // If the user selected 'Create a new regroup' but failed to enter a
         // name when prompted, restore the original value
         if (m_recgroupList->GetDataValue().toString() == "__NEW_GROUP__")
-            m_recgroupList->SetValueByData(m_rule->m_recGroup);
-        m_rule->m_recGroup = m_recgroupList->GetDataValue().toString();
+            m_recgroupList->SetValueByData(m_rule->m_recGroupID);
+        m_rule->m_recGroupID = m_recgroupList->GetDataValue().toInt();
     }
 
     if (m_storagegroupList)
@@ -2529,7 +2528,7 @@ void StoreOptMixin::PromptForRecGroup(void)
     MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
 
     QString label =
-        QObject::tr("Create New Recording Group. Enter group name: ");
+        QObject::tr("New Recording group name: ");
 
     MythTextInputDialog *textDialog =
         new MythTextInputDialog(popupStack, label,
@@ -2541,9 +2540,9 @@ void StoreOptMixin::PromptForRecGroup(void)
         popupStack->AddScreen(textDialog, false);
 }
 
-void StoreOptMixin::SetRecGroup(QString recgroup)
+void StoreOptMixin::SetRecGroup(int recgroupID, QString recgroup)
 {
-    if (!m_rule)
+    if (!m_rule || recgroupID <= 0)
         return;
 
     if (m_recgroupList)
@@ -2561,10 +2560,30 @@ void StoreOptMixin::SetRecGroup(QString recgroup)
         if (m_other && m_other->m_recgroupList)
         {
             item = new MythUIButtonListItem(m_other->m_recgroupList,
-                             label.arg(recgroup), qVariantFromValue(recgroup));
+                             label.arg(recgroup), qVariantFromValue(recgroupID));
             m_other->m_recgroupList->SetItemCurrent(item);
         }
     }
+}
+
+int StoreOptMixin::CreateRecordingGroup(const QString& groupName)
+{
+    int groupID = -1;
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    query.prepare("INSERT INTO recgroups SET recgroup = :NAME, "
+                  "displayname = :DISPLAYNAME");
+    query.bindValue(":NAME", groupName);
+    query.bindValue(":DISPLAYNAME", groupName);
+
+    if (query.exec())
+        groupID = query.lastInsertId().toInt();
+
+    if (groupID <= 0)
+        LOG(VB_GENERAL, LOG_ERR, QString("Could not create recording group (%1). "
+                                         "Does it already exist?").arg(groupName));
+
+    return groupID;
 }
 
 ////////////////////////////////////////////////////////
@@ -2649,14 +2668,13 @@ void PostProcMixin::Load(void)
     {
         if (!m_loaded)
         {
-        QMap<int, QString> profiles =
-            RecordingProfile::listProfiles(RecordingProfile::TranscoderGroup);
-        QMap<int, QString>::iterator it;
-        for (it = profiles.begin(); it != profiles.end(); ++it)
-        {
-            new MythUIButtonListItem(m_transcodeprofileList, it.value(),
-                                     qVariantFromValue(it.key()));
-        }
+            QMap<int, QString> profiles = RecordingProfile::GetTranscodingProfiles();
+            QMap<int, QString>::iterator it;
+            for (it = profiles.begin(); it != profiles.end(); ++it)
+            {
+                new MythUIButtonListItem(m_transcodeprofileList, it.value(),
+                                        qVariantFromValue(it.key()));
+            }
         }
         m_transcodeprofileList->SetValueByData(m_rule->m_transcoder);
     }

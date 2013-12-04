@@ -26,7 +26,7 @@
 
 #include "editvideometadata.h"
 
-static const QString _Location = QObject::tr("Metadata Editor");
+//static const QString _Location = QObject::tr("Metadata Editor");
 
 EditMetadataDialog::EditMetadataDialog(MythScreenStack *lparent,
         QString lname, VideoMetadata *source_metadata,
@@ -652,12 +652,12 @@ void EditMetadataDialog::OnArtworkSearchDone(MetadataLookup *lookup)
         m_busyPopup = NULL;
     }
 
-    VideoArtworkType type = qVariantValue<VideoArtworkType>(lookup->GetData());
+    VideoArtworkType type = lookup->GetData().value<VideoArtworkType>();
     ArtworkList list = lookup->GetArtwork(type);
 
     if (list.isEmpty())
     {
-        MythWarningNotification n(tr("No image found"), _Location);
+        MythWarningNotification n(tr("No image found"), tr("Metadata Editor"));
         GetNotificationCenter()->Queue(n);
         return;
     }
@@ -716,7 +716,7 @@ void EditMetadataDialog::handleDownloadedImages(MetadataLookup *lookup)
         m_busyPopup = NULL;
     }
 
-    VideoArtworkType type = qVariantValue<VideoArtworkType>(lookup->GetData());
+    VideoArtworkType type = lookup->GetData().value<VideoArtworkType>();
     ArtworkMap map = lookup->GetDownloads();
 
     if (map.count() >= 1)
@@ -1061,7 +1061,7 @@ void EditMetadataDialog::customEvent(QEvent *levent)
     else if (levent->type() == ImageDLFailureEvent::kEventType)
     {
         MythErrorNotification n(tr("Failed to retrieve image"),
-                                _Location,
+                                tr("Metadata Editor"),
                                 tr("Check logs"));
         GetNotificationCenter()->Queue(n);
     }

@@ -400,7 +400,17 @@ QList<PersonInfo> MetadataLookup::GetPeople(PeopleType type) const
 ArtworkList MetadataLookup::GetArtwork(VideoArtworkType type) const
 {
     ArtworkList ret;
-    ret = m_artwork.values(type);
+
+    // QMultiMap::values() returns items in reverse order which we need to
+    // correct by iterating back over the list
+    // See http://qt-project.org/doc/qt-4.8/qmultimap.html#details
+    // Specifically "The items that share the same key are available from "
+    //              "most recently to least recently inserted."
+    QListIterator<ArtworkInfo> it(m_artwork.values(type));
+    it.toBack();
+    while (it.hasPrevious())
+        ret.append(it.previous());
+
     return ret;
 }
 
@@ -447,17 +457,31 @@ void MetadataLookup::toMap(InfoMap &metadataMap)
         m_releasedate, MythDate::kDateFull);
     metadataMap["lastupdated"] = MythDate::toString(m_lastupdated, MythDate::kDateFull);
 
+#if QT_VERSION < 0x050000
     metadataMap["runtime"] = QCoreApplication::translate("(Common)",
                                                          "%n minute(s)",
                                                          "",
                                                          QCoreApplication::UnicodeUTF8,
                                                          m_runtime);
 
+
     metadataMap["runtimesecs"] = QCoreApplication::translate("(Common)",
                                                              "%n second(s)",
                                                              "",
                                                              QCoreApplication::UnicodeUTF8,
                                                              m_runtimesecs);
+#else
+    metadataMap["runtime"] = QCoreApplication::translate("(Common)",
+                                                         "%n minute(s)",
+                                                         "",
+                                                         m_runtime);
+
+
+    metadataMap["runtimesecs"] = QCoreApplication::translate("(Common)",
+                                                             "%n second(s)",
+                                                             "",
+                                                             m_runtimesecs);
+#endif
     metadataMap["inetref"] = m_inetref;
     metadataMap["collectionref"] = m_collectionref;
     metadataMap["tmsref"] = m_tmsref;

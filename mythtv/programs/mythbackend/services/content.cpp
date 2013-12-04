@@ -27,8 +27,9 @@
 
 #include <QDir>
 #include <QImage>
-#include <math.h>
+#include <QImageWriter>
 
+#include <math.h>
 #include <compat.h>
 
 #include "mythcorecontext.h"
@@ -202,6 +203,26 @@ QFileInfo Content::GetImageFile( const QString &sStorageGroup,
     delete pImage;
 
     return QFileInfo( sNewFileName );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+QStringList Content::GetDirList( const QString &sStorageGroup )
+{
+
+    if (sStorageGroup.isEmpty())
+    {
+        QString sMsg( "GetDirList - StorageGroup missing.");
+        LOG(VB_UPNP, LOG_ERR, sMsg);
+
+        throw sMsg;
+    }
+
+    StorageGroup sgroup(sStorageGroup);
+
+    return sgroup.GetDirList("", true);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -445,7 +466,8 @@ QFileInfo Content::GetPreviewImage(        int        nChanId,
                                      const QDateTime &recstarttsRaw,
                                            int        nWidth,
                                            int        nHeight,
-                                           int        nSecsIn )
+                                           int        nSecsIn,
+                                     const QString   &sFormat )
 {
     if (!recstarttsRaw.isValid())
     {
@@ -456,6 +478,16 @@ QFileInfo Content::GetPreviewImage(        int        nChanId,
 
         throw sMsg;
     }
+
+    if (!sFormat.isEmpty()
+        && !QImageWriter::supportedImageFormats().contains(sFormat.toLower().toLocal8Bit()))
+    {
+        throw "GetPreviewImage: Specified 'Format' is not supported.";
+    }
+
+    QString sImageFormat = sFormat;
+    if (sImageFormat.isEmpty())
+        sImageFormat = "PNG";
 
     QDateTime recstartts = recstarttsRaw.toUTC();
 
@@ -496,7 +528,7 @@ QFileInfo Content::GetPreviewImage(        int        nChanId,
     if (nSecsIn <= 0)
     {
         nSecsIn = -1;
-        sPreviewFileName = sFileName + ".png";
+        sPreviewFileName = QString("%1.png").arg(sFileName);
     }
     else
     {
@@ -528,50 +560,62 @@ QFileInfo Content::GetPreviewImage(        int        nChanId,
             return QFileInfo();
     }
 
-    float fAspect = 0.0;
-
-    QImage *pImage = new QImage(sPreviewFileName);
-
-    if (!pImage)
-        return QFileInfo();
-
-    if (fAspect <= 0)
-        fAspect = (float)(pImage->width()) / pImage->height();
-
-    if (fAspect == 0)
-    {
-        delete pImage;
-        return QFileInfo();
-    }
-
     bool bDefaultPixmap = (nWidth == 0) && (nHeight == 0);
-
-    if ( nWidth == 0 )
-        nWidth = (int)rint(nHeight * fAspect);
-
-    if ( nHeight == 0 )
-        nHeight = (int)rint(nWidth / fAspect);
 
     QString sNewFileName;
 
     if (bDefaultPixmap)
         sNewFileName = sPreviewFileName;
     else
-        sNewFileName = QString( "%1.%2.%3x%4.png" )
+    {
+        sNewFileName = QString( "%1.%2.%3x%4.%5" )
                           .arg( sFileName )
                           .arg( nSecsIn   )
-                          .arg( nWidth    )
-                          .arg( nHeight   );
+                          .arg( nWidth == 0 ? -1 : nWidth )
+                          .arg( nHeight == 0 ? -1 : nHeight )
+                          .arg( sImageFormat.toLower() );
 
-    // ----------------------------------------------------------------------
-    // check to see if scaled preview image is already created.
-    // ----------------------------------------------------------------------
+        // ----------------------------------------------------------------------
+        // check to see if scaled preview image is already created and isn't
+        // out of date
+        // ----------------------------------------------------------------------
+        if (QFile::exists( sNewFileName ))
+        {
+            if (QFileInfo(sPreviewFileName).lastModified() <=
+                QFileInfo(sNewFileName).lastModified())
+                return QFileInfo( sNewFileName );
+        }
+
+        QImage image = QImage(sPreviewFileName);
+
+        if (image.isNull())
+            return QFileInfo();
+
+        // We can just re-scale the default (full-size version) to avoid
+        // a preview generator run
+        if ( nWidth <= 0 )
+            image = image.scaledToHeight(nHeight, Qt::SmoothTransformation);
+        else if ( nHeight <= 0 )
+            image = image.scaledToWidth(nWidth, Qt::SmoothTransformation);
+        else
+            image = image.scaled(nWidth, nHeight, Qt::IgnoreAspectRatio,
+                                        Qt::SmoothTransformation);
+
+        image.save(sNewFileName, sImageFormat.toUpper().toLocal8Bit());
+
+        // Let anybody update it
+        bool ret = makeFileAccessible(sNewFileName.toLocal8Bit().constData());
+        if (!ret)
+        {
+            LOG(VB_GENERAL, LOG_ERR, "Unable to change permissions on "
+                                     "preview image. Backends and frontends "
+                                     "running under different users will be "
+                                     "unable to access it");
+        }
+    }
 
     if (QFile::exists( sNewFileName ))
-    {
-        delete pImage;
         return QFileInfo( sNewFileName );
-    }
 
     PreviewGenerator *previewgen = new PreviewGenerator( &pginfo,
                                                          QString(),
@@ -586,8 +630,6 @@ QFileInfo Content::GetPreviewImage(        int        nChanId,
 
     if (!ok)
         return QFileInfo();
-
-    delete pImage;
 
     return QFileInfo( sNewFileName );
 }
@@ -800,6 +842,90 @@ bool Content::DownloadFile( const QString &sURL, const QString &sStorageGroup )
         return true;
 
     return false;
+}
+
+/** \fn     Content::DeleteImage( const QString &sStorageGroup,
+ *                                const QString &sFileName )
+ *  \brief  Permanently deletes the given file from the disk.
+ *  \param  sStorageGroup The storage group name where the image is located
+ *  \param  sFileName The filename including the path that shall be deleted
+ *  \return bool True if deletion was successful, otherwise false
+ */
+bool Content::DeleteFile( const QString &sStorageGroup,
+                          const QString &sFileName )
+{
+    // Get the fileinfo object
+    QFileInfo fileInfo = GetFile(sStorageGroup, sFileName);
+
+    // Check if the file exists. Only then we can actually delete it.
+    if (!fileInfo.isFile() && !QFile::exists( fileInfo.absoluteFilePath()))
+    {
+        LOG(VB_GENERAL, LOG_ERR, "DeleteFile - File does not exist.");
+        return false;
+    }
+    return QFile::remove( fileInfo.absoluteFilePath() );
+}
+
+/** \fn     Content::RenameFile(const QString &sStorageGroup,
+ *                              const QString &sFileName,
+ *                              const QString &sNewFile)
+ *  \brief  Renames the file to the new name.
+ *  \param  sStorageGroup The storage group name where the image is located
+ *  \param  sFileName The filename including the path that shall be renamed
+ *  \param  sNewName  The new name of the file (only the name, no path)
+ *  \return bool True if renaming was successful, otherwise false
+ */
+bool Content::RenameFile( const QString &sStorageGroup,
+                          const QString &sFileName,
+                          const QString &sNewName)
+{
+    QFileInfo fi = QFileInfo();
+    fi = GetFile(sStorageGroup, sFileName);
+
+    // Check if the file exists and is writable.
+    // Only then we can actually delete it.
+    if (!fi.isFile() && !QFile::exists(fi.absoluteFilePath()))
+    {
+        LOG(VB_GENERAL, LOG_ERR, "RenameFile - File does not exist.");
+        return false;
+    }
+
+    // Check if the new filename has no path stuff specified
+    if (sNewName.contains("/") || sNewName.contains("\\"))
+    {
+        LOG(VB_GENERAL, LOG_ERR, "RenameFile - New file must not contain a path.");
+        return false;
+    }
+    
+    // The newly renamed file must be in the same path as the original one.
+    // So we need to check if a file of the new name exists and would be 
+    // overwritten by the new filename. To to this get the path from the 
+    // original file and append the new file name, Then check 
+    // if it exists in the given storage group
+    
+    // Get the everthing until the last directory separator
+    QString path = sFileName.left(sFileName.lastIndexOf("/"));
+    // Append the new file name to the path
+    QString newFileName = path.append("/").append(sNewName);
+    
+    QFileInfo nfi = QFileInfo();
+    nfi = GetFile(sStorageGroup, newFileName);
+    
+    // Check if the target file is already present.
+    // If is there then abort, overwriting is not supported
+    if (nfi.isFile() || QFile::exists(nfi.absoluteFilePath()))
+    {
+        LOG(VB_GENERAL, LOG_ERR,
+            QString("RenameFile - New file %1 would overwrite "
+                    "existing one, not renaming.").arg(sFileName));
+        return false;
+    }
+
+    // All checks have been passed, rename the file
+    QFile file; 
+    file.setFileName(fi.fileName());
+    QDir::setCurrent(fi.absolutePath());
+    return file.rename(sNewName);
 }
 
 /////////////////////////////////////////////////////////////////////////////

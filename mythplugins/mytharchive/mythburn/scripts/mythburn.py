@@ -49,7 +49,7 @@ from __future__ import unicode_literals
 
 
 # version of script - change after each update
-VERSION="0.1.20130911-5"
+VERSION="0.1.20131119-1"
 
 # keep all temporary files for debugging purposes
 # set this to True before a first run through when testing
@@ -94,13 +94,13 @@ from PIL import ImageFont
 from PIL import ImageColor
 import unicodedata
 import time
-import datetime
 import tempfile
 from fcntl import ioctl
 import CDROM
 from shutil import copy
 
 import MythTV
+from MythTV import datetime
 from MythTV.altdict import OrdDict
 
 # media types (should match the enum in mytharchivewizard.h)
@@ -1426,7 +1426,7 @@ def getFileInformation(file, folder):
         data.description    = rec.description
         data.rating         = str(rec.stars)
         data.chanid         = rec.chanid
-        data.starttime      = rec.starttime.isoformat()
+        data.starttime      = rec.starttime.utcisoformat()
 
         cutlist = rec.markup.getcutlist()
         if len(cutlist):
@@ -1509,7 +1509,12 @@ def getFileInformation(file, folder):
 def WriteXMLToFile(myDOM, filename):
     #Save the XML file to disk for use later on
     f=open(filename, 'w')
-    f.write(myDOM.toprettyxml(indent="    ", encoding="UTF-8"))
+
+    if sys.hexversion >= 0x020703F0:
+        f.write(myDOM.toprettyxml(indent="    ", encoding="UTF-8"))
+    else:
+        f.write(myDOM.toxml(encoding="UTF-8"))
+
     f.close()
 
 
@@ -1766,6 +1771,7 @@ def generateProjectXCutlist(chanid, starttime, folder):
     """generate cutlist_x.txt for ProjectX"""
 
     rec = DB.searchRecorded(chanid=chanid, starttime=starttime).next()
+    starttime = rec.starttime.utcisoformat()
     cutlist = rec.markup.getcutlist()
 
     if len(cutlist):
@@ -2157,11 +2163,12 @@ def encodeNuvToMPEG2(chanid, starttime, mediafile, destvideofile, folder, profil
            qdiff = value
 
     if chanid != -1:
+        utcstarttime = datetime.duck(starttime).utcisoformat()
         if (usecutlist == True):
             PID=os.spawnlp(os.P_NOWAIT, "mythtranscode", "mythtranscode",
                         '--profile', '27',
                         '--chanid', chanid,
-                        '--starttime', starttime,
+                        '--starttime', utcstarttime,
                         '--honorcutlist',
                         '--fifodir', folder)
             write("mythtranscode started (using cut list) PID = %s" % PID)
@@ -2169,7 +2176,7 @@ def encodeNuvToMPEG2(chanid, starttime, mediafile, destvideofile, folder, profil
             PID=os.spawnlp(os.P_NOWAIT, "mythtranscode", "mythtranscode",
                         '--profile', '27',
                         '--chanid', chanid,
-                        '--starttime', starttime,
+                        '--starttime', utcstarttime,
                         '--fifodir', folder)
 
             write("mythtranscode started PID = %s" % PID)

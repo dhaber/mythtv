@@ -62,9 +62,16 @@ extern "C" {
 #endif
 
 // QJson
-#include "QJson/QObjectHelper"
-#include "QJson/Serializer"
-#include "QJson/Parser"
+#ifdef _MSC_VER    
+    // This is needed to avoid creating a reparse point which git on windows doesn't like
+    #include "QJson/src/QObjectHelper"
+    #include "QJson/src/Serializer"
+    #include "QJson/src/Parser"
+#else
+    #include "QJson/QObjectHelper"
+    #include "QJson/Serializer"
+    #include "QJson/Parser"
+#endif
 
 static QMutex                  logQueueMutex;
 static QQueue<LoggingItem *>   logQueue;
@@ -525,7 +532,7 @@ void LoggerThread::launchLogServer(void)
         QStringList args;
         args << "--daemon" << logPropagateArgs;
 
-        MythSystemLegacy ms(GetInstallPrefix() + "/bin/mythlogserver", args, mask);
+        MythSystemLegacy ms(GetAppBinDir() + "mythlogserver", args, mask);
         ms.Run();
         ms.Wait(0);
     }
@@ -800,6 +807,11 @@ void LogPrintLine( uint64_t mask, LogLevel_t level, const char *file, int line,
 
     QMutexLocker qLock(&logQueueMutex);
 
+#if defined( _MSC_VER ) && defined( _DEBUG )
+	OutputDebugStringA( item->m_message );
+	OutputDebugStringA( "\n" );
+#endif
+
     logQueue.enqueue(item);
 
     if (logThread && logThreadFinished && !logThread->isRunning())
@@ -859,7 +871,7 @@ void logPropagateCalc(void)
 #ifndef _WIN32
     if (logPropagateOpts.facility >= 0)
     {
-        CODE *syslogname;
+        const CODE *syslogname;
 
         for (syslogname = &facilitynames[0];
              (syslogname->c_name &&
@@ -996,7 +1008,7 @@ int syslogGetFacility(QString facility)
         "Windows does not support syslog, disabling" );
     return( -2 );
 #else
-    CODE *name;
+    const CODE *name;
     int i;
     QByteArray ba = facility.toLocal8Bit();
     char *string = (char *)ba.constData();

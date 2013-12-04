@@ -40,9 +40,6 @@ protected:
     const MythRect m_swOrigArea;
     const int m_swWhichImageCache; // cc708 only; -1 = none
     const long long m_swExpireTime; // avsubs only; -1 = none
-    // Delay state
-    uint32_t m_swDrawDelay; // increments every tick when !m_Visible
-    uint32_t m_swDeleteDelay; // decrements every tick; set to m_swDrawDelay on delete
 };
 
 class SubSimpleText : public MythUISimpleText, public SubWrapper
@@ -752,7 +749,7 @@ FormattedTextSubtitle::FormattedTextSubtitle(const QString &base,
 }
 
 FormattedTextSubtitle::FormattedTextSubtitle(void) :
-    m_safeArea(QRect()), m_subScreen(NULL)
+    m_start(0), m_duration(0), m_subScreen(NULL)
 {
     // make cppcheck happy
     m_xAnchorPoint = 0;
@@ -1228,8 +1225,10 @@ void FormattedTextSubtitle608::Init(const vector<CC608Text*> &buffers)
     int pixelSize = m_safeArea.height() / (yscale * LINE_SPACING);
     int fontwidth = 0;
     int xmid = 0;
+    int zoom = 100;
     if (m_subScreen)
     {
+        zoom = m_subScreen->GetZoom();
         m_subScreen->SetFontSize(pixelSize);
         CC708CharacterAttribute def_attr(false, false, false, clr[0]);
         QFont *font = m_subScreen->GetFont(def_attr)->GetFace();
@@ -1237,7 +1236,7 @@ void FormattedTextSubtitle608::Init(const vector<CC608Text*> &buffers)
         fontwidth = fm.averageCharWidth();
         xmid = m_safeArea.width() / 2;
         // Disable centering for zoom factor >= 100%
-        if (m_subScreen->GetZoom() >= 100)
+        if (zoom >= 100)
             xscale = m_safeArea.width() / fontwidth;
     }
 
@@ -1263,7 +1262,6 @@ void FormattedTextSubtitle608::Init(const vector<CC608Text*> &buffers)
 
         int orig_y = cc->y;
         int y;
-        int zoom = m_subScreen->GetZoom();
         if (orig_y < yscale / 2)
             // top half -- anchor up
             y = (orig_y * m_safeArea.height() * zoom / (yscale * 100));

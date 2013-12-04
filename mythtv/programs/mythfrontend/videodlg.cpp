@@ -287,9 +287,10 @@ namespace
         Q_OBJECT
 
       public:
-        FanartLoader() : itemsPast(0), m_fanart(NULL)
+        FanartLoader() : itemsPast(0), m_fanart(NULL), m_bConnected( false )
         {
-            connect(&m_fanartTimer, SIGNAL(timeout()), SLOT(fanartLoad()));
+            // NOTE: Moved call to connect to first call of LoadImage/
+            //       Having it here causes a runtime error on windows
         }
 
        ~FanartLoader()
@@ -300,6 +301,12 @@ namespace
 
         void LoadImage(const QString &filename, MythUIImage *image)
         {
+            if (!m_bConnected)
+            {
+                connect(&m_fanartTimer, SIGNAL(timeout()), SLOT(fanartLoad()));
+                m_bConnected = true;
+            }
+
             bool wasActive = m_fanartTimer.isActive();
             if (filename.isEmpty())
             {
@@ -347,6 +354,7 @@ namespace
         QMutex          m_fanartLock;
         MythUIImage    *m_fanart;
         QTimer          m_fanartTimer;
+        bool            m_bConnected;
     };
 
     FanartLoader fanartLoader;
@@ -3288,7 +3296,7 @@ void VideoDialog::customEvent(QEvent *levent)
         if (list.count() > 1)
         {
             VideoMetadata *metadata =
-                qVariantValue<VideoMetadata *>(list[0]->GetData());
+                list[0]->GetData().value<VideoMetadata *>();
             dismissFetchDialog(metadata, true);
             MetadataResultsDialog *resultsdialog =
                   new MetadataResultsDialog(m_popupStack, list);
@@ -3328,7 +3336,7 @@ void VideoDialog::customEvent(QEvent *levent)
             return;
 
         VideoMetadata *metadata =
-            qVariantValue<VideoMetadata *>(lookup->GetData());
+            lookup->GetData().value<VideoMetadata *>();
         if (metadata)
         {
             dismissFetchDialog(metadata, false);
@@ -3682,7 +3690,7 @@ void VideoDialog::OnVideoSearchDone(MetadataLookup *lookup)
     if (!lookup)
        return;
 
-    VideoMetadata *metadata = qVariantValue<VideoMetadata *>(lookup->GetData());
+    VideoMetadata *metadata = lookup->GetData().value<VideoMetadata *>();
 
     if (!metadata)
         return;

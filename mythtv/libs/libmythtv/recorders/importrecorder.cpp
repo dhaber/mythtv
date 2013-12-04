@@ -19,7 +19,7 @@
  */
 
 // POSIX
-#ifndef USING_MINGW
+#ifndef _WIN32
 #include <sys/select.h>
 #endif
 #include <sys/types.h>
@@ -105,7 +105,7 @@ void ImportRecorder::run(void)
     if (_import_fd && IsRecordingRequested() && !IsErrored())
     {
         MythCommFlagPlayer *cfp =
-            new MythCommFlagPlayer((PlayerFlags)(kAudioMuted | kVideoIsNull));
+            new MythCommFlagPlayer((PlayerFlags)(kAudioMuted | kVideoIsNull | kNoITV));
         RingBuffer *rb = RingBuffer::Create(
             ringBuffer->GetFilename(), false, true, 6000);
 
