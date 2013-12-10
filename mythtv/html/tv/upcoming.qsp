@@ -3,6 +3,7 @@
 
 import "/js/utility.js"
 import "/tv/js/constants.js"
+import "/tv/js/tvutil.qjs"
 
     var args = arguments[1];
     function getArg(name)
@@ -11,7 +12,9 @@ import "/tv/js/constants.js"
         return args[name];
     }
 
-    var filter = getArg("ViewFilter");
+    var filter = "";
+    if (getArg("ViewFilter"))
+        filter = getArg("ViewFilter");
 
     var listOnly = 0;
     if (getArg("ListOnly"))
@@ -27,14 +30,20 @@ import "/tv/js/constants.js"
     var PAGEINTERVAL = 10;
     var programList;
     if (filter == "conflicting")
-        programList = dvr.GetConflictList(startIndex, PAGEINTERVAL);
-    else if (filter == "all")
-        programList = dvr.GetUpcomingList(startIndex, PAGEINTERVAL, true);
+        programList = dvr.GetConflictList(startIndex, PAGEINTERVAL, 0);
+    else if (filter == "important" || filter == "")
+        programList = dvr.GetUpcomingList(startIndex, PAGEINTERVAL, false, 0, 0);
     else
-        programList = dvr.GetUpcomingList(startIndex, PAGEINTERVAL, false);
+    {
+        var status = 0;
+        if (filter == "inactive")
+            status = RecordingStatus.INACTIVE;
+
+        programList = dvr.GetUpcomingList(startIndex, PAGEINTERVAL, true, 0, status);
+    }
 
     var nextStartIndex = (startIndex + PAGEINTERVAL);
-    if (nextStartIndex > programList.TotalAvailable)
+    if (nextStartIndex >= programList.TotalAvailable)
         nextStartIndex = 0;
 
     var programs = programList.Programs;
@@ -88,9 +97,10 @@ import "/tv/js/constants.js"
     <form action="/tv/upcoming.qsp">
     <label for="upcomingFilter"><%=qsTr("Show")%>:
     <select id="upcomingFilter" name="ViewFilter" onChange="submitForm(this.form)">
-        <option value="important">Important</option>
-        <option value="conflicting" <% if (filter === "conflicting") {%>selected<%}%>>Conflicting or Failed Schedules</option>
-        <option value="all" <% if (filter === "all") {%>selected<%}%>>All scheduler matches</option>
+        <option value="important"><%=qsTr("Important")%></option>
+        <option value="conflicting" <% if (filter === "conflicting") {%>selected<%}%>><%=qsTr("Conflicting or Failed Schedules")%></option>
+        <option value="inactive" <% if (filter === "inactive") {%>selected<%}%>><%=qsTr("Inactive rule matches")%></option>
+        <option value="all" <% if (filter === "all") {%>selected<%}%>><%=qsTr("All scheduler matches")%></option>
     </select>
     </label>
     </form>
@@ -130,9 +140,8 @@ for (var listIdx = 0; listIdx < programs.length; listIdx++)
 
     var menu = "normalMenu";
 
-    //
-    var statusStr = dvr.RecStatusToString(program.Recording.Status);
-    var statusClass = "program" + statusStr.replace(/ /g, '');
+    // RecStatusToClass() - /tv/js/tvutil.qjs
+    var statusClass = RecStatusToClass(program.Recording.Status);
 
     var recStatusDesc = dvr.RecStatusToDescription(program.Recording.Status,
                                                    program.Recording.RecType,
@@ -155,7 +164,6 @@ for (var listIdx = 0; listIdx < programs.length; listIdx++)
 <%
     }
 %>
-
     <div class="programRow" id="<%=programIdentifier%>_row">
         <div class="channelBox">
             <img class="channelIcon" height="57" alt="<%=escapeHTML(channel.ChannelName)%> Icon" src="/Guide/GetChannelIcon?ChanId=<%=channel.ChanId%>&amp;Height=57" />

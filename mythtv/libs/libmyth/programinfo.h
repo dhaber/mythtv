@@ -299,8 +299,9 @@ class MPUBLIC ProgramInfo
 
     // Used for scheduling recordings
     bool IsSameProgram(const ProgramInfo &other) const;
-    bool IsSameTimeslot(const ProgramInfo &other) const;
-    bool IsSameProgramTimeslot(const ProgramInfo &other) const;//sched only
+    bool IsSameProgramAndStartTime(const ProgramInfo &other) const; // Exact same program and same starttime, Any channel
+    bool IsSameTitleStartTimeAndChannel(const ProgramInfo &other) const; // Same title, starttime and channel
+    bool IsSameTitleTimeslotAndChannel(const ProgramInfo &other) const;//sched only - Same title, starttime, endtime and channel
     static bool UsingProgramIDAuthority(void)
     {
         return usingProgIDAuth;
@@ -795,6 +796,7 @@ bool LoadFromScheduler(
     int                 recordid = -1)
 {
     destination.clear();
+    QList<TYPE> tmpList;
     hasConflicts = false;
 
     QStringList slist = ProgramInfo::LoadFromScheduler(altTable, recordid);
@@ -804,18 +806,53 @@ bool LoadFromScheduler(
     hasConflicts = slist[0].toInt();
 
     QStringList::const_iterator sit = slist.begin()+2;
+    uint programCount = 0;
     while (sit != slist.end())
     {
         TYPE *p = new TYPE(sit, slist.end());
-        destination.push_back(p);
+
         if (!p->HasPathname() && !p->GetChanID())
         {
+            delete p;
             destination.clear();
             return false;
         }
+
+        tmpList.push_back(*p);
+        programCount++;
+
+        if (recordid > 0 && p->GetRecordingRuleID() != static_cast<uint>(recordid))
+        {
+            delete p;
+            continue;
+        }
+
+        destination.push_back(p);
     }
 
-    if (destination.size() != slist[1].toUInt())
+    typename AutoDeleteDeque<TYPE*>::const_iterator dit = destination.begin();
+    for (; dit != destination.end(); ++dit)
+    {
+        typename QList<TYPE>::const_iterator it = tmpList.begin();
+        for (; it != tmpList.end(); ++it)
+        {
+            const ProgramInfo &other = *it;
+            if (!(*dit)->IsSameProgramAndStartTime(other))
+                continue;
+
+            if ((*dit)->GetChannelSchedulingID() != other.GetChannelSchedulingID())
+            {
+                if (other.GetRecordingStatus() == rsWillRecord)
+                    (*dit)->SetRecordingStatus(rsOtherShowing);
+                else if (other.GetRecordingStatus() == rsRecording)
+                    (*dit)->SetRecordingStatus(rsOtherRecording);
+                else if (other.GetRecordingStatus() == rsTuning)
+                    (*dit)->SetRecordingStatus(rsOtherTuning);
+            }
+        }
+    }
+
+    if (programCount != slist[1].toUInt())
     {
         destination.clear();
         return false;

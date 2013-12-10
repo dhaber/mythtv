@@ -67,11 +67,14 @@ class Dvr : public DvrServices
                                                 const QDateTime &StartTime );
 
         DTC::ProgramList* GetConflictList     ( int              StartIndex,
-                                                int              Count      );
+                                                int              Count,
+                                                int              RecordId );
 
         DTC::ProgramList* GetUpcomingList     ( int              StartIndex,
                                                 int              Count,
-                                                bool             ShowAll );
+                                                bool             ShowAll,
+                                                int              RecordId,
+                                                int              RecStatus );
 
         DTC::EncoderList* GetEncoderList      ( );
 
@@ -291,16 +294,20 @@ class ScriptableDvr : public QObject
         }
 
         QObject* GetConflictList    ( int              StartIndex,
-                                      int              Count      )
+                                      int              Count,
+                                      int              RecordId )
         {
-            return m_obj.GetConflictList( StartIndex, Count );
+            return m_obj.GetConflictList( StartIndex, Count, RecordId );
         }
 
         QObject* GetUpcomingList    ( int              StartIndex,
                                       int              Count,
-                                      bool             ShowAll )
+                                      bool             ShowAll,
+                                      int              RecordId,
+                                      int              RecStatus )
         {
-            return m_obj.GetUpcomingList( StartIndex, Count, ShowAll );
+            return m_obj.GetUpcomingList( StartIndex, Count, ShowAll,
+                                          RecordId, RecStatus );
         }
 
         QObject* GetEncoderList     () { return m_obj.GetEncoderList(); }
