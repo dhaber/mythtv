@@ -119,10 +119,10 @@ MetadataLookup::MetadataLookup(
     const QString &seriesid,
     const QString &programid,
     const QString &storagegroup,
-    const QDateTime startts,
-    const QDateTime endts,
-    const QDateTime recstartts,
-    const QDateTime recendts,
+    const QDateTime &startts,
+    const QDateTime &endts,
+    const QDateTime &recstartts,
+    const QDateTime &recendts,
     uint programflags,
     uint audioproperties,
     uint videoproperties,
@@ -136,8 +136,8 @@ MetadataLookup::MetadataLookup(
     uint tracknum,
     const QString &system,
     const uint year,
-    const QDate releasedate,
-    const QDateTime lastupdated,
+    const QDate &releasedate,
+    const QDateTime &lastupdated,
     const uint runtime,
     const uint runtimesecs,
     const QString &inetref,
@@ -247,17 +247,17 @@ MetadataLookup::MetadataLookup(
     const QString &seriesid,
     const QString &programid,
     const QString &storagegroup,
-    const QDateTime startts,
-    const QDateTime endts,
-    const QDateTime recstartts,
-    const QDateTime recendts,
+    const QDateTime &startts,
+    const QDateTime &endts,
+    const QDateTime &recstartts,
+    const QDateTime &recendts,
     uint programflags,
     uint audioproperties,
     uint videoproperties,
     uint subtitletype,
     const uint year,
-    const QDate releasedate,
-    const QDateTime lastupdated,
+    const QDate &releasedate,
+    const QDateTime &lastupdated,
     const uint runtime,
     const uint runtimesecs) :
     ReferenceCounter("MetadataLookup"),
@@ -393,7 +393,16 @@ MetadataLookup::~MetadataLookup()
 QList<PersonInfo> MetadataLookup::GetPeople(PeopleType type) const
 {
     QList<PersonInfo> ret;
-    ret = m_people.values(type);
+    // QMultiMap::values() returns items in reverse order which we need to
+    // correct by iterating back over the list
+    // See http://qt-project.org/doc/qt-4.8/qmultimap.html#details
+    // Specifically "The items that share the same key are available from "
+    //              "most recently to least recently inserted."
+    QListIterator<PersonInfo> it(m_people.values(type));
+    it.toBack();
+    while (it.hasPrevious())
+        ret.append(it.previous());
+
     return ret;
 }
 
@@ -1430,19 +1439,17 @@ QString nearestName(const QString& actual, const QStringList& candidates)
     QStringList::ConstIterator i = candidates.begin();
     while ( i != candidates.end() )
     {
-        if ( (*i)[0] == actual[0] )
+        QString candidate = *i;
+        int delta = editDistance( actual.toLower(), candidate.toLower() );
+        if ( delta < deltaBest )
         {
-            int delta = editDistance( actual, *i );
-            if ( delta < deltaBest )
-            {
-                deltaBest = delta;
-                numBest = 1;
-                best = *i;
-            }
-            else if ( delta == deltaBest )
-            {
-                numBest++;
-            }
+            deltaBest = delta;
+            numBest = 1;
+            best = *i;
+        }
+        else if ( delta == deltaBest )
+        {
+            numBest++;
         }
         ++i;
     }

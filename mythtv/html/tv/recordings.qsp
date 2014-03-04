@@ -5,13 +5,6 @@ import "/js/utility.js"
 import "/tv/js/constants.js"
 import "/tv/js/tvutil.qjs"
 
-    var args = arguments[1];
-    function getArg(name)
-    {
-        name = name.toLowerCase();
-        return args[name];
-    }
-
     var listOnly = 0;
     if (getArg("ListOnly"))
         listOnly = 1;
@@ -36,8 +29,8 @@ import "/tv/js/tvutil.qjs"
         sortOrder = getArg("SortAsc");
 
     var startIndex = 0;
-    if (getArg("Start"))
-        startIndex = Number(getArg("Start"));
+    if (getIntegerArg("Start"))
+        startIndex = getIntegerArg("Start");
 
     var dvr = new Dvr();
 
@@ -70,6 +63,7 @@ import "/tv/js/tvutil.qjs"
 <meta charset="UTF-8">
 <title><%=qsTr("Recordings")%></title>
 <link rel="stylesheet" type="text/css" href="/css/site.css">
+<link rel="stylesheet" type="text/css" href="/tv/css/icons.css">
 <link rel="stylesheet" type="text/css" href="/tv/css/recordings.css">
 <link rel="stylesheet" type="text/css" href="/tv/css/common.css">
 <link rel="stylesheet" type="text/css" href="/tv/css/category_colors.css">
@@ -214,7 +208,7 @@ for (var progIdx = 0; progIdx < programs.length; progIdx++)
             <div class="previewImageBackground">
                 <img alt="Preview Image" height="67" class="previewImage" src="/Content/GetPreviewImage?ChanId=<%=program.Channel.ChanId%>&amp;StartTime=<%=program.Recording.StartTs.toISOString()%>&amp;height=67&amp;format=JPG" />
             </div>
-            <span class="watchRecordingLink"><%=qsTr("Watch")%></span>
+            <span class="watchRecordingLink"><a onClick="javascript:loadContent('/tv/tvplayer.qsp?ChanId=<%=program.Channel.ChanId%>&amp;StartTime=<%=program.Recording.StartTs.toISOString()%>')"><%=qsTr("Watch")%></a></span>
         </div>
         <div class="programBox">
             <div class="programInnerBox <%=statusClass%>" id="<%=programIdentifier%>" onMouseOver="startDetailTimer(this, 'recording');" onMouseOut="hideDetail(this);" onClick="showMenu(this, '<%=menu%>');">

@@ -1,3 +1,7 @@
+
+// POSIX C headers
+#include <utime.h>
+
 // Qt
 #include <QFileInfo>
 
@@ -14,12 +18,14 @@
 // Libmyth
 #include <mythcontext.h>
 
+const QString MetaIO::ValidFileExtensions(".mp3|.mp2|.ogg|.oga|.flac|.wma|.wav|.ac3|.oma|.omg|"
+                                          ".atp|.ra|.dts|.aac|.m4a|.aa3|.tta|.mka|.aiff|.swa|.wv");
 /*!
  * \brief Constructor
  */
 MetaIO::MetaIO()
 {
-    mFilenameFormat = gCoreContext->GetSetting("NonID3FileNameFormat").toUpper();
+    m_filenameFormat = gCoreContext->GetSetting("NonID3FileNameFormat").toUpper();
 }
 
 /*!
@@ -34,6 +40,12 @@ MetaIO* MetaIO::createTagger(const QString& filename)
 {
     QFileInfo fi(filename);
     QString extension = fi.suffix().toLower();
+
+    if (extension.isEmpty() || !MetaIO::ValidFileExtensions.contains(extension))
+    {
+        LOG(VB_FILE, LOG_WARNING, QString("MetaIO: unknown extension: '%1'").arg(extension));
+        return NULL;
+    }
 
     if (extension == "mp3" || extension == "mp2")
         return new MetaIOID3;
@@ -89,7 +101,8 @@ MusicMetadata* MetaIO::readMetadata(const QString &filename)
 // static
 MusicMetadata* MetaIO::getMetadata(const QString &filename)
 {
-
+    //FIXME: we need a relative path for createFromFilename()
+    //       but readMetadata() needs an absolute path
     MusicMetadata *mdata = MusicMetadata::createFromFilename(filename);
     if (mdata)
         return mdata;
@@ -113,7 +126,7 @@ void MetaIO::readFromFilename(const QString &filename,
     // Replace 
     lfilename.replace('_', ' ');
     lfilename = lfilename.section('.', 0, -2);
-    QStringList fmt_list = mFilenameFormat.split("/");
+    QStringList fmt_list = m_filenameFormat.split("/");
     QStringList::iterator fmt_it = fmt_list.begin();
 
     // go through loop once to get minimum part number
@@ -189,25 +202,48 @@ void MetaIO::readFromFilename(MusicMetadata* metadata)
     QString artist, album, title, genre;
     int tracknum = 0;
 
-    const QString filename = metadata->Filename();
+    const QString filename = metadata->Filename(false);
 
     if (filename.isEmpty())
         return;
-    
+
     readFromFilename(filename, artist, album, title, genre, tracknum);
 
     if (metadata->Artist().isEmpty())
         metadata->setArtist(artist);
-    
+
     if (metadata->Album().isEmpty())
         metadata->setAlbum(album);
-    
+
     if (metadata->Title().isEmpty())
         metadata->setTitle(title);
-    
+
     if (metadata->Genre().isEmpty())
         metadata->setGenre(genre);
-    
+
     if (metadata->Track() <= 0)
         metadata->setTrack(tracknum);
+}
+
+void MetaIO::saveTimeStamps(void)
+{
+    if (stat(m_filename.toLocal8Bit().constData(), &m_fileinfo) == -1)
+    {
+        LOG(VB_GENERAL, LOG_ERR,
+            QString("MetaIO::saveTimeStamps: failed to stat file: %1").arg(m_filename) + ENO);
+    }
+}
+
+void MetaIO::restoreTimeStamps(void)
+{
+    struct utimbuf new_times;
+
+    new_times.actime = m_fileinfo.st_atime;
+    new_times.modtime = m_fileinfo.st_mtime;
+
+    if (utime(m_filename.toLocal8Bit().constData(), &new_times) < 0)
+    {
+        LOG(VB_GENERAL, LOG_ERR,
+            QString("MetaIO::restoreTimeStamps: failed to utime file: %1").arg(m_filename) + ENO);
+    }
 }

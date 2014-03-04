@@ -18,6 +18,8 @@
 #include <mythuiwebbrowser.h>
 #include <mythuifilebrowser.h>
 #include <musicutils.h>
+#include <mythprogressdialog.h>
+#include <remotefile.h>
 
 // mythmusic
 #include "musicdata.h"
@@ -37,7 +39,7 @@ MusicMetadata *EditMetadataCommon::m_sourceMetadata = NULL;
 EditMetadataCommon::EditMetadataCommon(MythScreenStack *parent,
                                        MusicMetadata *source_metadata,
                                        const QString &name) :
-    MythScreenType(parent, name), m_doneButton(NULL)
+    MythScreenType(parent, name), m_albumArtChanged(false), m_doneButton(NULL)
 {
     // make a copy so we can abandon changes
     m_metadata = new MusicMetadata(*source_metadata);
@@ -48,12 +50,29 @@ EditMetadataCommon::EditMetadataCommon(MythScreenStack *parent,
 
 EditMetadataCommon::EditMetadataCommon(MythScreenStack *parent,
                                        const QString &name) :
-    MythScreenType(parent, name), m_doneButton(NULL)
+    MythScreenType(parent, name), m_albumArtChanged(false), m_doneButton(NULL)
 {
 }
 
 EditMetadataCommon::~EditMetadataCommon()
 {
+        // do we need to save anything?
+    if (m_albumArtChanged)
+    {
+        m_metadata->getAlbumArtImages()->dumpToDatabase();
+
+        // force a reload of the images for any tracks affected
+        MetadataPtrList *allMusic =  gMusicData->all_music->getAllMetadata();
+        for (int x = 0; x < allMusic->count(); x++)
+        {
+            if ((allMusic->at(x)->ID() == m_sourceMetadata->ID()) ||
+                (allMusic->at(x)->getDirectoryId() == m_sourceMetadata->getDirectoryId()))
+            {
+                allMusic->at(x)->reloadAlbumArtImages();
+                gPlayer->sendAlbumArtChangedEvent(allMusic->at(x)->ID());
+            }
+        }
+    }
 }
 
 bool EditMetadataCommon::CreateCommon(void)
@@ -200,15 +219,19 @@ void EditMetadataCommon::saveToDatabase()
 
 void EditMetadataCommon::saveAll()
 {
+    saveToDatabase();
+
+    // only write to the tag if it's enabled by the user
     if (GetMythDB()->GetNumSetting("AllowTagWriting", 0))
     {
-        MetaIO *tagger = m_metadata->getTagger();
+        QStringList strList;
+        strList << QString("MUSIC_TAG_UPDATE_METADATA %1 %2")
+                            .arg(m_metadata->Hostname())
+                            .arg(m_metadata->ID());
 
-        if (tagger)
-            tagger->write(m_metadata);
+        SendStringListThread *thread = new SendStringListThread(strList);
+        MThreadPool::globalInstance()->start(thread, "UpdateMetadata");
     }
-
-    saveToDatabase();
 
     cleanupAndClose();
 }
@@ -217,7 +240,7 @@ void EditMetadataCommon::setSaveMetadataOnly(void)
 {
     metadataOnly = true;
 
-    MythUIButton *albumartButton = dynamic_cast<MythUIButton *>(GetChild("albumart_button"));
+    MythUIButton *albumartButton = dynamic_cast<MythUIButton *>(GetChild("albumartbutton"));
     if (albumartButton)
         albumartButton->Hide();
 }
@@ -250,54 +273,14 @@ void EditMetadataCommon::searchForAlbumImages(void)
 
     QUrl url("http://www.google.co.uk/images?q=" + artist + "+" + album, QUrl::TolerantMode);
 
-    QFileInfo  fi(m_metadata->Filename());
+    m_searchType = "album";
 
-    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), fi.canonicalPath() + '/', "front.jpg");
+    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), GetConfDir() + "/MythMusic/", "front.jpg");
 }
 
 void EditMetadataCommon::scanForImages(void)
 {
-    // clear the original images
-    AlbumArtList *imageList = m_metadata->getAlbumArtImages()->getImageList();
-    while (!imageList->isEmpty())
-    {
-        delete imageList->back();
-        imageList->pop_back();
-    }
-
-    // scan the directory for images
-    QFileInfo fi(m_metadata->Filename());
-    QDir dir = fi.absoluteDir();
-
-    QString nameFilter = gCoreContext->GetSetting("AlbumArtFilter",
-                                                  "*.png;*.jpg;*.jpeg;*.gif;*.bmp");
-    dir.setNameFilters(nameFilter.split(";"));
-
-    QStringList files = dir.entryList();
-
-    for (int x = 0; x < files.size(); x++)
-    {
-        AlbumArtImage *image = new AlbumArtImage();
-        image->filename = dir.absolutePath() + '/' + files.at(x);
-        image->embedded = false;
-        image->imageType = AlbumArtImages::guessImageType(image->filename);
-        image->description = "";
-        m_metadata->getAlbumArtImages()->addImage(image);
-        delete image;
-    }
-
-    // scan the tracks tag for any images
-    MetaIO *tagger = m_metadata->getTagger();
-
-    if (tagger->supportsEmbeddedImages())
-    {
-        AlbumArtList art = tagger->getAlbumArtList(m_metadata->Filename());
-        for (int x = 0; x < art.count(); x++)
-        {
-            AlbumArtImage image = art.at(x);
-            m_metadata->getAlbumArtImages()->addImage(image);
-        }
-    }
+    m_metadata->getAlbumArtImages()->scanForImages();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -501,6 +484,9 @@ bool EditMetadataDialog::keyPressEvent(QKeyEvent *event)
 
 void EditMetadataDialog::showMenu(void )
 {
+    if (metadataOnly)
+        return;
+
     QString label = tr("Options");
 
     MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
@@ -593,7 +579,7 @@ void EditMetadataDialog::updateArtistImage(void)
 
     if (m_artistIcon)
     {
-        file = findIcon("artist", artist.toLower());
+        file = findIcon("artist", artist.toLower(), true);
         if (!file.isEmpty())
         {
             m_artistIcon->SetFilename(file);
@@ -713,7 +699,7 @@ void EditMetadataDialog::updateGenreImage(void)
 
     if (m_genreIcon)
     {
-        file = findIcon("genre", genre.toLower());
+        file = findIcon("genre", genre.toLower(), true);
         if (!file.isEmpty())
         {
             m_genreIcon->SetFilename(file);
@@ -747,11 +733,8 @@ void EditMetadataDialog::searchForGenreImages(void)
 
     QUrl url("http://www.flickr.com/search/groups/?w=908425%40N22&m=pool&q=" + genre, QUrl::TolerantMode);
 
-    QString cleanName = fixFilename(m_metadata->Genre().toLower());
-    QString file = GetConfDir() + QString("/MythMusic/Icons/%1/%2.jpg").arg("genre").arg(cleanName);
-
-    QFileInfo fi(file);
-    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), fi.absolutePath() + '/', fi.fileName());
+    m_searchType = "genre";
+    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), GetConfDir() + "/MythMusic/", "genre.jpg");
 }
 
 /// search google for artist images
@@ -762,11 +745,8 @@ void EditMetadataDialog::searchForArtistImages(void)
 
     QUrl url("http://www.google.co.uk/images?q=" + artist, QUrl::TolerantMode);
 
-    QString cleanName = fixFilename(m_metadata->Artist().toLower());
-    QString file = GetConfDir() + QString("/MythMusic/Icons/%1/%2.jpg").arg("artist").arg(cleanName);
-
-    QFileInfo fi(file);
-    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), fi.absolutePath() + '/', fi.fileName());
+    m_searchType = "artist";
+    GetMythMainWindow()->HandleMedia("WebBrowser", url.toString(), GetConfDir() + "/MythMusic/", "artist.jpg");
 }
 
 void EditMetadataDialog::customEvent(QEvent *event)
@@ -804,28 +784,13 @@ void EditMetadataDialog::customEvent(QEvent *event)
             }
             else if (resulttext == tr("Check Track Length"))
             {
-                int length = calcTrackLength(m_metadata->Filename());
+                QString command = QString("MUSIC_CALC_TRACK_LENGTH %1 %2")
+                                          .arg(m_metadata->Hostname()).arg(m_metadata->ID());
+                QStringList strList(command);
+                SendStringListThread *thread = new SendStringListThread(strList);
+                MThreadPool::globalInstance()->start(thread, "Send MUSIC_CALC_TRACK_LENGTH");
 
-                if (length != m_metadata->Length() / 1000)
-                {
-                    int oldLength = m_metadata->Length() / 1000;
-
-                    // save the new length to our working copy of the metadata
-                    m_metadata->setLength(length * 1000);
-
-                    // save the new length to the source copy of the metadata
-                    m_sourceMetadata->setLength(length * 1000);
-                    m_sourceMetadata->dumpToDatabase();
-
-                    // this will update any track lengths displayed on screen
-                    gPlayer->sendMetadataChangedEvent(m_sourceMetadata->ID());
-
-                    // this will force the playlist stats to update
-                    MusicPlayerEvent me(MusicPlayerEvent::TrackChangeEvent, gPlayer->getCurrentTrackPos());
-                    gPlayer->dispatch(me);
-
-                    ShowOkPopup(QString("Updated track length to %1 seconds\nwas %2 seconds").arg(length).arg(oldLength));
-                }
+                ShowOkPopup(tr("Asked the backend to check the tracks length"));
             }
         }
     }
@@ -838,7 +803,51 @@ void EditMetadataDialog::customEvent(QEvent *event)
         {
             if (tokens[0] == "BROWSER_DOWNLOAD_FINISHED")
             {
-                scanForImages();
+                QStringList args = me->ExtraDataList();
+                QString oldFilename = args[1];
+                int fileSize  = args[2].toInt();
+                int errorCode = args[4].toInt();
+
+                if ((errorCode != 0) || (fileSize == 0))
+                    return;
+
+                QString newFilename;
+
+                if (m_searchType == "artist")
+                {
+                    QString cleanName = fixFilename(m_metadata->Artist().toLower());
+                    QString file = QString("Icons/%1/%2.jpg").arg("artist").arg(cleanName);
+                    newFilename = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
+                                                           0, file, "MusicArt");
+                }
+                else if (m_searchType == "genre")
+                {
+                    QString cleanName = fixFilename(m_metadata->Genre().toLower());
+                    QString file = QString("Icons/%1/%2.jpg").arg("genre").arg(cleanName);
+                    newFilename = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
+                                                           0, file, "MusicArt");
+                }
+                else if (m_searchType == "album")
+                {
+                    // move the image from the MythMusic config dir to the tracks
+                    // dir in the 'Music' storage group
+                    newFilename = m_metadata->Filename();
+                    newFilename = newFilename.section( '/', 0, -2);
+                    newFilename = newFilename + '/' +  oldFilename.section( '/', -1, -1);
+                }
+                else
+                {
+                    LOG(VB_GENERAL, LOG_ERR, QString("Got unknown search type '%1' "
+                                                     "in BROWSER_DOWNLOAD_FINISHED event")
+                                                     .arg(m_searchType));
+                    return;
+                }
+
+                RemoteFile::CopyFile(oldFilename, newFilename);
+                QFile::remove(oldFilename);
+
+                if (m_searchType == "album")
+                    scanForImages();
 
                 // force the icons to update
                 updateAlbumImage();
@@ -867,8 +876,7 @@ void EditMetadataDialog::customEvent(QEvent *event)
 
 EditAlbumartDialog::EditAlbumartDialog(MythScreenStack *parent)
                   : EditMetadataCommon(parent, "EditAlbumartDialog"),
-    m_albumArt(m_metadata->getAlbumArtImages()),
-    m_albumArtChanged(false),    m_metadataButton(NULL),
+    m_metadataButton(NULL),
     m_doneButton(NULL),          m_coverartImage(NULL),
     m_coverartList(NULL),        m_imagetypeText(NULL),
     m_imagefilenameText(NULL)
@@ -878,24 +886,6 @@ EditAlbumartDialog::EditAlbumartDialog(MythScreenStack *parent)
 
 EditAlbumartDialog::~EditAlbumartDialog()
 {
-    // do we need to save anything?
-    if (m_albumArtChanged)
-    {
-        m_albumArt->dumpToDatabase();
-
-        // force a reload of the images for any tracks affected
-        MetadataPtrList *allMusic =  gMusicData->all_music->getAllMetadata();
-        for (int x = 0; x < allMusic->count(); x++)
-        {
-            if ((allMusic->at(x)->ID() == m_sourceMetadata->ID()) ||
-                (allMusic->at(x)->getDirectoryId() == m_sourceMetadata->getDirectoryId()))
-            {
-                allMusic->at(x)->reloadAlbumArtImages();
-                gPlayer->sendAlbumArtChangedEvent(allMusic->at(x)->ID());
-            }
-        }
-    }
-
     gCoreContext->removeListener(this);
 }
 
@@ -956,7 +946,7 @@ void EditAlbumartDialog::gridItemChanged(MythUIButtonListItem *item)
 
 void EditAlbumartDialog::updateImageGrid(void)
 {
-    AlbumArtList *albumArtList = m_albumArt->getImageList();
+    AlbumArtList *albumArtList = m_metadata->getAlbumArtImages()->getImageList();
 
     m_coverartList->Reset();
 
@@ -1050,12 +1040,14 @@ void EditAlbumartDialog::showTypeMenu(bool changeType)
         imageType = AlbumArtImages::guessImageType(m_imageFilename);
     }
 
-    menu->AddButton(m_albumArt->getTypeName(IT_UNKNOWN),    qVariantFromValue((int)IT_UNKNOWN),    false, (imageType == IT_UNKNOWN));
-    menu->AddButton(m_albumArt->getTypeName(IT_FRONTCOVER), qVariantFromValue((int)IT_FRONTCOVER), false, (imageType == IT_FRONTCOVER));
-    menu->AddButton(m_albumArt->getTypeName(IT_BACKCOVER),  qVariantFromValue((int)IT_BACKCOVER),  false, (imageType == IT_BACKCOVER));
-    menu->AddButton(m_albumArt->getTypeName(IT_CD),         qVariantFromValue((int)IT_CD),         false, (imageType == IT_CD));
-    menu->AddButton(m_albumArt->getTypeName(IT_INLAY),      qVariantFromValue((int)IT_INLAY),      false, (imageType == IT_INLAY));
-    menu->AddButton(m_albumArt->getTypeName(IT_ARTIST),     qVariantFromValue((int)IT_ARTIST),     false, (imageType == IT_ARTIST));
+    AlbumArtImages *albumArt = m_metadata->getAlbumArtImages();
+
+    menu->AddButton(albumArt->getTypeName(IT_UNKNOWN),    qVariantFromValue((int)IT_UNKNOWN),    false, (imageType == IT_UNKNOWN));
+    menu->AddButton(albumArt->getTypeName(IT_FRONTCOVER), qVariantFromValue((int)IT_FRONTCOVER), false, (imageType == IT_FRONTCOVER));
+    menu->AddButton(albumArt->getTypeName(IT_BACKCOVER),  qVariantFromValue((int)IT_BACKCOVER),  false, (imageType == IT_BACKCOVER));
+    menu->AddButton(albumArt->getTypeName(IT_CD),         qVariantFromValue((int)IT_CD),         false, (imageType == IT_CD));
+    menu->AddButton(albumArt->getTypeName(IT_INLAY),      qVariantFromValue((int)IT_INLAY),      false, (imageType == IT_INLAY));
+    menu->AddButton(albumArt->getTypeName(IT_ARTIST),     qVariantFromValue((int)IT_ARTIST),     false, (imageType == IT_ARTIST));
 
     popupStack->AddScreen(menu);
 }
@@ -1078,7 +1070,14 @@ void EditAlbumartDialog::showMenu(void )
 
     menu->AddButton(tr("Edit Metadata"));
     menu->AddButton(tr("Rescan For Images"));
+
+
     menu->AddButton(tr("Search Internet For Images"));
+
+// FIXME this needs updating to work with storage groups
+#if 0
+
+    MetaIO *tagger = m_metadata->getTagger();
 
     if (m_coverartList->GetItemCurrent())
     {
@@ -1094,12 +1093,12 @@ void EditAlbumartDialog::showMenu(void )
                 {
                     if (!image->embedded)
                     {
-                        if (m_metadata->getTagger()->supportsEmbeddedImages())
+                        if (tagger && tagger->supportsEmbeddedImages())
                             menu->AddButton(tr("Copy Selected Image To Tag"));
                     }
                     else
                     {
-                        if (m_metadata->getTagger()->supportsEmbeddedImages())
+                        if (tagger && tagger->supportsEmbeddedImages())
                             menu->AddButton(tr("Remove Selected Image From Tag"));
                     }
                 }
@@ -1109,10 +1108,13 @@ void EditAlbumartDialog::showMenu(void )
 
     if (GetMythDB()->GetNumSetting("AllowTagWriting", 0))
     {
-        if (m_metadata->getTagger()->supportsEmbeddedImages())
+        if (tagger && tagger->supportsEmbeddedImages())
             menu->AddButton(tr("Copy Image To Tag"));
     }
 
+    if (tagger)
+        delete tagger;
+#endif
     popupStack->AddScreen(menu);
 }
 
@@ -1139,7 +1141,8 @@ void EditAlbumartDialog::customEvent(QEvent *event)
                 MythUIButtonListItem *item = m_coverartList->GetItemCurrent();
                 if (item)
                 {
-                    item->SetText(m_albumArt->getTypeName((ImageType) type));
+                    AlbumArtImages *albumArt = m_metadata->getAlbumArtImages();
+                    item->SetText(albumArt->getTypeName((ImageType) type));
                     AlbumArtImage *image = qVariantValue<AlbumArtImage*> (item->GetData());
                     if (image)
                     {
@@ -1177,6 +1180,9 @@ void EditAlbumartDialog::customEvent(QEvent *event)
                                 if (!tagger->changeImageType(m_metadata->Filename(), &oldImage, image->imageType))
                                     LOG(VB_GENERAL, LOG_INFO, "EditAlbumartDialog: failed to change image type");
                             }
+
+                            if (tagger)
+                                delete tagger;
                         }
                         else
                         {
@@ -1261,7 +1267,8 @@ void EditAlbumartDialog::rescanForImages(void)
 
     updateImageGrid();
 
-    if (m_albumArt->getImageCount() > 0)
+    AlbumArtImages *albumArt = m_metadata->getAlbumArtImages();
+    if (albumArt->getImageCount() > 0)
         m_albumArtChanged = true;
 }
 
@@ -1334,10 +1341,11 @@ void EditAlbumartDialog::doRemoveImageFromTag(bool doIt)
         {
             MetaIO *tagger = m_metadata->getTagger();
 
-            if (!tagger->supportsEmbeddedImages())
+            if (tagger && !tagger->supportsEmbeddedImages())
             {
                 LOG(VB_GENERAL, LOG_ERR, "EditAlbumartDialog: asked to remove an image from the tag "
                                          "but the tagger doesn't support it!");
+                delete tagger;
                 return;
             }
 
@@ -1348,6 +1356,9 @@ void EditAlbumartDialog::doRemoveImageFromTag(bool doIt)
 
             removeCachedImage(image);
             rescanForImages();
+
+            if (tagger)
+                delete tagger;
         }
     }
 }
@@ -1356,10 +1367,11 @@ void EditAlbumartDialog::doCopyImageToTag(const AlbumArtImage *image)
 {
     MetaIO *tagger = m_metadata->getTagger();
 
-    if (!tagger->supportsEmbeddedImages())
+    if (tagger && !tagger->supportsEmbeddedImages())
     {
         LOG(VB_GENERAL, LOG_ERR, "EditAlbumartDialog: asked to write album art to the tag "
                               "but the tagger does't support it!");
+        delete tagger;
         return;
     }
 
@@ -1371,6 +1383,9 @@ void EditAlbumartDialog::doCopyImageToTag(const AlbumArtImage *image)
     removeCachedImage(image);
 
     rescanForImages();
+
+    if (tagger)
+        delete tagger;
 }
 
 void EditAlbumartDialog::removeCachedImage(const AlbumArtImage *image)

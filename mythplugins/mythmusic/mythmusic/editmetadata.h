@@ -50,7 +50,11 @@ class EditMetadataCommon : public MythScreenType
     static bool            metadataOnly;
     static MusicMetadata  *m_metadata, *m_sourceMetadata;
 
-    MythUIButton   *m_doneButton;
+    bool m_albumArtChanged;
+
+    QString m_searchType;
+
+    MythUIButton *m_doneButton;
 };
 
 class EditMetadataDialog : public EditMetadataCommon
@@ -170,8 +174,6 @@ class EditAlbumartDialog : public EditMetadataCommon
     void removeCachedImage(const AlbumArtImage *image);
 
     QString         m_imageFilename;
-    AlbumArtImages *m_albumArt;
-    bool            m_albumArtChanged;
 
     //
     //  GUI stuff

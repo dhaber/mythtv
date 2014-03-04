@@ -745,8 +745,8 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     // Menu dialog
     void ShowOSDMenu(const PlayerContext*, bool isCompact = false);
 
-    void FillOSDMenuJumpRec  (PlayerContext* ctx, const QString category = "",
-                              int level = 0, const QString selected = "");
+    void FillOSDMenuJumpRec  (PlayerContext* ctx, const QString &category = "",
+                              int level = 0, const QString &selected = "");
 
     void PlaybackMenuShow(const MenuBase &menu,
                           const QDomNode &node, const QDomNode &selected);
@@ -789,6 +789,7 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     bool    db_jump_prefer_osd;
     bool    db_use_gui_size_for_tv;
     bool    db_start_in_guide;
+    bool    db_clear_saved_position;
     bool    db_toggle_bookmark;
     bool    db_run_jobs_on_remote;
     bool    db_continue_embedded;

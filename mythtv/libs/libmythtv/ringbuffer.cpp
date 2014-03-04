@@ -421,8 +421,13 @@ void RingBuffer::CalcReadAheadThresh(void)
 bool RingBuffer::IsNearEnd(double fps, uint vvf) const
 {
     rwlock.lockForRead();
-    int    sz  = ReadBufAvail();
-    uint   rbs = readblocksize;
+    long long sz2 = ReadBufAvail();
+    poslock.lockForRead();
+    long long rp  = readpos;
+    poslock.unlock();
+    long long sz  = GetRealFileSize() - rp;
+    sz = max(sz, sz2);
+
     // telecom kilobytes (i.e. 1000 per k not 1024)
     uint   tmp = (uint) max(abs(rawbitrate * playspeed), 0.5f * rawbitrate);
     uint   kbits_per_sec = min(rawbitrate * 3, tmp);
@@ -434,11 +439,11 @@ bool RingBuffer::IsNearEnd(double fps, uint vvf) const
     double bytes_per_frame = kbits_per_sec * (1000.0/8.0) / fps;
     double readahead_frames = sz / bytes_per_frame;
 
-    bool near_end = ((vvf + readahead_frames) < 20.0) || (sz < rbs*1.5);
+    bool near_end = (vvf + readahead_frames) < 20.0;
 
     LOG(VB_PLAYBACK, LOG_INFO, LOC + "IsReallyNearEnd()" +
             QString(" br(%1KB)").arg(kbits_per_sec/8) +
-            QString(" sz(%1KB)").arg(sz / 1000) +
+            QString(" sz(%1KB)").arg(sz / 1000LL) +
             QString(" vfl(%1)").arg(vvf) +
             QString(" frh(%1)").arg(((uint)readahead_frames)) +
             QString(" ne:%1").arg(near_end));
@@ -752,6 +757,7 @@ void RingBuffer::run(void)
     struct timeval lastread, now;
     int readtimeavg = 300;
     bool ignore_for_read_timing = true;
+    int eofreads = 0;
 
     gettimeofday(&lastread, NULL); // this is just to keep gcc happy
 
@@ -781,12 +787,15 @@ void RingBuffer::run(void)
         if (PauseAndWait())
         {
             ignore_for_read_timing = true;
+            LOG(VB_FILE, LOG_DEBUG, LOC +
+                "run: PauseAndWait Not reading continuing");
             continue;
         }
 
         long long totfree = ReadBufFree();
 
-        const uint KB32 = 32*1024;
+        const uint KB32  = 32*1024;
+        const uint KB512 = 512*1024;
         // These are conditions where we don't want to go through
         // the loop if they are true.
         if (((totfree < KB32) && readsallowed) ||
@@ -795,6 +804,12 @@ void RingBuffer::run(void)
             ignore_for_read_timing |=
                 (ignorereadpos >= 0) || commserror || stopreads;
             generalWait.wait(&rwlock, (stopreads) ? 50 : 1000);
+            LOG(VB_FILE, LOG_DEBUG, LOC +
+                QString("run: Not reading continuing: totfree(%1) "
+                        "readsallowed(%2) ignorereadpos(%3) commserror(%4) "
+                        "stopreads(%5)")
+                .arg(totfree).arg(readsallowed).arg(ignorereadpos)
+                .arg(commserror).arg(stopreads));
             continue;
         }
 
@@ -827,11 +842,16 @@ void RingBuffer::run(void)
 
                 if (readtimeavg < 150 &&
                     (uint)readblocksize < (BUFFER_SIZE_MINIMUM >>2) &&
-                    readblocksize >= CHUNK /* low_buffers */)
+                    readblocksize >= CHUNK /* low_buffers */ &&
+                    readblocksize <= KB512)
                 {
                     int old_block_size = readblocksize;
                     readblocksize = 3 * readblocksize / 2;
                     readblocksize = ((readblocksize+CHUNK-1) / CHUNK) * CHUNK;
+                    if (readblocksize > KB512)
+                    {
+                        readblocksize = KB512;
+                    }
                     LOG(VB_FILE, LOG_INFO, LOC +
                         QString("Avg read interval was %1 msec. "
                                 "%2K -> %3K block size")
@@ -852,7 +872,6 @@ void RingBuffer::run(void)
                     readtimeavg = 225;
                 }
             }
-            ignore_for_read_timing = (totfree < readblocksize) ? true : false;
             lastread = now;
 
             rbwlock.lockForRead();
@@ -890,10 +909,11 @@ void RingBuffer::run(void)
                            (uint64_t)(((double)read_return * 8000.0) /
                                       (double)sr_elapsed);
             LOG(VB_FILE, LOG_INFO, LOC +
-                QString("safe_read(...@%1, %2) -> %3, took %4 ms %5")
+                QString("safe_read(...@%1, %2) -> %3, took %4 ms %5 avg %6 ms")
                     .arg(rbwposcopy).arg(totfree).arg(read_return)
                     .arg(sr_elapsed)
-                    .arg(QString("(%1Mbps)").arg((double)bps / 1000000.0)));
+                .arg(QString("(%1Mbps)").arg((double)bps / 1000000.0))
+                .arg(readtimeavg));
             UpdateStorageRate(bps);
 
             if (read_return >= 0)
@@ -910,12 +930,27 @@ void RingBuffer::run(void)
                 }
                 rbwlock.unlock();
                 poslock.unlock();
+
+                LOG(VB_FILE, LOG_INFO, LOC +
+                    QString("total read so far: %1 bytes")
+                    .arg(internalreadpos));
             }
+        }
+        else
+        {
+            LOG(VB_FILE, LOG_DEBUG, LOC +
+                QString("We are not reading anything "
+                        "(totfree: %1 commserror:%2 ateof:%3 "
+                        "setswitchtonext:%4")
+                .arg(totfree).arg(commserror).arg(ateof).arg(setswitchtonext));
         }
 
         int used = bufferSize - ReadBufFree();
 
         bool reads_were_allowed = readsallowed;
+
+        ignore_for_read_timing =
+            ((totfree < readblocksize) || (read_return < totfree)) ? true : false;
 
         if ((0 == read_return) || (numfailures > 5) ||
             (readsallowed != (used >= fill_min || ateof ||
@@ -935,14 +970,45 @@ void RingBuffer::run(void)
 
             if (0 == read_return && old_readpos == readpos)
             {
+                eofreads++;
+                if (eofreads >= 3 && readblocksize >= KB512)
+                {
+                    // not reading anything 
+                    readblocksize = CHUNK;
+                    CalcReadAheadThresh();
+                }
+
                 if (livetvchain)
                 {
                     if (!setswitchtonext && !ignoreliveeof &&
                         livetvchain->HasNext())
                     {
+                        // we receive new livetv chain element event
+                        // before we receive file closed for writing event
+                        // so don't need to test if file is closed for writing
                         livetvchain->SwitchToNext(true);
                         setswitchtonext = true;
                     }
+                    else if (gCoreContext->IsRegisteredFileForWrite(filename))
+                    {
+                        LOG(VB_FILE, LOG_DEBUG, LOC +
+                            QString("EOF encountered, but %1 still being written to")
+                            .arg(filename));
+                        // We reached EOF, but file still open for writing and
+                        // no next program in livetvchain
+                        // wait a little bit (60ms same wait as typical safe_read)
+                        generalWait.wait(&rwlock, 60);
+                    }
+                }
+                else if (gCoreContext->IsRegisteredFileForWrite(filename))
+                {
+                    LOG(VB_FILE, LOG_DEBUG, LOC +
+                        QString("EOF encountered, but %1 still being written to")
+                        .arg(filename));
+                    // We reached EOF, but file still open for writing,
+                    // typically active in-progress recording
+                    // wait a little bit (60ms same wait as typical safe_read)
+                    generalWait.wait(&rwlock, 60);
                 }
                 else
                 {
@@ -955,6 +1021,10 @@ void RingBuffer::run(void)
             rwlock.unlock();
             rwlock.lockForRead();
             used = bufferSize - ReadBufFree();
+        }
+        else
+        {
+            eofreads = 0;
         }
 
         LOG(VB_FILE, LOG_DEBUG, LOC + "@ end of read ahead loop");
@@ -1096,14 +1166,15 @@ bool RingBuffer::WaitForAvail(int count)
             int elapsed = t.elapsed();
             if (elapsed > 500 && low_buffers && avail >= fill_min)
                 count = avail;
-            else if  (((elapsed > 250) && (elapsed < 500))  ||
-                     ((elapsed >  500) && (elapsed < 750))  ||
+            else if  (((elapsed > 500) && (elapsed < 750))  ||
                      ((elapsed > 1000) && (elapsed < 1250)) ||
                      ((elapsed > 2000) && (elapsed < 2250)) ||
                      ((elapsed > 4000) && (elapsed < 4250)) ||
                      ((elapsed > 8000) && (elapsed < 8250)) ||
                      ((elapsed > 9000)))
             {
+                LOG(VB_FILE, LOG_DEBUG, LOC +
+                    QString("used = %1").arg(bufferSize - ReadBufFree()));
                 LOG(VB_GENERAL, LOG_INFO, LOC + "Waited " +
                     QString("%1").arg((elapsed / 250) * 0.25f, 3, 'f', 1) +
                     " seconds for data \n\t\t\tto become available..." +
@@ -1649,7 +1720,7 @@ void RingBuffer::SetLiveMode(LiveTVChain *chain)
     rwlock.unlock();
 }
 
-/// Tells RingBuffer whether to igonre the end-of-file
+/// Tells RingBuffer whether to ignore the end-of-file
 void RingBuffer::IgnoreLiveEOF(bool ignore)
 {
     rwlock.lockForWrite();

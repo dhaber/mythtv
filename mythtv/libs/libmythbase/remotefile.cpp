@@ -518,6 +518,66 @@ QString RemoteFile::GetFileHash(const QString &url)
     return result;
 }
 
+bool RemoteFile::CopyFile (const QString& src, const QString& dst)
+{
+    // sanity check
+    if (src == dst)
+    {
+        LOG(VB_GENERAL, LOG_ERR, "RemoteFile::CopyFile: Cannot copy a file to itself");
+        return false;
+    }
+
+    const int readSize = 2 * 1024 * 1024;
+    char *buf = new char[readSize];
+    if (!buf)
+    {
+        LOG(VB_GENERAL, LOG_ERR, "RemoteFile::CopyFile: ERROR, unable to allocate copy buffer");
+        return false;
+    }
+
+    RemoteFile srcFile(src, false);
+    if (!srcFile.isOpen())
+    {
+         LOG(VB_GENERAL, LOG_ERR,
+             QString("RemoteFile::CopyFile: Failed to open file (%1) for reading.").arg(src));
+         delete[] buf;
+         return false;
+    }
+
+    RemoteFile dstFile(dst, true);
+    if (!dstFile.isOpen())
+    {
+         LOG(VB_GENERAL, LOG_ERR,
+             QString("RemoteFile::CopyFile: Failed to open file (%1) for writing.").arg(dst));
+         srcFile.Close();
+         delete[] buf;
+         return false;
+    }
+
+    int srcLen, dstLen;
+
+    while ((srcLen = srcFile.Read(buf, readSize)) > 0)
+    {
+        dstLen = dstFile.Write(buf, srcLen);
+
+        if (dstLen == -1 || srcLen != dstLen)
+        {
+            LOG(VB_GENERAL, LOG_ERR,
+                "RemoteFile::CopyFile:: Error while trying to write to destination file.");
+            srcFile.Close();
+            dstFile.Close();
+            delete[] buf;
+            return false;
+        }
+    }
+
+    srcFile.Close();
+    dstFile.Close();
+    delete[] buf;
+
+    return true;
+}
+
 void RemoteFile::Reset(void)
 {
     if (isLocal())
@@ -912,6 +972,76 @@ QDateTime RemoteFile::LastModified(const QString &url)
         result = MythDate::fromTime_t(strlist[1].toUInt());
 
     return result;
+}
+
+QDateTime RemoteFile::LastModified(void) const
+{
+    return LastModified(path);
+}
+
+/** \fn RemoteFile::FindFile(const QString& filename, const QString& host, const QString& storageGroup)
+ *  \brief Search all BE's for a file in the give storage group
+ *  \param filename the partial path and filename to look for
+ *  \param host search this host first if given or default to the master BE if empty
+ *  \param storageGroup the name of the storage group to search
+ *  \return a myth URL pointing to the file or empty string if not found
+ */
+QString RemoteFile::FindFile(const QString& filename, const QString& host, const QString& storageGroup)
+{
+    LOG(VB_FILE, LOG_INFO, QString("RemoteFile::FindFile(): looking for '%1' on '%2' in group '%3'")
+                                   .arg(filename).arg(host).arg(storageGroup));
+
+    if (filename.isEmpty() || storageGroup.isEmpty())
+        return QString();
+
+    QStringList strList;
+    QString hostName = host;
+
+    if (hostName.isEmpty())
+        hostName = gCoreContext->GetMasterHostName();
+
+    // first check the given host
+    strList << "QUERY_SG_FILEQUERY" << hostName << storageGroup << filename;
+    if (gCoreContext->SendReceiveStringList(strList))
+    {
+        if (strList.size() > 0 && strList[0] != "EMPTY LIST" && !strList[0].startsWith("SLAVE UNREACHABLE"))
+            return gCoreContext->GenMythURL(hostName, 0, filename, storageGroup);
+    }
+
+    // not found so search all hosts that has a directory defined for the give storage group
+
+    // get a list of hosts
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    QString sql = "SELECT DISTINCT hostname "
+                  "FROM storagegroup "
+                  "WHERE groupname = :GROUP "
+                  "AND hostname != :HOSTNAME";
+    query.prepare(sql);
+    query.bindValue(":GROUP", storageGroup);
+    query.bindValue(":HOSTNAME", hostName);
+
+    if (!query.exec() || !query.isActive())
+    {
+        MythDB::DBError("RemoteFile::FindFile() get host list", query);
+        return QString();
+    }
+
+    while(query.next())
+    {
+        hostName = query.value(0).toString();
+
+        strList.clear();
+        strList << "QUERY_SG_FILEQUERY" << hostName << storageGroup << filename;
+
+        if (gCoreContext->SendReceiveStringList(strList))
+        {
+            if (strList.size() > 0 && strList[0] != "EMPTY LIST" && !strList[0].startsWith("SLAVE UNREACHABLE"))
+                return gCoreContext->GenMythURL(hostName, 0, filename, storageGroup);
+        }
+    }
+
+    return QString();
 }
 
 /** \fn RemoteFile::SetBlocking(void)

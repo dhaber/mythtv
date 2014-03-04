@@ -8,6 +8,28 @@
 
 // "use strict";
 
+function getArg(name)
+{
+    name = name.toLowerCase();
+
+    if (isValidObject(this.Parameters))
+        return this.Parameters[name];
+    else
+        return "";
+}
+
+function getIntegerArg(name)
+{
+    var ret = Number(getArg(name));
+    return ret.NaN ? Number(0) : ret;
+}
+
+function getBoolArg(name)
+{
+    // Should check for string types here such as 'true' and 'false'
+    return Boolean(getIntArg(name));
+}
+
 function toCapitalCase(str)
 {
     return str.charAt(0).toUpperCase() + str.slice(1);
@@ -32,17 +54,9 @@ function isValidObject(variable)
 }
 
 // For debugging only, this isn't JSON
-function objectDump(arr,level)
+function objectDump(arr)
 {
-    var objectString = "<br/>\n";
-    if (!level)
-        level = 0;
-
-    var indentation = "";
-    for (var j = 0; j < (level + 1); j++)
-    {
-        indentation += "    ";
-    }
+    var objectString = "<dl>\n";
 
     var count = 1;
     if (typeof(arr) == 'object')
@@ -51,22 +65,23 @@ function objectDump(arr,level)
         {
             var value = arr[item];
 
-            objectString += count + ". ";
+            objectString += "<dt>" + count + ". ";
             if (typeof(value) == 'object')
             {
-                objectString += indentation + "'" + item + "' ...<br/>\n";
-                objectString += objectDump(value, level+1);
+                objectString += "'" + item + "' \n";
+                objectString += "<dd>" + objectDump(value) + "</dd></dt>";
             }
             else
             {
-                objectString += indentation + "'" + item + "' => \"" + value + "\"<br/>\n";
+                objectString += "'" + item + "' => \"" + value + "\"</dt>\n";
             }
             count++;
         }
     }
     else
     {
-        objectString = "===>"+arr+"<===("+typeof(arr)+")";
+        objectString = "<dt>===>"+arr+"<===("+typeof(arr)+")</dt>";
     }
+    objectString += "</dl>\n";
     return objectString;
 }

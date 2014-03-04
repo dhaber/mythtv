@@ -18,7 +18,8 @@ using namespace std;
 // mythtv
 #include "mythtypes.h"
 #include "mythmetaexp.h"
-#include <mthread.h>
+#include "mthread.h"
+#include "mythcorecontext.h"
 
 class AllMusic;
 class AlbumArtImages;
@@ -39,13 +40,14 @@ class META_PUBLIC AlbumArtImage
 {
   public:
     AlbumArtImage(void) :
-            id(0), filename(""), imageType(IT_UNKNOWN),
+            id(0), filename(""), hostname(""), imageType(IT_UNKNOWN),
             description(""), embedded(false) {}
     AlbumArtImage(AlbumArtImage *image) :
-            id(image->id), filename(image->filename), imageType(image->imageType),
+            id(image->id), filename(image->filename), hostname(image->hostname), imageType(image->imageType),
             description(image->description), embedded(image->embedded) {}
      int       id;
      QString   filename;
+     QString   hostname;
      ImageType imageType;
      QString   description;
      bool      embedded;
@@ -67,6 +69,8 @@ enum RepoType
 
 #define ID_TO_ID(x) x & METADATA_ID_MASK;
 #define ID_TO_REPO(x)  x >> METADATA_REPO_SHIFT
+
+#define METADATA_INVALID_FILENAME "**NOT FOUND**"
 
 class META_PUBLIC MusicMetadata
 {
@@ -161,16 +165,16 @@ class META_PUBLIC MusicMetadata
     void setGenre(const QString &lgenre) { m_genre = lgenre; }
 
     void setDirectoryId(int ldirectoryid) { m_directoryid = ldirectoryid; }
-    int getDirectoryId() const { return m_directoryid; }
+    int getDirectoryId();
 
     void setArtistId(int lartistid) { m_artistid = lartistid; }
-    int getArtistId() const { return m_artistid; }
+    int getArtistId();
 
     void setAlbumId(int lalbumid) { m_albumid = lalbumid; }
-    int getAlbumId() const { return m_albumid; }
+    int getAlbumId();
 
     void setGenreId(int lgenreid) { m_genreid = lgenreid; }
-    int getGenreId() const { return m_genreid; }
+    int getGenreId();
 
     int Year() const { return m_year; }
     void setYear(int lyear) { m_year = lyear; }
@@ -195,10 +199,14 @@ class META_PUBLIC MusicMetadata
     bool isDBTrack(void) const { return ID_TO_REPO(m_id) == RT_Database; }
     bool isRadio(void) const { return ID_TO_REPO(m_id) == RT_Radio; }
 
-    QString Filename(bool find = true) const;
-    void setFilename(const QString &lfilename) { m_filename = lfilename; }
+    QString Filename(bool find = true);
+    void setFilename(const QString &lfilename);
+    QString getLocalFilename(void);
 
-    uint64_t FileSize() const;
+    QString Hostname(void) { return m_hostname; }
+    void setHostname(const QString &host) { m_hostname = host; }
+
+    uint64_t FileSize() const { return m_fileSize; }
     void setFileSize(uint64_t lfilesize) { m_fileSize = lfilesize; }
 
     QString Format() const { return m_format; }
@@ -250,9 +258,10 @@ class META_PUBLIC MusicMetadata
     void toMap(InfoMap &metadataMap, const QString &prefix = "");
 
     void persist(void);
-    void UpdateModTime(void) const;
-    bool hasChanged() const { return m_changed; }
-    int  compare(const MusicMetadata *other) const;
+
+    bool hasChanged(void) const { return m_changed; }
+
+    bool compare(MusicMetadata *mdata) const;
 
     // static functions
     static MusicMetadata *createFromFilename(const QString &filename);
@@ -274,6 +283,7 @@ class META_PUBLIC MusicMetadata
     void setCompilationFormatting(bool cd = false);
     QString formatReplaceSymbols(const QString &format);
     void checkEmptyFields(void);
+    void saveHostname(void);
 
     QString m_artist;
     QString m_compilation_artist;
@@ -303,7 +313,9 @@ class META_PUBLIC MusicMetadata
     AlbumArtImages *m_albumArt;
 
     IdType   m_id;
-    QString  m_filename;
+    QString  m_filename;       // file name as stored in the DB
+    QString  m_hostname;       // host where file is located as stored in the DB
+    QString  m_actualFilename; // actual URL of the file if found
     uint64_t m_fileSize;
     bool     m_changed;
 
@@ -325,13 +337,14 @@ class META_PUBLIC MusicMetadata
     static QString m_formatcompilationcdtrack;
 };
 
-bool operator==(const MusicMetadata& a, const MusicMetadata& b);
-bool operator!=(const MusicMetadata& a, const MusicMetadata& b);
+bool operator==(MusicMetadata& a, MusicMetadata& b);
+bool operator!=(MusicMetadata& a, MusicMetadata& b);
 
 Q_DECLARE_METATYPE(MusicMetadata *)
 
 typedef QList<MusicMetadata*> MetadataPtrList;
 Q_DECLARE_METATYPE(MetadataPtrList *)
+Q_DECLARE_METATYPE(ImageType)
 
 //---------------------------------------------------------------------------
 
@@ -434,18 +447,38 @@ class META_PUBLIC AllStream
 
 //----------------------------------------------------------------------------
 
+class AlbumArtScannerThread: public MThread
+{
+  public:
+    AlbumArtScannerThread(QStringList strList) :
+            MThread("AlbumArtScanner"), m_strList(strList) {}
+
+    virtual void run()
+    {
+        RunProlog();
+        gCoreContext->SendReceiveStringList(m_strList);
+        RunEpilog();
+    }
+
+    QStringList getResult(void) { return m_strList; }
+
+  private:
+    QStringList m_strList;
+};
 
 class META_PUBLIC AlbumArtImages
 {
     Q_DECLARE_TR_FUNCTIONS(AlbumArtImages)
 
   public:
-    AlbumArtImages(MusicMetadata *metadata);
+    AlbumArtImages(MusicMetadata *metadata, bool loadFromDB = true);
     ~AlbumArtImages();
 
+    void           scanForImages(void);
     void           addImage(const AlbumArtImage &newImage);
     uint           getImageCount() { return m_imageList.size(); }
     AlbumArtImage *getImage(ImageType type);
+    AlbumArtImage *getImageByID(int imageID);
     QStringList    getImageFilenames(void) const;
     AlbumArtList  *getImageList(void) { return &m_imageList; }
     AlbumArtImage *getImageAt(uint index);
@@ -455,6 +488,7 @@ class META_PUBLIC AlbumArtImages
     static ImageType guessImageType(const QString &filename);
     static QString   getTypeName(ImageType type);
     static QString   getTypeFilename(ImageType type);
+    static ImageType getImageTypeFromName(const QString &name);
 
   private:
     void findImages(void);

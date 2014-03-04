@@ -391,6 +391,24 @@ int Transcode::TranscodeFile(const QString &inputname,
         newWidth = cmdWidth;
         newHeight = cmdHeight;
 
+        // Absolutely no purpose is served by scaling video up beyond it's
+        // original resolution, quality is degraded, transcoding is
+        // slower and in future we may wish to scale bitrate according to
+        // resolution, so it would also waste bandwidth (when streaming)
+        //
+        // This change could be said to apply for all transcoding, but for now
+        // we're limiting it to HLS where it's uncontroversial
+        if (hlsMode)
+        {
+//             if (newWidth > video_width)
+//                 newWidth = video_width;
+            if (newHeight > video_height)
+            {
+                newHeight = video_height;
+                newWidth = 0;
+            }
+        }
+
         // TODO: is this necessary?  It got commented out, but may still be
         // needed.
         // int actualHeight = (video_height == 1088 ? 1080 : video_height);
@@ -437,12 +455,36 @@ int Transcode::TranscodeFile(const QString &inputname,
 
         if (hlsMode)
         {
-            int segmentSize = 10;
+
+            if (hlsStreamID == -1)
+            {
+                hls = new HTTPLiveStream(inputname, newWidth, newHeight,
+                                         cmdBitrate,
+                                         cmdAudioBitrate, hlsMaxSegments,
+                                         0, 0);
+
+                hlsStreamID = hls->GetStreamID();
+                if (!hls || hlsStreamID == -1)
+                {
+                    LOG(VB_GENERAL, LOG_ERR, "Unable to create new stream");
+                    SetPlayerContext(NULL);
+                    delete avfw;
+                    if (avfw2)
+                        delete avfw2;
+                    return REENCODE_ERROR;
+                }
+            }
+
+            int segmentSize = hls->GetSegmentSize();
             int audioOnlyBitrate = 0;
+
+            LOG(VB_GENERAL, LOG_NOTICE,
+                QString("HLS: Using segment size of %1 seconds")
+                    .arg(segmentSize));
 
             if (!hlsDisableAudioOnly)
             {
-                audioOnlyBitrate = 48000;
+                audioOnlyBitrate = hls->GetAudioOnlyBitrate();
 
                 avfw2 = new AVFormatWriter();
 
@@ -482,25 +524,6 @@ int Transcode::TranscodeFile(const QString &inputname,
                 avfw->SetAudioCodec("aac");
 # endif
 #endif
-
-            if (hlsStreamID == -1)
-            {
-                hls = new HTTPLiveStream(inputname, newWidth, newHeight,
-                                         cmdBitrate,
-                                         cmdAudioBitrate, hlsMaxSegments,
-                                         segmentSize, audioOnlyBitrate);
-
-                hlsStreamID = hls->GetStreamID();
-                if (!hls || hlsStreamID == -1)
-                {
-                    LOG(VB_GENERAL, LOG_ERR, "Unable to create new stream");
-                    SetPlayerContext(NULL);
-                    delete avfw;
-                    if (avfw2)
-                        delete avfw2;
-                    return REENCODE_ERROR;
-                }
-            }
 
             hls->UpdateStatus(kHLSStatusStarting);
             hls->UpdateStatusMessage("Transcoding Starting");
@@ -556,8 +579,17 @@ int Transcode::TranscodeFile(const QString &inputname,
             avfw->SetKeyFrameDist(30);
         }
 
-        avfw->SetThreadCount(
-            gCoreContext->GetNumSetting("HTTPLiveStreamThreads", 2));
+        int threads    = gCoreContext->GetNumSetting("HTTPLiveStreamThreads", 2);
+        QString preset = gCoreContext->GetSetting("HTTPLiveStreamPreset", "veryfast");
+        QString tune   = gCoreContext->GetSetting("HTTPLiveStreamTune", "film");
+
+        LOG(VB_GENERAL, LOG_NOTICE,
+            QString("x264 HLS using: %1 threads, '%2' profile and '%3' tune")
+                .arg(threads).arg(preset).arg(tune));
+
+        avfw->SetThreadCount(threads);
+        avfw->SetEncodingPreset(preset);
+        avfw->SetEncodingTune(tune);
 
         if (avfw2)
             avfw2->SetThreadCount(1);
@@ -611,7 +643,7 @@ int Transcode::TranscodeFile(const QString &inputname,
         arb->m_audioFrameSize = avfw->GetAudioFrameSize() * arb->m_channels * 2;
 
         GetPlayer()->SetVideoFilters(
-            gCoreContext->GetSetting("HTTPLiveStreamFilters"));
+            gCoreContext->GetSetting("HTTPLiveStreamFilters", "yadif=1:-1:1"));
     }
     else if (fifodir.isEmpty())
     {
@@ -868,11 +900,11 @@ int Transcode::TranscodeFile(const QString &inputname,
 
     int vidSize = 0;
 
-    // 1920x1080 video is actually 1920x1088 because of the 16x16 blocks so
+    // 1080i/p video is actually 1088 because of the 16x16 blocks so
     // we have to fudge the output size here.  nuvexport knows how to handle
     // this and as of right now it is the only app that uses the fifo ability.
-    if (video_height == 1080 && video_width == 1920)
-        vidSize = (1088 * 1920) * 3 / 2;
+    if (video_height == 1080)
+        vidSize = (1088 * video_width) * 3 / 2;
     else
         vidSize = (video_height * video_width) * 3 / 2;
 
@@ -1001,7 +1033,7 @@ int Transcode::TranscodeFile(const QString &inputname,
     int dropvideo = 0;
     // timecode of the last read video frame in input time
     long long lasttimecode = 0;
-    // timecode of the last writte video frame in input or output time
+    // timecode of the last write video frame in input or output time
     long long lastWrittenTime = 0;
     // delta between the same video frame in input and output due to applying the cut list
     long long timecodeOffset = 0;

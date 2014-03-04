@@ -1,9 +1,13 @@
+// MythTV
 #include <mythcontext.h>
 #include <mythdb.h>
 #include <compat.h>
+#include <mythlogging.h>
 
+// mythmusic
+#include "playlist.h"
 #include "playlistcontainer.h"
-#include "mythlogging.h"
+
 
 PlaylistLoadingThread::PlaylistLoadingThread(PlaylistContainer *parent_ptr,
                                              AllMusic *all_music_ptr) :
@@ -82,9 +86,9 @@ void PlaylistContainer::load()
 
     m_allPlaylists = new QList<Playlist*>;
 
-    m_activePlaylist->loadPlaylist("default_playlist_storage", m_myHost);
+    m_activePlaylist->loadPlaylist(DEFAULT_PLAYLIST_NAME, m_myHost);
 
-    m_streamPlaylist->loadPlaylist("stream_playlist", m_myHost);
+    m_streamPlaylist->loadPlaylist(DEFAULT_STREAMLIST_NAME, m_myHost);
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("SELECT playlist_id FROM music_playlists "
@@ -93,9 +97,9 @@ void PlaylistContainer::load()
                   " AND playlist_name != :STREAM "
                   " AND (hostname = '' OR hostname = :HOST) "
                   "ORDER BY playlist_name;");
-    query.bindValue(":DEFAULT", "default_playlist_storage");
+    query.bindValue(":DEFAULT", DEFAULT_PLAYLIST_NAME);
     query.bindValue(":BACKUP", "backup_playlist_storage");
-    query.bindValue(":STREAM", "stream_playlist");
+    query.bindValue(":STREAM", DEFAULT_STREAMLIST_NAME);
     query.bindValue(":HOST", m_myHost);
 
     if (!query.exec())
@@ -116,6 +120,18 @@ void PlaylistContainer::load()
     }
 
     m_doneLoading = true;
+}
+
+// resync all the playlists after a rescan just in case some tracks were removed
+void PlaylistContainer::resync(void)
+{
+    QList<Playlist*>::const_iterator it = m_allPlaylists->begin();
+    for (; it != m_allPlaylists->end(); ++it)
+    {
+        (*it)->resync();
+    }
+
+    m_activePlaylist->resync();
 }
 
 void PlaylistContainer::describeYourself(void) const
@@ -174,8 +190,8 @@ void PlaylistContainer::save(void)
             (*it)->savePlaylist((*it)->getName(), m_myHost);
     }
 
-    m_activePlaylist->savePlaylist("default_playlist_storage", m_myHost);
-    m_streamPlaylist->savePlaylist("stream_playlist", m_myHost);
+    m_activePlaylist->savePlaylist(DEFAULT_PLAYLIST_NAME, m_myHost);
+    m_streamPlaylist->savePlaylist(DEFAULT_STREAMLIST_NAME, m_myHost);
 }
 
 void PlaylistContainer::createNewPlaylist(QString name)
@@ -274,7 +290,7 @@ QString PlaylistContainer::getPlaylistName(int index, bool &reference)
 
 bool PlaylistContainer::nameIsUnique(QString a_name, int which_id)
 {
-    if (a_name == "default_playlist_storage")
+    if (a_name == DEFAULT_PLAYLIST_NAME)
         return false;
 
     QList<Playlist*>::iterator it = m_allPlaylists->begin();

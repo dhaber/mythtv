@@ -55,6 +55,7 @@
 #define MAX_IMAGE_SIZE  (2048*1536*3)
 
 #define ADD_STR(list,s)  list += s; list += "[]:[]";
+// TODO rewrite after we require C++11, see http://en.cppreference.com/w/cpp/string/basic_string/to_string
 #define ADD_INT(list,n)  sprintf(m_buf, "%d", (int)n); list += m_buf; list += "[]:[]";
 
 // error messages
@@ -489,6 +490,9 @@ ZMServer::ZMServer(int sock, bool debug)
     }
 
     getMonitorList();
+
+    // zero buffer for conversion of integer to string in ADD_INT
+    memset (m_buf, '\0', sizeof(m_buf));
 }
 
 ZMServer::~ZMServer()
@@ -1385,18 +1389,18 @@ void ZMServer::handleGetFrameList(vector<string> tokens)
 
         ADD_INT(outStr, frameCount)
 
-        double delta = length / frameCount;
-        double time = 0;
-
-        for (int x = 0; x < frameCount; x++)
+        if (frameCount > 0)
         {
-            char str[10];
-            sprintf(str, "%f", delta);
+            double delta = length / frameCount;
 
-            ADD_STR(outStr, "Normal") // Type
-            ADD_STR(outStr, str)      // Delta
+            for (int x = 0; x < frameCount; x++)
+            {
+                char str[10];
+                sprintf(str, "%f", delta);
 
-            time += delta;
+                ADD_STR(outStr, "Normal") // Type
+                ADD_STR(outStr, str)      // Delta
+            }
         }
     }
     else

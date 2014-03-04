@@ -13,9 +13,11 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QVariant>
 
 #include "serverSideScripting.h"
 #include "mythlogging.h"
+#include "httpserver.h"
 
 QScriptValue formatStr(QScriptContext *context, QScriptEngine *interpreter);
 
@@ -138,7 +140,7 @@ ScriptInfo *ServerSideScripting::GetLoadedScript( const QString &sFileName )
 //////////////////////////////////////////////////////////////////////////////
 
 bool ServerSideScripting::EvaluatePage( QTextStream *pOutStream, const QString &sFileName,
-                                        const QStringMap &mapParams )
+                                        HTTPRequest *pRequest)
 {
     try
     {
@@ -192,64 +194,128 @@ bool ServerSideScripting::EvaluatePage( QTextStream *pOutStream, const QString &
         // Build array of arguments passed to script
         // ------------------------------------------------------------------
 
-        // FIXME: Even with the added escaping, this probably isn't very safe
-        //        and should be done differently
-        QString params = "ARGS = { ";
-        if (mapParams.size())
+        QStringMap mapParams = pRequest->m_mapParams;
+
+        // Valid characters for object property names must contain only
+        // word characters and numbers, _ and $
+        // They must not start with a number - to simplify the regexp, we
+        // restrict the first character to the English alphabet
+        QRegExp validChars = QRegExp("^([a-zA-Z]|_|\\$)(\\w|\\$)+$");
+
+        QVariantMap params;
+        QMap<QString, QString>::const_iterator it = mapParams.begin();
+        QString prevArrayName = "";
+        QVariantMap array;
+        for (; it != mapParams.end(); ++it)
         {
-            QMap<QString, QString>::const_iterator it = mapParams.begin();
+            QString key = it.key();
+            QVariant value = QVariant(it.value());
 
-            // Valid characters for object property names must contain only
-            // word characters and numbers, _ and $
-            // They must not start with a number - to simplify the regexp, we
-            // restrict the first character to the English alphabet
-            QRegExp validChars = QRegExp("^([a-zA-Z]|_|\\$)(\\w|\\$)+$");
-            QString paramStr = QString("%1: '%2', ");
-            QString prevArrayName = "";
-            for (; it != mapParams.end(); ++it)
+            // PHP Style parameter array
+            if (key.contains("["))
             {
-                QString value = it.value();
-                value.replace("'", "\\'");
-                value.replace("}", "\\}");
-                value.replace("{", "\\{");
-
-                // Array
-                if (it.key().contains("["))
+                QString arrayName = key.section('[',0,0);
+                QString arrayKey = key.section('[',1,1);
+                arrayKey.chop(1); // Remove trailing ]
+                if (prevArrayName != arrayName) // New or different array
                 {
-                    QString arrayName = it.key().section('[',0,0);
-                    QString arrayKey = it.key().section('[',1,1);
-                    arrayKey.chop(1); // Remove trailing ]
-                    if (prevArrayName != arrayName) // Different array
+                    if (!array.isEmpty())
                     {
-                        if (!prevArrayName.isEmpty())
-                            params += " }, ";
-
-                        prevArrayName = arrayName;
-
-                        params += arrayName + " : { ";
+                        params.insert(prevArrayName, QVariant(array));
+                        array.clear();
                     }
-
-                    params += paramStr.arg(arrayKey).arg(value);
-                }
-                else
-                {
-                    if (!prevArrayName.isEmpty())
-                    {
-                        params += " }, ";
-                        prevArrayName = "";
-                    }
+                    prevArrayName = arrayName;
                 }
 
-                if (!validChars.exactMatch(it.key()))
+                if (!validChars.exactMatch(arrayKey)) // Discard anything that isn't valid for now
                     continue;
 
-                params += paramStr.arg(it.key()).arg(value);
+                array.insert(arrayKey, value);
+
+                if ((it + 1) != mapParams.end())
+                    continue;
             }
+
+            if (!array.isEmpty())
+            {
+                params.insert(prevArrayName, QVariant(array));
+                array.clear();
+            }
+            // End Array handling
+
+            if (!validChars.exactMatch(key)) // Discard anything that isn't valid for now
+                continue;
+
+            params.insert(key, value);
+
         }
 
-        params += " }";
-        LOG(VB_UPNP, LOG_DEBUG, QString("Called with parameters (%1)").arg(params));
-        m_engine.evaluate(params);
+        // ------------------------------------------------------------------
+        // Build array of request headers
+        // ------------------------------------------------------------------
+
+        QStringMap mapHeaders = pRequest->m_mapHeaders;
+
+        QVariantMap requestHeaders;
+        for (it = mapHeaders.begin(); it != mapHeaders.end(); ++it)
+        {
+            QString key = it.key();
+            key = key.replace('-', '_'); // May be other valid chars in a request header that we need to replace
+            QVariant value = QVariant(it.value());
+
+            if (!validChars.exactMatch(key)) // Discard anything that isn't valid for now
+                continue;
+
+            requestHeaders.insert(key, value);
+        }
+
+        // ------------------------------------------------------------------
+        // Build array of information from the server e.g. client IP
+        // See RFC 3875 - The Common Gateway Interface
+        // ------------------------------------------------------------------
+
+        QVariantMap serverVars;
+        serverVars.insert("REMOTE_ADDR", QVariant(pRequest->GetPeerAddress()));
+        serverVars.insert("SERVER_ADDR", QVariant(pRequest->GetHostAddress()));
+        serverVars.insert("SERVER_PROTOCOL", QVariant(pRequest->GetRequestProtocol()));
+        serverVars.insert("SERVER_SOFTWARE", QVariant(HttpServer::GetServerVersion()));
+
+        QHostAddress clientIP = QHostAddress(pRequest->GetPeerAddress());
+        QHostAddress serverIP = QHostAddress(pRequest->GetHostAddress());
+        if (clientIP.protocol() == QAbstractSocket::IPv4Protocol)
+        {
+            serverVars.insert("IP_PROTOCOL", "IPv4");
+        }
+        else if (clientIP.protocol() == QAbstractSocket::IPv6Protocol)
+        {
+            serverVars.insert("IP_PROTOCOL", "IPv6");
+        }
+
+        if (((clientIP.protocol() == QAbstractSocket::IPv4Protocol) &&
+             (clientIP.isInSubnet(QHostAddress("172.16.0.0"), 12) ||
+              clientIP.isInSubnet(QHostAddress("192.168.0.0"), 16) ||
+              clientIP.isInSubnet(QHostAddress("10.0.0.0"), 8))) ||
+            ((clientIP.protocol() == QAbstractSocket::IPv6Protocol) &&
+              clientIP.isInSubnet(serverIP, 64))) // default subnet size is assumed to be /64
+        {
+            serverVars.insert("CLIENT_NETWORK", "local");
+        }
+        else
+        {
+            serverVars.insert("CLIENT_NETWORK", "remote");
+        }
+
+        // ------------------------------------------------------------------
+        // Add the arrays (objects) we've just created to the global scope
+        // They may be accessed as 'Server.REMOTE_ADDR'
+        // ------------------------------------------------------------------
+
+        m_engine.globalObject().setProperty("Parameters",
+                                            m_engine.toScriptValue(params));
+        m_engine.globalObject().setProperty("RequestHeaders",
+                                            m_engine.toScriptValue(requestHeaders));
+        m_engine.globalObject().setProperty("Server",
+                                            m_engine.toScriptValue(serverVars));
 
         // ------------------------------------------------------------------
         // Execute function to render output
@@ -259,7 +325,7 @@ bool ServerSideScripting::EvaluatePage( QTextStream *pOutStream, const QString &
 
         QScriptValueList args;
         args << m_engine.newQObject( &outStream );
-        args << m_engine.globalObject().property("ARGS");
+        args << m_engine.toScriptValue(params);
 
         pInfo->m_oFunc.call( QScriptValue(), args );
 

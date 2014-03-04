@@ -29,7 +29,7 @@
 #define MP_DVDNAV 1
 
 // Change this only when syncing to mplayer dvdnav trunk
-#define DVDNAV_SVN_REV "svnR1251"
+#define DVDNAV_SVN_REV "svnR1294"
 
 #ifdef __cplusplus
 extern "C" {
@@ -260,11 +260,6 @@ dvdnav_status_t dvdnav_stop(dvdnav_t *self);
 /*********************************************************************
  * title/part navigation                                             *
  *********************************************************************/
-
-/*
- * Play DVD from the Beginning
- */
-void dvdnav_first_play(dvdnav_t *self);
 
 /*
  * Returns the number of titles on the disk.

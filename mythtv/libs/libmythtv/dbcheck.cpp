@@ -16,6 +16,7 @@ using namespace std;
 #include "videodbcheck.h" // for 1267
 #include "compat.h"
 #include "recordingrule.h"
+#include "recordingprofile.h"
 
 // TODO convert all dates to UTC
 
@@ -2025,6 +2026,35 @@ NULL
         RecordingRule record;
         record.MakeTemplate("Default");
         record.m_type = kTemplateRecord;
+        // Take some defaults from now obsoleted settings.
+        record.m_startOffset =
+            gCoreContext->GetNumSetting("DefaultStartOffset", 0);
+        record.m_endOffset =
+            gCoreContext->GetNumSetting("DefaultEndOffset", 0);
+        record.m_dupMethod =
+            static_cast<RecordingDupMethodType>(
+                gCoreContext->GetNumSetting(
+                    "prefDupMethod", kDupCheckSubDesc));
+        record.m_filter = RecordingRule::GetDefaultFilter();
+        record.m_autoExpire =
+            gCoreContext->GetNumSetting("AutoExpireDefault", 0);
+        record.m_autoCommFlag =
+            gCoreContext->GetNumSetting("AutoCommercialFlag", 1);
+        record.m_autoTranscode =
+            gCoreContext->GetNumSetting("AutoTranscode", 0);
+        record.m_transcoder =
+            gCoreContext->GetNumSetting(
+                "DefaultTranscoder", RecordingProfile::TranscoderAutodetect);
+        record.m_autoUserJob1 =
+            gCoreContext->GetNumSetting("AutoRunUserJob1", 0);
+        record.m_autoUserJob2 =
+            gCoreContext->GetNumSetting("AutoRunUserJob2", 0);
+        record.m_autoUserJob3 =
+            gCoreContext->GetNumSetting("AutoRunUserJob3", 0);
+        record.m_autoUserJob4 =
+            gCoreContext->GetNumSetting("AutoRunUserJob4", 0);
+        record.m_autoMetadataLookup =
+            gCoreContext->GetNumSetting("AutoMetadataLookup", 1);
         record.Save(false);
 
         if (!UpdateDBVersionNumber("1302", dbver))
@@ -2111,7 +2141,11 @@ NULL
             "SET record.startdate = DATE(recordupdate.starttime), "
             "    record.starttime = TIME(recordupdate.starttime), "
             "    record.enddate = DATE(recordupdate.endtime), "
-            "    record.endtime = TIME(recordupdate.endtime) "
+            "    record.endtime = TIME(recordupdate.endtime), "
+            "    record.last_record = "
+            "        CONVERT_TZ(last_record, 'SYSTEM', 'Etc/UTC'), "
+            "    record.last_delete = "
+            "        CONVERT_TZ(last_delete, 'SYSTEM', 'Etc/UTC') "
             "WHERE recordid = recid",
             "DROP TABLE recordupdate",
         };
@@ -2279,7 +2313,7 @@ NULL
 // removed "UNIQUE KEY path (`storagegroup`, `hostname`, `filename`)" from
 // scannerpath as a quick fix for key length constraints
 
-        if (!performActualUpdate(&updates[0], "1307", dbver))
+        if (!performActualUpdate(updates, "1307", dbver))
             return false;
     }
 
@@ -2290,7 +2324,7 @@ NULL
 "UPDATE channel SET icon='' WHERE icon='none';",
 NULL
 };
-        if (!performActualUpdate(&updates[0], "1308", dbver))
+        if (!performActualUpdate(updates, "1308", dbver))
             return false;
     }
 
@@ -2329,7 +2363,7 @@ NULL
 "UPDATE record SET type = 5 WHERE type = 10",
 NULL
 };
-        if (!performActualUpdate(&updates[0], "1309", dbver))
+        if (!performActualUpdate(updates, "1309", dbver))
             return false;
     }
 
@@ -2343,7 +2377,7 @@ NULL
 "UPDATE record SET type = 4, filter = filter|1024 WHERE type = 3",
 NULL
 };
-        if (!performActualUpdate(&updates[0], "1310", dbver))
+        if (!performActualUpdate(updates, "1310", dbver))
             return false;
     }
 
@@ -2372,7 +2406,7 @@ NULL
 NULL
 };
 
-        if (!performActualUpdate(&updates[0], "1311", dbver))
+        if (!performActualUpdate(updates, "1311", dbver))
             return false;
     }
 
@@ -2399,7 +2433,7 @@ NULL
 "DELETE FROM `settings` WHERE `value` = 'HardwareProfileLastUpdated';",
 NULL
 };
-        if (!performActualUpdate(&updates[0], "1312", dbver))
+        if (!performActualUpdate(updates, "1312", dbver))
             return false;
     }
 
@@ -2411,7 +2445,7 @@ NULL
 "ALTER TABLE dvdbookmark ADD COLUMN dvdstate varchar(1024) NOT NULL DEFAULT '';",
 NULL
 };
-        if (!performActualUpdate(&updates[0], "1313", dbver))
+        if (!performActualUpdate(updates, "1313", dbver))
             return false;
     }
 
@@ -2434,7 +2468,7 @@ NULL
             "cardtype = \"MPEG\" AND channel_timeout < 12000;",
             NULL
         };
-        if (!performActualUpdate(&updates[0], "1314", dbver))
+        if (!performActualUpdate(updates, "1314", dbver))
             return false;
     }
 
@@ -2447,7 +2481,7 @@ NULL
              "WHERE value='MovieGrabber'",
             NULL
         };
-        if (!performActualUpdate(&updates[0], "1315", dbver))
+        if (!performActualUpdate(updates, "1315", dbver))
             return false;
     }
 
@@ -2588,6 +2622,45 @@ NULL
 
 
         if (!performActualUpdate(&updates[0], "1321", dbver))
+            return false;
+    }
+
+    if (dbver == "1321")
+    {
+        const char *updates[] = {
+            "ALTER TABLE `housekeeping` ADD COLUMN `lastsuccess` DATETIME;",
+            "UPDATE `housekeeping` SET `lastsuccess`=`lastrun`;",
+            NULL
+        };
+
+        if (!performActualUpdate(&updates[0], "1322", dbver))
+            return false;
+    }
+
+    if (dbver == "1322")
+    {
+        const char *updates[] = {
+        // add inetref to (recorded)program before season/episode
+            "ALTER TABLE program "
+            " ADD COLUMN inetref varchar(40) DEFAULT '' AFTER videoprop;",
+            "ALTER TABLE recordedprogram "
+            " ADD COLUMN inetref varchar(40) DEFAULT '' AFTER videoprop;",
+            "DELETE FROM settings WHERE value='DefaultStartOffset';",
+            "DELETE FROM settings WHERE value='DefaultEndOffset';",
+            "DELETE FROM settings WHERE value='AutoExpireDefault';",
+            "DELETE FROM settings WHERE value='AutoCommercialFlag';",
+            "DELETE FROM settings WHERE value='AutoTranscode';",
+            "DELETE FROM settings WHERE value='DefaultTranscoder';",
+            "DELETE FROM settings WHERE value='AutoRunUserJob1';",
+            "DELETE FROM settings WHERE value='AutoRunUserJob2';",
+            "DELETE FROM settings WHERE value='AutoRunUserJob3';",
+            "DELETE FROM settings WHERE value='AutoRunUserJob4';",
+            "DELETE FROM settings WHERE value='AutoMetadataLookup';",
+            "DELETE FROM housekeeping WHERE tag='DailyCleanup';",
+            "DELETE FROM housekeeping WHERE tag='ThemeChooserInfoCacheUpdate';",
+            NULL
+        };
+        if (!performActualUpdate(updates, "1323", dbver))
             return false;
     }
 

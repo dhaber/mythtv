@@ -36,8 +36,8 @@ class META_PUBLIC MetaIOID3 : public MetaIOTagLib
     MetaIOID3(void);
     virtual ~MetaIOID3(void);
 
-    virtual bool write(const MusicMetadata* mdata);
-    bool writeVolatileMetadata(const MusicMetadata* mdata);
+    virtual bool write(const QString &filename, MusicMetadata* mdata);
+    bool writeVolatileMetadata(const QString &filename, MusicMetadata* mdata);
 
     bool writeAlbumArt(const QString &filename, const AlbumArtImage *albumart);
     bool removeAlbumArt(const QString &filename, const AlbumArtImage *albumart);
@@ -74,7 +74,6 @@ class META_PUBLIC MetaIOID3 : public MetaIOTagLib
     QString getExtFromMimeType(const QString &mimeType);
 
     TagLib::File *m_file;
-    QString m_filename;
 
     typedef enum { kMPEG, kFLAC } TagType;
     TagType m_fileType;

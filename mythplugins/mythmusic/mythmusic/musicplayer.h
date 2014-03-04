@@ -38,6 +38,7 @@ class MusicPlayerEvent : public MythEvent
         static Type VolumeChangeEvent;
         static Type TrackAddedEvent;
         static Type TrackRemovedEvent;
+        static Type TrackUnavailableEvent;
         static Type AllTracksRemovedEvent;
         static Type MetadataChangedEvent;
         static Type TrackStatsChangedEvent;
@@ -113,7 +114,7 @@ class MusicPlayer : public QObject, public MythObservable
 
     void         loadPlaylist(void);
     void         loadStreamPlaylist(void);
-    Playlist    *getPlaylist(void) { return m_currentPlaylist; }
+    Playlist    *getCurrentPlaylist(void);
     StreamList  *getStreamList(void);
 
     // these add and remove tracks from the active playlist
@@ -141,6 +142,7 @@ class MusicPlayer : public QObject, public MythObservable
     void         sendMetadataChangedEvent(int trackID);
     void         sendTrackStatsChangedEvent(int trackID);
     void         sendAlbumArtChangedEvent(int trackID);
+    void         sendTrackUnavailableEvent(int trackID);
     void         sendCDChangedEvent(void);
 
     void         toMap(InfoMap &infoMap);
@@ -194,11 +196,12 @@ class MusicPlayer : public QObject, public MythObservable
     void updateLastplay(void);
     void updateVolatileMetadata(void);
     void sendVolumeChangedEvent(void);
+    int  getNotificationID(const QString &hostname);
+    void sendNotification(int notificationID, const QString &title, const QString &author, const QString &desc);
 
     void setupDecoderHandler(void);
     void decoderHandlerReady(void);
 
-    Playlist    *m_currentPlaylist;
     int          m_currentTrack;
     int          m_currentTime;
 
@@ -225,6 +228,10 @@ class MusicPlayer : public QObject, public MythObservable
     ResumeMode   m_resumeMode;
 
     float        m_playSpeed;
+
+    // notification
+    bool m_showScannerNotifications;
+    QMap<QString, int>  m_notificationMap;
 
     // radio stuff
     QList<MusicMetadata*>  m_playedList;

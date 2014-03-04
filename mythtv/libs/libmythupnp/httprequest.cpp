@@ -54,72 +54,103 @@
 
 static MIMETypes g_MIMETypes[] =
 {
+    // Image Mime Types
     { "gif" , "image/gif"                  },
-    { "jpg" , "image/jpeg"                 },
+    { "ico" , "image/x-icon"               },
     { "jpeg", "image/jpeg"                 },
+    { "jpg" , "image/jpeg"                 },
+    { "mng" , "image/x-mng"                },
     { "png" , "image/png"                  },
-    { "ico",  "image/x-icon"               },
     { "svg" , "image/svg+xml"              },
     { "svgz", "image/svg+xml"              },
+    { "tif" , "image/tiff"                 },
+    { "tiff", "image/tiff"                 },
+    // Text Mime Types
     { "htm" , "text/html"                  },
     { "html", "text/html"                  },
     { "qsp" , "text/html"                  },
-    { "js"  , "application/javascript"     },
-    { "qjs" , "application/javascript"     },
     { "txt" , "text/plain"                 },
     { "xml" , "text/xml"                   },
     { "qxml", "text/xml"                   },
     { "xslt", "text/xml"                   },
-    { "pdf" , "application/pdf"            },
-    { "avi" , "video/avi"                  },
     { "css" , "text/css"                   },
+    // Application Mime Types
+    { "doc" , "application/vnd.ms-word"    },
+    { "gz"  , "application/x-tar"          },
+    { "js"  , "application/javascript"     },
+    { "m3u8", "application/x-mpegurl"      }, // HTTP Live Streaming
+    { "ogx" , "application/ogg"            }, // http://wiki.xiph.org/index.php/MIME_Types_and_File_Extensions
+    { "pdf" , "application/pdf"            },
+    { "qjs" , "application/javascript"     },
+    { "rm"  , "application/vnd.rn-realmedia" },
     { "swf" , "application/x-shockwave-flash" },
     { "xls" , "application/vnd.ms-excel"   },
-    { "doc" , "application/vnd.ms-word"    },
-    { "mid" , "audio/midi"                 },
-    { "mp3" , "audio/mpeg"                 },
-    { "rm"  , "application/vnd.rn-realmedia" },
-    { "wav" , "audio/wav"                  },
     { "zip" , "application/x-tar"          },
-    { "gz"  , "application/x-tar"          },
-    { "mpg" , "video/mpeg"                 },
-    { "mpg2", "video/mpeg"                 },
+    // Audio Mime Types:
+    { "aac" , "audio/mp4"                  },
+    { "ac3" , "audio/vnd.dolby.dd-raw"     }, // DLNA?
+    { "flac", "audio/x-flac"               }, // This could be audio/flac or application/flac
+    { "m4a" , "audio/x-m4a"                },
+    { "mid" , "audio/midi"                 },
+    { "mka" , "audio/x-matroska"           },
+    { "mp3" , "audio/mpeg"                 },
+    { "oga" , "audio/ogg"                  }, // Defined: http://wiki.xiph.org/index.php/MIME_Types_and_File_Extensions
+    { "ogg" , "audio/ogg"                  }, // Defined: http://wiki.xiph.org/index.php/MIME_Types_and_File_Extensions
+    { "wav" , "audio/wav"                  },
+    { "wma" , "audio/x-ms-wma"             },
+    // Video Mime Types
+    { "3gp" , "video/3gpp"                 }, // Also audio/3gpp
+    { "3g2" , "video/3gpp2"                }, // Also audio/3gpp2
+    { "asf" , "video/x-ms-asf"             },
+    { "avi" , "video/avi"                  },
     { "mpeg", "video/mpeg"                 },
     { "mpeg2","video/mpeg"                 },
-    { "vob" , "video/mpeg"                 },
-    { "asf" , "video/x-ms-asf"             },
-    { "nuv" , "video/nupplevideo"          },
+    { "mpg" , "video/mpeg"                 },
+    { "mpg2", "video/mpeg"                 },
     { "mov" , "video/quicktime"            },
     { "mp4" , "video/mp4"                  },
-    // This formerly was video/x-matroska, but got changed due to #8643
-    // This was reverted from video/x-mkv, due to #10980
-    // See http://matroska.org/technical/specs/notes.html#MIME
-    // If you can't please everyone, may as well be correct as you piss some off
-    { "mkv" , "video/x-matroska"           },
-    { "mka" , "audio/x-matroska"           },
-    { "wmv" , "video/x-ms-wmv"             },
-    // Defined: http://wiki.xiph.org/index.php/MIME_Types_and_File_Extensions
-    { "ogg" , "audio/ogg"                  },
-    { "ogv" , "video/ogg"                  },
-    { "ogx" , "application/ogg"            },
-    { "oga" , "audio/ogg"                  },
-    // Similarly, this could be audio/flac or application/flac:
-    { "flac", "audio/x-flac"               },
-    { "m4a" , "audio/x-m4a"                },
-    // HTTP Live Streaming
-    { "m3u8", "application/x-mpegurl"      },
-    { "ts"  , "video/mp2t"                 },
+    { "mkv" , "video/x-matroska"           }, // See http://matroska.org/technical/specs/notes.html#MIME (See NOTE 1)
+    { "nuv" , "video/nupplevideo"          },
+    { "ogv" , "video/ogg"                  }, // Defined: http://wiki.xiph.org/index.php/MIME_Types_and_File_Extensions
+    { "ts"  , "video/mp2t"                 }, // HTTP Live Streaming
+    { "vob" , "video/mpeg"                 },
+    { "wmv" , "video/x-ms-wmv"             }
 };
 
-static const char *Static401Error = 
-    "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\""
-        "\"http://www.w3.org/TR/1999/REC-html401-19991224/loose.dtd\">"
+// NOTE 1
+// This formerly was video/x-matroska, but got changed due to #8643
+// This was reverted from video/x-mkv, due to #10980
+// See http://matroska.org/technical/specs/notes.html#MIME
+// If you can't please everyone, may as well be correct as you piss some off
+
+static const char *Static400Error =
+    "<!DOCTYPE html>"
     "<HTML>"
       "<HEAD>"
-        "<TITLE>Error</TITLE>"
+        "<TITLE>Error 400</TITLE>"
+        "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=ISO-8859-1\">"
+      "</HEAD>"
+      "<BODY><H1>400 Bad Request.</H1></BODY>"
+    "</HTML>";
+
+static const char *Static401Error =
+    "<!DOCTYPE html>"
+    "<HTML>"
+      "<HEAD>"
+        "<TITLE>Error 401</TITLE>"
         "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=ISO-8859-1\">"
       "</HEAD>"
       "<BODY><H1>401 Unauthorized.</H1></BODY>"
+    "</HTML>";
+
+static const char *Static505Error =
+    "<!DOCTYPE html>"
+    "<HTML>"
+      "<HEAD>"
+        "<TITLE>Error 505</TITLE>"
+        "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=ISO-8859-1\">"
+      "</HEAD>"
+      "<BODY><H1>505 HTTP Version Not Supported.</H1></BODY>"
     "</HTML>";
 
 static const int g_nMIMELength = sizeof( g_MIMETypes) / sizeof( MIMETypes );
@@ -181,12 +212,12 @@ QString HTTPRequest::BuildHeader( long long nSize )
     QString sContentType = (m_eResponseType == ResponseTypeOther) ?
                             m_sResponseTypeText : GetResponseType();
 
-    sHeader = QString( "HTTP/%1.%2 %3\r\n"
-                       "Date: %4\r\n"
-                       "Server: %5, UPnP/1.0, MythTV %6\r\n" )
-        .arg(m_nMajor).arg(m_nMinor).arg(GetResponseStatus())
+    sHeader = QString( "%1 %2\r\n"
+                       "Date: %3\r\n"
+                       "Server: %4\r\n" )
+        .arg(GetResponseProtocol()).arg(GetResponseStatus())
         .arg(MythDate::current().toString("d MMM yyyy hh:mm:ss"))
-        .arg(HttpServer::GetPlatform()).arg(MYTH_BINARY_VERSION);
+        .arg(HttpServer::GetServerVersion());
 
     sHeader += GetAdditionalHeaders();
 
@@ -246,7 +277,7 @@ long HTTPRequest::SendResponse( void )
                     file.open(QIODevice::ReadOnly | QIODevice::Text))
                     m_response.buffer() = file.readAll();
 
-                if (m_response.buffer().length() > 0)
+                if (!m_response.buffer().isEmpty())
                     break;
 
                 // Let SendResponseFile try or send a 404
@@ -327,7 +358,7 @@ long HTTPRequest::SendResponse( void )
         QByteArray compressed = gzipCompress( m_response.buffer() );
         compBuffer.setData( compressed );
 
-        if (compBuffer.buffer().length() > 0)
+        if (!compBuffer.buffer().isEmpty())
         {
             pBuffer = &compBuffer;
 
@@ -441,7 +472,7 @@ long HTTPRequest::SendResponseFile( QString sFileName )
         bool    bRange = false;
         QString sRange = GetHeaderValue( "range", "" );
 
-        if (sRange.length() > 0)
+        if (!sRange.isEmpty())
         {
             bRange = ParseRange( sRange, llSize, &llStart, &llEnd );
 
@@ -679,7 +710,7 @@ void HTTPRequest::FormatErrorResponse( bool  bServerError,
                << "<faultstring>" << sFaultString << "</faultstring>";
     }
 
-    if (sDetails.length() > 0)
+    if (!sDetails.isEmpty())
     {
         stream << "<detail>" << sDetails << "</detail>";
     }
@@ -817,6 +848,38 @@ void HTTPRequest::SetRequestProtocol( const QString &sLine )
 
     m_nMajor = sVersion.section( '.', 0, 0 ).toInt();
     m_nMinor = sVersion.section( '.', 1    ).toInt();
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+QString HTTPRequest::GetRequestProtocol() const
+{
+    return QString("%1/%2.%3").arg(m_sProtocol)
+                              .arg(QString::number(m_nMajor))
+                              .arg(QString::number(m_nMinor));
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+QString HTTPRequest::GetResponseProtocol() const
+{
+    // RFC 2145
+    //
+    // An HTTP server SHOULD send a response version equal to the highest
+    // version for which the server is at least conditionally compliant, and
+    // whose major version is less than or equal to the one received in the
+    // request.
+
+//     if (m_nMajor == 1)
+//         QString("HTTP/1.1");
+//     else if (m_nMajor == 2)
+//         QString("HTTP/2.0");
+
+    return QString("HTTP/1.1");
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -980,7 +1043,7 @@ long HTTPRequest::GetParameters( QString sParams, QStringMap &mapParams  )
     // breaks anything that is trying to pass & as part of a name or value.
     sParams.replace( "&amp;", "&" );
 
-    if (sParams.length() > 0)
+    if (!sParams.isEmpty())
     {
         QStringList params = sParams.split('&', QString::SkipEmptyParts);
 
@@ -991,7 +1054,8 @@ long HTTPRequest::GetParameters( QString sParams, QStringMap &mapParams  )
             QString sValue = (*it).section( '=', 1 );
             sValue.replace("+"," ");
 
-            if ((sName.length() != 0) && (sValue.length() !=0))
+            if (!sName.isEmpty() &&
+                !sValue.isEmpty())
             {
                 sName  = QUrl::fromPercentEncoding(sName.toUtf8());
                 sValue = QUrl::fromPercentEncoding(sValue.toUtf8());
@@ -1084,7 +1148,7 @@ bool HTTPRequest::ParseRequest()
         // Read first line to determin requestType
         QString sRequestLine = ReadLine( 2000 );
 
-        if ( sRequestLine.length() == 0)
+        if ( sRequestLine.isEmpty() )
         {
             LOG(VB_GENERAL, LOG_ERR, "Timeout reading first line of request." );
             return false;
@@ -1093,6 +1157,16 @@ bool HTTPRequest::ParseRequest()
         // -=>TODO: Should read lines until a valid request???
 
         ProcessRequestLine( sRequestLine );
+
+        if (m_nMajor > 1 || m_nMajor < 0)
+        {
+            m_eResponseType   = ResponseTypeHTML;
+            m_nResponseStatus = 505;
+
+            m_response.write( Static505Error );
+
+            return true;
+        }
 
         // Make sure there are a few default values
 
@@ -1104,7 +1178,7 @@ bool HTTPRequest::ParseRequest()
         bool    bDone = false;
         QString sLine = ReadLine( 2000 );
 
-        while (( sLine.length() > 0 ) && !bDone )
+        while (( !sLine.isEmpty() ) && !bDone )
         {
             if (sLine != "\r\n")
             {
@@ -1113,7 +1187,8 @@ bool HTTPRequest::ParseRequest()
 
                 sValue.truncate( sValue.length() - 2 );
 
-                if ((sName.length() != 0) && (sValue.length() !=0))
+                if (!sName.isEmpty() &&
+                    !sValue.isEmpty())
                 {
                     m_mapHeaders.insert(sName.toLower(), sValue.trimmed());
 
@@ -1137,6 +1212,17 @@ bool HTTPRequest::ParseRequest()
         {
             LOG(VB_GENERAL, LOG_INFO, "Timeout waiting for request header." );
             return false;
+        }
+
+        // HTTP/1.1 requires that the Host header be present, even if empty
+        if ((m_nMinor == 1) && !m_mapHeaders.contains("host"))
+        {
+            m_eResponseType   = ResponseTypeHTML;
+            m_nResponseStatus = 400;
+
+            m_response.write( Static400Error );
+
+            return true;
         }
 
         m_bProtected = false;
@@ -1193,7 +1279,7 @@ bool HTTPRequest::ParseRequest()
 
         QString sSOAPAction = GetHeaderValue( "SOAPACTION", "" );
 
-        if (sSOAPAction.length() > 0)
+        if (!sSOAPAction.isEmpty())
             bSuccess = ProcessSOAPPayload( sSOAPAction );
         else
             ExtractMethodFromURL();
@@ -1262,7 +1348,7 @@ void HTTPRequest::ProcessRequestLine( const QString &sLine )
             // Process any Query String Parameters
             QString sQueryStr = tokens[1].section( '?', 1, 1 );
 
-            if (sQueryStr.length() > 0)
+            if (!sQueryStr.isEmpty())
                 GetParameters( sQueryStr, m_mapParams );
         }
 
@@ -1280,6 +1366,8 @@ void HTTPRequest::ProcessRequestLine( const QString &sLine )
         if (nCount > 1)
             m_nResponseStatus = tokens[1].toInt();
     }
+
+
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1296,7 +1384,7 @@ bool HTTPRequest::ParseRange( QString sRange,
     //          should make work with full spec.
     // ----------------------------------------------------------------------
 
-    if (sRange.length() == 0)
+    if (sRange.isEmpty())
         return false;
 
     // ----------------------------------------------------------------------
@@ -1400,7 +1488,7 @@ void HTTPRequest::ExtractMethodFromURL()
 
     m_sMethod = "";
 
-    if (sList.size() > 0)
+    if (!sList.isEmpty())
     {
         m_sMethod = sList.last();
         sList.pop_back();
@@ -1506,7 +1594,7 @@ bool HTTPRequest::ProcessSOAPPayload( const QString &sSOAPAction )
                     sName  = QUrl::fromPercentEncoding(sName.toUtf8());
                     sValue = QUrl::fromPercentEncoding(sValue.toUtf8());
 
-                    m_mapParams.insert( sName.trimmed(), sValue );
+                    m_mapParams.insert( sName.trimmed().toLower(), sValue );
                 }
             }
 

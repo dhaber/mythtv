@@ -412,7 +412,12 @@ class VideoListImp
         if (mp)
         {
             ret = mp->DeleteFile();
-            if (ret) ret = m_metadata.purgeByID(video_id);
+            if (ret)
+            {
+                ret = m_metadata.purgeByID(video_id);
+                // Force refresh
+                m_metadata_list_type = VideoListImp::ltNone;
+            }
         }
 
         return ret;

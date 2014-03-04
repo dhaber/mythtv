@@ -44,9 +44,11 @@ class Video : public VideoServices
 
         /* Video Metadata Methods */
 
-        DTC::VideoMetadataInfoList*  GetVideoList    ( bool     Descending,
-                                                       int      StartIndex,
-                                                       int      Count            );
+        DTC::VideoMetadataInfoList*  GetVideoList    ( const QString  &Folder,
+                                                       const QString  &Sort,
+                                                       bool           Descending,
+                                                       int            StartIndex,
+                                                       int            Count      );
 
         DTC::VideoMetadataInfo*   GetVideo           ( int      Id               );
 
@@ -64,6 +66,9 @@ class Video : public VideoServices
 
         bool                      AddVideo           ( const QString  &FileName,
                                                        const QString  &HostName  );
+
+        bool                      UpdateVideoWatchedStatus ( int  Id,
+                                                             bool Watched );
 
         /* Bluray Methods */
 
@@ -100,11 +105,13 @@ class ScriptableVideo : public QObject
 
     public slots:
 
-        QObject* GetVideoList(          bool             Descending,
+        QObject* GetVideoList(       const QString    &Folder,
+                                     const QString    &Sort,
+                                     bool             Descending,
                                      int              StartIndex,
                                      int              Count      )
         {
-            return m_obj.GetVideoList( Descending, StartIndex, Count );
+            return m_obj.GetVideoList(Folder, Sort, Descending, StartIndex, Count );
         }
 
         QObject* GetVideo(       int              Id         )

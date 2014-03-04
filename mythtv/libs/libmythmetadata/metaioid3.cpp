@@ -5,6 +5,7 @@
 
 // Libmythbase
 #include <mythlogging.h>
+#include <mythcorecontext.h>
 
 // Taglib
 #include <flacfile.h>
@@ -99,7 +100,9 @@ bool MetaIOID3::SaveFile()
     if (!m_file)
         return false;
 
+    saveTimeStamps();
     bool retval = m_file->save();
+    restoreTimeStamps();
 
     return retval;
 }
@@ -154,9 +157,12 @@ TagLib::ID3v1::Tag* MetaIOID3::GetID3v1Tag(bool create)
 /*!
  * \copydoc MetaIO::write()
  */
-bool MetaIOID3::write(const MusicMetadata* mdata)
+bool MetaIOID3::write(const QString &filename, MusicMetadata* mdata)
 {
-    if (!OpenFile(mdata->Filename(), true))
+    if (filename.isEmpty())
+        return false;
+
+    if (!OpenFile(filename, true))
         return false;
 
     TagLib::ID3v2::Tag *tag = GetID3v2Tag();
@@ -308,8 +314,19 @@ MusicMetadata *MetaIOID3::read(const QString &filename)
         // If the MusicBrainz ID is the special "Various Artists" ID
         // then compilation is TRUE
         if (!compilation && !musicbrainz->fieldList().isEmpty())
-            compilation = (MYTH_MUSICBRAINZ_ALBUMARTIST_UUID
-            == TStringToQString(musicbrainz->fieldList().front()));
+        {
+            TagLib::StringList l = musicbrainz->fieldList();
+            for (TagLib::StringList::ConstIterator it = l.begin(); it != l.end(); it++)
+            {
+                QString ID = TStringToQString((*it));
+
+                if (ID == MYTH_MUSICBRAINZ_ALBUMARTIST_UUID)
+                {
+                    compilation = true;
+                    break;
+                }
+            }
+        }
     }
 
     // TLEN - Ignored intentionally, some encoders write bad values
@@ -472,6 +489,7 @@ AlbumArtList MetaIOID3::readAlbumArt(TagLib::ID3v2::Tag *tag)
                 art->description = TStringToQString(frame->description());
 
             art->embedded = true;
+            art->hostname = gCoreContext->GetHostName();
 
             QString ext = getExtFromMimeType(
                                 TStringToQString(frame->mimeType()).toLower());
@@ -829,9 +847,11 @@ bool MetaIOID3::writePlayCount(TagLib::ID3v2::Tag *tag, int playcount)
     return true;
 }
 
-bool MetaIOID3::writeVolatileMetadata(const MusicMetadata* mdata)
+bool MetaIOID3::writeVolatileMetadata(const QString &filename, MusicMetadata* mdata)
 {
-    QString filename = mdata->Filename();
+    if (filename.isEmpty())
+        return false;
+
     int rating = mdata->Rating();
     int playcount = mdata->PlayCount();
 

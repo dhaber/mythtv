@@ -23,8 +23,8 @@
 //
 /////////////////////////////////////////////////////////////////////////////
 
-HtmlServerExtension::HtmlServerExtension( const QString sSharePath,
-                                          const QString sApplicationPrefix)
+HtmlServerExtension::HtmlServerExtension( const QString &sSharePath,
+                                          const QString &sApplicationPrefix)
   : HttpServerExtension( "Html" , sSharePath),
     m_IndexFilename(sApplicationPrefix + "index")
 {
@@ -132,7 +132,7 @@ bool HtmlServerExtension::ProcessRequest( HTTPRequest *pRequest )
                     {
                         QTextStream stream( &pRequest->m_response );
                         
-                        m_Scripting.EvaluatePage( &stream, sResName, pRequest->m_mapParams );
+                        m_Scripting.EvaluatePage( &stream, sResName, pRequest);
 
                         return true;
 

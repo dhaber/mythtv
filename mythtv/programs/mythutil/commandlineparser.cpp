@@ -144,6 +144,20 @@ void MythUtilCommandLineParser::LoadArguments(void)
         << add("--print-notification-template", "printntemplate", false,
                 "Print the template to be sent to the frontend", "")
                 ->SetGroup("Messaging")
+
+        // musicmetautils.cpp
+        << add("--scanmusic", "scanmusic", false,
+                "Scan the 'Music' Storage Group for music files", "")
+                ->SetGroup("Music Scanning")
+        << add("--updatemeta", "updatemeta", false,
+                "Update a music tracks database record and tag with new metadata", "")
+                ->SetGroup("Metadata Reading/Writing")
+        << add("--extractimage", "extractimage", false,
+                "Extract an embedded image from a tracks tag and cache it in the AlbumArt storage group", "")
+                ->SetGroup("Metadata Reading/Writing")
+        << add("--calctracklen", "calctracklen", false,
+                "Decode a track to determine its exact length", "")
+                ->SetGroup("Metadata Reading/Writing")
         );
 
     // mpegutils.cpp
@@ -193,6 +207,34 @@ void MythUtilCommandLineParser::LoadArguments(void)
     ->SetChildOf("notification");
     add("--type", "type", "type", "(optional) type of notification (normal, error, warning, check, busy", "")
     ->SetChildOf("notification");
+
+    // musicmetautils.cpp
+    add("--songid", "songid", "", "ID of track to update", "")
+            ->SetChildOf("updatemeta");
+    add("--title", "title", "", "(optional) Title of track", "")
+            ->SetChildOf("updatemeta");
+    add("--artist", "artist", "", "(optional) Artist of track", "")
+            ->SetChildOf("updatemeta");
+    add("--album", "album", "", "(optional) Album of track", "")
+            ->SetChildOf("updatemeta");
+    add("--genre", "genre", "", "(optional) Genre of track", "")
+            ->SetChildOf("updatemeta");
+    add("--trackno", "trackno", "", "(optional) Track No. of track", "")
+            ->SetChildOf("updatemeta");
+    add("--year", "year", "", "(optional) Year of track", "")
+            ->SetChildOf("updatemeta");
+    add("--rating", "rating", "", "(optional) Rating of track", "")
+            ->SetChildOf("updatemeta");
+    add("--playcount", "playcount", "", "(optional) Playcount of track", "")
+            ->SetChildOf("updatemeta");
+    add("--lastplayed", "lastplayed", "", "(optional) Last played of track", "")
+            ->SetChildOf("updatemeta");
+    add("--songid", "songid", "", "ID of track from which to get the image", "")
+            ->SetChildOf("extractimage");
+    add("--imagetype", "imagetype", "", "Type of image to extract (front, back, cd, inlay, unknown)", "")
+            ->SetChildOf("extractimage");
+    add("--songid", "songid", "", "ID of track to determine the length", "")
+            ->SetChildOf("calctracklen");
 
     // Generic Options used by more than one utility
     addRecording();

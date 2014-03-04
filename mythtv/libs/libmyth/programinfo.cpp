@@ -1980,6 +1980,7 @@ bool ProgramInfo::LoadProgramFromRecorded(
     dupmethod    = RecordingDupMethodType(query.value(47).toInt());
 
     // ancillary data -- begin
+    programflags = FL_NONE;
     set_flag(programflags, FL_CHANCOMMFREE,
              query.value(30).toInt() == COMM_DETECT_COMMFREE);
     set_flag(programflags, FL_COMMFLAG,
@@ -3947,11 +3948,17 @@ MarkTypes ProgramInfo::QueryAverageAspectRatio(void ) const
                 "      recordedmarkup.type      >= :ASPECTSTART AND "
                 "      recordedmarkup.type      <= :ASPECTEND "
                 "GROUP BY recordedmarkup.type "
-                "ORDER BY SUM( ( SELECT IFNULL(rm.mark, recordedmarkup.mark)"
+                "ORDER BY SUM( ( SELECT IFNULL(rm.mark, ( "
+                "                  SELECT MAX(rmmax.mark) "
+                "                  FROM recordedmarkup AS rmmax "
+                "                  WHERE rmmax.chanid    = recordedmarkup.chanid "
+                "                    AND rmmax.starttime = recordedmarkup.starttime "
+                "                ) ) "
                 "                FROM recordedmarkup AS rm "
                 "                WHERE rm.chanid    = recordedmarkup.chanid    AND "
                 "                      rm.starttime = recordedmarkup.starttime AND "
-                "                      rm.type      = recordedmarkup.type      AND "
+                "                      rm.type      >= :ASPECTSTART2           AND "
+                "                      rm.type      <= :ASPECTEND2             AND "
                 "                      rm.mark      > recordedmarkup.mark "
                 "                ORDER BY rm.mark ASC LIMIT 1 "
                 "              ) - recordedmarkup.mark "
@@ -3961,6 +3968,8 @@ MarkTypes ProgramInfo::QueryAverageAspectRatio(void ) const
     query.bindValue(":STARTTIME", recstartts);
     query.bindValue(":ASPECTSTART", MARK_ASPECT_4_3); // 11
     query.bindValue(":ASPECTEND", MARK_ASPECT_CUSTOM); // 14
+    query.bindValue(":ASPECTSTART2", MARK_ASPECT_4_3); // 11
+    query.bindValue(":ASPECTEND2", MARK_ASPECT_CUSTOM); // 14
 
     if (!query.exec())
     {
@@ -5006,9 +5015,8 @@ static bool FromProgramQuery(
     const QString &sql, const MSqlBindings &bindings, MSqlQuery &query)
 {
     QString querystr = QString(
-        "SELECT program.description, sub.* FROM program, ("
-        "SELECT DISTINCT program.chanid, program.starttime, program.endtime, "
-        "    program.title, program.subtitle, "
+        "SELECT program.chanid, program.starttime, program.endtime, "
+        "    program.title, program.subtitle, program.description, "
         "    program.category, channel.channum, channel.callsign, "
         "    channel.name, program.previouslyshown, channel.commmethod, "
         "    channel.outputfilters, program.seriesid, program.programid, "
@@ -5028,10 +5036,12 @@ static bool FromProgramQuery(
         "    program.starttime = oldrecstatus.starttime "
         ) + sql;
 
-    if (!sql.contains(" GROUP BY "))
+    if (!sql.contains("WHERE"))
+        querystr += " WHERE visible != 0 ";
+    if (!sql.contains("GROUP BY"))
         querystr += " GROUP BY program.starttime, channel.channum, "
             "  channel.callsign, program.title ";
-    if (!sql.contains(" ORDER BY "))
+    if (!sql.contains("ORDER BY"))
     {
         querystr += " ORDER BY program.starttime, ";
         QString chanorder =
@@ -5041,10 +5051,9 @@ static bool FromProgramQuery(
         else // approximation which the DB can handle
             querystr += "atsc_major_chan,atsc_minor_chan,channum,callsign ";
     }
-    if (!sql.contains(" LIMIT "))
+    if (!sql.contains("LIMIT"))
         querystr += " LIMIT 20000 ";
 
-    querystr += " ) AS sub WHERE program.chanid=sub.chanid AND program.starttime=sub.starttime";
     query.prepare(querystr);
     MSqlBindings::const_iterator it;
     for (it = bindings.begin(); it != bindings.end(); ++it)
@@ -5077,22 +5086,22 @@ bool LoadFromProgram(
     {
         destination.push_back(
             new ProgramInfo(
-                query.value(4).toString(), // title
-                query.value(5).toString(), // subtitle
-                query.value(0).toString(), // description
+                query.value(3).toString(), // title
+                query.value(4).toString(), // subtitle
+                query.value(5).toString(), // description
                 query.value(26).toString(), // syndicatedepisodenumber
                 query.value(6).toString(), // category
 
-                query.value(1).toUInt(), // chanid
+                query.value(0).toUInt(), // chanid
                 query.value(7).toString(), // channum
                 query.value(8).toString(), // chansign
                 query.value(9).toString(), // channame
                 query.value(12).toString(), // chanplaybackfilters
 
-                MythDate::as_utc(query.value(2).toDateTime()), // startts
-                MythDate::as_utc(query.value(3).toDateTime()), // endts
-                MythDate::as_utc(query.value(2).toDateTime()), // recstartts
-                MythDate::as_utc(query.value(3).toDateTime()), // recendts
+                MythDate::as_utc(query.value(1).toDateTime()), // startts
+                MythDate::as_utc(query.value(2).toDateTime()), // endts
+                MythDate::as_utc(query.value(1).toDateTime()), // recstartts
+                MythDate::as_utc(query.value(2).toDateTime()), // recendts
 
                 query.value(13).toString(), // seriesid
                 query.value(14).toString(), // programid

@@ -24,6 +24,7 @@
 #include <lcddevice.h>
 #include <musicmetadata.h>
 #include <musicutils.h>
+#include <musicfilescanner.h>
 
 // MythMusic headers
 #include "musicdata.h"
@@ -34,7 +35,6 @@
 #include "streamview.h"
 #include "playlistcontainer.h"
 #include "dbcheck.h"
-#include "filescanner.h"
 #include "musicplayer.h"
 #include "config.h"
 #include "mainvisual.h"
@@ -66,78 +66,67 @@ static QString chooseCD(void)
 }
 #endif
 
-static void loadMusic()
+/// checks we have at least one music directory in the 'Music' storage group
+static bool checkStorageGroup(void)
 {
-    // only do this once
-    if (gMusicData->initialized)
-        return;
+    // get a list of hosts with a directory defined for the 'Music' storage group
+    QStringList hostList;
+    MSqlQuery query(MSqlQuery::InitCon());
+    QString sql = "SELECT DISTINCT hostname "
+                  "FROM storagegroup "
+                  "WHERE groupname = 'Music'";
+    if (!query.exec(sql) || !query.isActive())
+        MythDB::DBError("checkStorageGroup get host list", query);
+    else
+    {
+        while(query.next())
+        {
+            hostList.append(query.value(0).toString());
+        }
+    }
 
+    if (hostList.isEmpty())
+    {
+        ShowOkPopup(qApp->translate("(MythMusicMain)",
+                                    "No directories found in the 'Music' storage group. "
+                                    "Please run mythtv-setup on the backend machine to add one."));
+       return false;
+    }
+
+    return true;
+}
+
+/// checks we have some tracks available
+static bool checkMusicAvailable(void)
+{
     MSqlQuery count_query(MSqlQuery::InitCon());
-
-    bool musicdata_exists = false;
+    bool foundMusic = false;
     if (count_query.exec("SELECT COUNT(*) FROM music_songs;"))
     {
         if(count_query.next() &&
             0 != count_query.value(0).toInt())
         {
-            musicdata_exists = true;
+            foundMusic = true;
         }
     }
 
-    QString musicDir = getMusicDirectory();
-
-    // Only search music files if a directory was specified & there
-    // is no data in the database yet (first run).  Otherwise, user
-    // can choose "Setup" option from the menu to force it.
-    if (!musicDir.isEmpty() && !musicdata_exists)
+    if (!foundMusic)
     {
-        FileScanner *fscan = new FileScanner();
-        fscan->SearchDir(musicDir);
-        delete fscan;
+        ShowOkPopup(qApp->translate("(MythMusicMain)",
+                                    "No music has been found.\n"
+                                    "Please select 'Scan For New Music' "
+                                    "to perform a scan for music."));
     }
 
-    MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
-    QString message = qApp->translate("(MythMusicMain)", 
-                                      "Loading Music. Please wait ...");
-
-    MythUIBusyDialog *busy = new MythUIBusyDialog(message, popupStack,
-                                                  "musicscanbusydialog");
-    if (busy->Create())
-        popupStack->AddScreen(busy, false);
-    else
-        busy = NULL;
-
-    // Set the various track formatting modes
-    MusicMetadata::setArtistAndTrackFormats();
-
-    AllMusic *all_music = new AllMusic();
-
-    //  Load all playlists into RAM (once!)
-    PlaylistContainer *all_playlists = new PlaylistContainer(all_music);
-
-    gMusicData->all_music = all_music;
-    gMusicData->all_streams = new AllStream();
-    gMusicData->all_playlists = all_playlists;
-
-    gMusicData->initialized = true;
-
-    while (!gMusicData->all_playlists->doneLoading() || !gMusicData->all_music->doneLoading())
-    {
-        qApp->processEvents();
-        usleep(50000);
-    }
-
-    gPlayer->loadStreamPlaylist();
-    gPlayer->loadPlaylist();
-
-    if (busy)
-        busy->Close();
-
+    return foundMusic;
 }
 
 static void startPlayback(void)
 {
-    loadMusic();
+    if (!checkStorageGroup() || !checkMusicAvailable())
+        return;
+
+    gMusicData->loadMusic();
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -151,7 +140,7 @@ static void startPlayback(void)
 
 static void startStreamPlayback(void)
 {
-    loadMusic();
+    gMusicData->loadMusic();
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -165,7 +154,10 @@ static void startStreamPlayback(void)
 
 static void startDatabaseTree(void)
 {
-    loadMusic();
+    if (!checkStorageGroup() || !checkMusicAvailable())
+        return;
+
+    gMusicData->loadMusic();
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -181,7 +173,10 @@ static void startDatabaseTree(void)
 static void startRipper(void)
 {
 #if defined HAVE_CDIO
-    loadMusic();
+    if (!checkStorageGroup())
+        return;
+
+    gMusicData->loadMusic();
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -206,54 +201,20 @@ static void startRipper(void)
 
 static void runScan(void)
 {
-    // if we don't have a valid start dir warn the user and give up
-    if (getMusicDirectory().isEmpty())
-    {
-        ShowOkPopup(qApp->translate("(MythMusicMain)",
-                                    "You need to tell me where to find your "
-                                    "music on the 'General Settings' page of "
-                                    "MythMusic's settings pages."));
-       return;
-    }
+    if (!checkStorageGroup())
+        return;
 
-    if (!QFile::exists(getMusicDirectory()))
-    {
-        ShowOkPopup(qApp->translate("(MythMusicMain)",
-                                    "Can't find your music directory. Have "
-                                    "you set it correctly on the 'General "
-                                    "Settings' page of MythMusic's settings "
-                                    "pages?"));
-       return;
-    }
+    LOG(VB_GENERAL, LOG_INFO, "Scanning for music files");
 
-    LOG(VB_GENERAL, LOG_INFO, QString("Scanning '%1' for music files").arg(getMusicDirectory()));
-
-    FileScanner *fscan = new FileScanner();
-    QString musicDir = getMusicDirectory();
-    fscan->SearchDir(musicDir);
-
-    // save anything that may have changed
-    if (gMusicData->all_music && gMusicData->all_music->cleanOutThreads())
-        gMusicData->all_music->save();
-
-    if (gMusicData->all_playlists && gMusicData->all_playlists->cleanOutThreads())
-    {
-        gMusicData->all_playlists->save();
-    }
-
-    // force a complete reload of the tracks and playlists
-    gPlayer->stop(true);
-    delete gMusicData;
-
-    gMusicData = new MusicData;
-    loadMusic();
-
-    delete fscan;
+    gMusicData->scanMusic();
 }
 
 static void startImport(void)
 {
-    loadMusic();
+    if (!checkStorageGroup())
+        return;
+
+    gMusicData->loadMusic();
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
@@ -398,7 +359,7 @@ static void runMusicSelection(void)
 
 static void runRipCD(void)
 {
-    loadMusic();
+    gMusicData->loadMusic();
 
 #if defined HAVE_CDIO
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
@@ -440,9 +401,9 @@ static void handleMedia(MythMediaDevice *cd)
         .arg(MythMediaDevice::MediaTypeString(cd->getMediaType())));
 }
 
+#ifdef HAVE_CDIO
 static void handleCDMedia(MythMediaDevice *cd)
 {
-#ifdef HAVE_CDIO
 
     if (!cd)
         return;
@@ -489,7 +450,7 @@ static void handleCDMedia(MythMediaDevice *cd)
     }
 
     if (!gMusicData->initialized)
-        loadMusic();
+        gMusicData->loadMusic();
 
     // remove any existing CD tracks
     if (gMusicData->all_music)
@@ -583,11 +544,14 @@ static void handleCDMedia(MythMediaDevice *cd)
 
         runMusicPlayback();
     }
+}
 #else
+static void handleCDMedia(MythMediaDevice *)
+{
     LOG(VB_GENERAL, LOG_NOTICE, "MythMusic got a media changed event"
                                 "but cdio support is not compiled in");
-#endif
 }
+#endif
 
 static void setupKeys(void)
 {

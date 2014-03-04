@@ -26,7 +26,7 @@ MetaIOAVFComment::~MetaIOAVFComment(void)
 /*!
  * \copydoc MetaIO::write()
  */
-bool MetaIOAVFComment::write(const MusicMetadata* /*mdata*/)
+bool MetaIOAVFComment::write(const QString & /*filename*/, MusicMetadata* /*mdata*/)
 {
     // Wont implement....
     return false;
@@ -135,8 +135,6 @@ int MetaIOAVFComment::getTrackLength(AVFormatContext* pContext)
 {
     if (!pContext)
         return 0;
-
-    av_estimate_timings(pContext, 0);
 
     return (pContext->duration / AV_TIME_BASE) * 1000;
 }

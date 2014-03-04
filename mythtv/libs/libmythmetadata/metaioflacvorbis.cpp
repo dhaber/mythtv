@@ -47,12 +47,17 @@ TagLib::FLAC::File *MetaIOFLACVorbis::OpenFile(const QString &filename)
 /*!
  * \copydoc MetaIO::write()
  */
-bool MetaIOFLACVorbis::write(const MusicMetadata* mdata)
+bool MetaIOFLACVorbis::write(const QString &filename, MusicMetadata* mdata)
 {
     if (!mdata)
         return false;
 
-    TagLib::FLAC::File *flacfile = OpenFile(mdata->Filename());
+    if (filename.isEmpty())
+        return false;
+
+    m_filename = filename;
+
+    TagLib::FLAC::File *flacfile = OpenFile(m_filename);
 
     if (!flacfile)
         return false;
@@ -87,7 +92,9 @@ bool MetaIOFLACVorbis::write(const MusicMetadata* mdata)
         tag->removeField("COMPILATION_ARTIST");
     }
 
+    saveTimeStamps();
     bool result = flacfile->save();
+    restoreTimeStamps();
 
     if (flacfile)
         delete flacfile;
@@ -278,6 +285,7 @@ AlbumArtList MetaIOFLACVorbis::getAlbumArtList(const QString &filename)
                 art->description = TStringToQString(pic->description());
 
             art->embedded = true;
+            art->hostname = gCoreContext->GetHostName();
 
             QString ext = getExtFromMimeType(
                                 TStringToQString(pic->mimeType()).toLower());
@@ -340,6 +348,8 @@ bool MetaIOFLACVorbis::writeAlbumArt(const QString &filename,
     if (filename.isEmpty() || !albumart)
         return false;
 
+    m_filename = filename;
+
     bool retval = false;
 
     // load the image into a QByteArray
@@ -381,7 +391,9 @@ bool MetaIOFLACVorbis::writeAlbumArt(const QString &filename,
 
         flacfile->addPicture(pic);
 
+        saveTimeStamps();
         retval = flacfile->save();
+        restoreTimeStamps();
 
         delete flacfile;
     }

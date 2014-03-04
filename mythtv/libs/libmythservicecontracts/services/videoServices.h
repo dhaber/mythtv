@@ -41,9 +41,10 @@
 class SERVICE_PUBLIC VideoServices : public Service  //, public QScriptable ???
 {
     Q_OBJECT
-    Q_CLASSINFO( "version"    , "1.2" );
+    Q_CLASSINFO( "version"    , "1.3" );
     Q_CLASSINFO( "RemoveVideoFromDB_Method",           "POST" )
     Q_CLASSINFO( "AddVideo_Method",                    "POST" )
+    Q_CLASSINFO( "UpdateVideoWatchedStatus_Method",    "POST" )
 
     public:
 
@@ -61,7 +62,9 @@ class SERVICE_PUBLIC VideoServices : public Service  //, public QScriptable ???
 
         // Video Metadata
 
-        virtual DTC::VideoMetadataInfoList* GetVideoList       ( bool             Descending,
+        virtual DTC::VideoMetadataInfoList* GetVideoList       ( const QString    &Folder,
+                                                                 const QString    &Sort,
+                                                                 bool             Descending,
                                                                  int              StartIndex,
                                                                  int              Count      ) = 0;
 
@@ -85,6 +88,9 @@ class SERVICE_PUBLIC VideoServices : public Service  //, public QScriptable ???
         // Bluray Metadata
 
         virtual DTC::BlurayInfo*            GetBluray          ( const QString    &Path      ) = 0;
+
+        virtual bool                        UpdateVideoWatchedStatus ( int  Id,
+                                                                       bool Watched ) = 0;
 };
 
 #endif

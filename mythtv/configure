@@ -4469,15 +4469,17 @@ is_qmake4(){
     $1 --version 2>&1 | egrep -q -e "Qt version 4\.[8-9]\.[0-9]"
 }
 
-if ! is_qmake5 $qmake ; then
-  if ! is_qmake4 $qmake; then
-      is_qmake4 qmake-qt4 && qmake=qmake-qt4 || die "qmake for Qt4.8 or newer not found.\nPlease specify the correct qmake with --qmake="
-  fi
-  if ! expr $($qmake -query QT_VERSION) : "4\.[8-9]\.[0-9]" >/dev/null; then
-      die "Qt4.8 or newer is required to build MythTV."
-  fi
-else
+if is_qmake5 $qmake || is_qmake5 qmake-qt5; then
+    if is_qmake5 qmake-qt5; then
+        qmake=qmake-qt5
+    fi
     check_cxxflags -DQT_DISABLE_DEPRECATED_BEFORE
+elif is_qmake4 $qmake || is_qmake4 qmake-qt4; then
+    if is_qmake4 qmake-qt4; then
+        qmake=qmake-qt4
+    fi
+else
+    die "qmake for Qt4.8 or newer not found.\nPlease specify the correct qmake with --qmake="
 fi
 
 if test x"$qmakespecs" != x; then
@@ -5226,6 +5228,7 @@ fi
 # JACK probe
 ! disabled audio_jack &&
     check_lib jack/jack.h jack_client_new -ljack &&
+    check_func jack_port_get_latency_range -ljack &&
     enable  audio_jack ||
     disable audio_jack
 
@@ -5385,7 +5388,7 @@ enabled lamemp3 && check_lib2 lame/lame.h lame_init -lmp3lame -lm ||
 
 enabled exiv2 && $(pkg-config --exists exiv2) ||
     die "ERROR! You must have the Exiv2 image tag reader library installed to compile MythTV."
-    
+
 # Qt dependency checks
 if test $target_os = mingw32 ; then
     qt_inc="-I`cd $(${qmake} -query QT_INSTALL_HEADERS); pwd`"
@@ -6482,7 +6485,8 @@ if enabled mythlogserver; then
     echo "Configuring zeromq..."
     (cd external/zeromq ; \
              ./configure --quiet --without-documentation --prefix=${prefix} \
-                         --includedir=${prefix}/include/mythtv/zeromq)
+                         --includedir=${prefix}/include/mythtv/zeromq \
+                         --libdir=${libdir-name})
     echo "Configuring nzmqt..."
     (cd external/nzmqt/src ; \
            ${qmakeconf} -o Makefile)
@@ -6498,6 +6502,9 @@ if ! disabled hdhomerun ; then
 fi
 echo "Configuring libmythbluray..."
 (cd external/libmythbluray ; \
+       ${qmakeconf} -o Makefile)
+echo "Configuring libmythdvdnav..."
+(cd external/libmythdvdnav ; \
        ${qmakeconf} -o Makefile)
 echo "Configuring libsamplerate..."
 (cd external/libsamplerate ; \

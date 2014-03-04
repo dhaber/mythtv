@@ -8,24 +8,6 @@
 
 import "/js/utility.js"
 
-    var args = arguments[1];
-    function getArg(name)
-    {
-        name = name.toLowerCase();
-        return args[name];
-    }
-
-    function getIntArg(name)
-    {
-        return Number(getArg(name));
-    }
-
-    function getBoolArg(name)
-    {
-        // Should check for string types here such as 'true' and 'false'
-        return Boolean(getIntArg(name));
-    }
-
     var myth = new Myth();
 
     // FIXME: This should use a new services method so that we can use QLocale::toString() instead
@@ -107,7 +89,7 @@ import "/js/utility.js"
     // Besides, the the backend is going to be powerful enough to build the HTML
     // faster than the average mobile/tablet can do it client-side
     //
-    function getProgramDetailHTML(args)
+    function getProgramDetailHTML()
     {
         var startTime = myth.ParseISODateString(getArg("StartTime"));
 
@@ -116,7 +98,7 @@ import "/js/utility.js"
         return buildDetailHTML(program, "program");
     }
 
-    function getRecordingDetailHTML(args)
+    function getRecordingDetailHTML()
     {
         var startTime = myth.ParseISODateString(getArg("StartTime"));
 
@@ -129,10 +111,10 @@ import "/js/utility.js"
     switch (getArg("_action"))
     {
         case "getProgramDetailHTML":
-            ret = getProgramDetailHTML(args);
+            ret = getProgramDetailHTML();
             break;
         case "getRecordingDetailHTML":
-            ret = getRecordingDetailHTML(args);
+            ret = getRecordingDetailHTML();
             break;
         default:
             break;

@@ -21,26 +21,6 @@ extern "C" {
 #include "musicmetadata.h"
 #include "musicutils.h"
 
-static QString musicDirectory;
-
-QString getMusicDirectory(void)
-{
-    if (musicDirectory.isEmpty())
-    {
-        musicDirectory = gCoreContext->GetSetting("MusicLocation");
-        musicDirectory = QDir::cleanPath(musicDirectory);
-        if (!musicDirectory.isEmpty() && !musicDirectory.endsWith("/"))
-            musicDirectory += "/";
-    }
-
-    return musicDirectory;
-}
-
-void setMusicDirectory(const QString &musicDir)
-{
-    musicDirectory = musicDir;
-}
-
 static QRegExp badChars = QRegExp("(/|\\\\|:|\'|\"|\\?|\\|)");
 
 QString fixFilename(const QString &filename)
@@ -50,128 +30,38 @@ QString fixFilename(const QString &filename)
     return ret;
 }
 
-QString findIcon(const QString &type, const QString &name)
+static QMap<QString, QString> iconMap;
+QString findIcon(const QString &type, const QString &name, bool ignoreCache)
 {
+    if (!ignoreCache)
+    {
+        QMap<QString, QString>::iterator i = iconMap.find(type + name);
+        if (i != iconMap.end())
+            return i.value();
+    }
+
     QString cleanName = fixFilename(name);
     QString file = QString("Icons/%1/%2").arg(type).arg(cleanName);
+    QStringList imageExtensions = QStringList() << ".jpg" << ".jpeg" << ".png" << ".gif";
 
-    // first look in the 'MusicArt' storage group
-    QString filename = gCoreContext->GenMythURL(gCoreContext->GetSetting("MasterServerIP"),
-                                                gCoreContext->GetNumSetting("MasterServerPort"),
-                                                file, "MusicArt");
+    // TODO also look on any slave BEs?
+    QString filename = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
+                                                0, file, "MusicArt");
 
-    if (RemoteFile::Exists(filename + ".jpg"))
-        return filename + ".jpg";
+    for (int x = 0; x < imageExtensions.count(); x++)
+    {
+        if (RemoteFile::Exists(filename + imageExtensions[x]))
+        {
+            iconMap.insert(type + name, filename + imageExtensions[x]);
+            return filename + imageExtensions[x];
+        }
+    }
 
-    if (RemoteFile::Exists(filename + ".jpeg"))
-        return filename + ".jpeg";
-
-    if (RemoteFile::Exists(filename + ".png"))
-        return filename + ".png";
-
-    if (RemoteFile::Exists(filename + ".gif"))
-        return filename + ".gif";
-
-    // not found so try the local config directory
-    file = GetConfDir() + "MythMusic/" + file;
-
-    if (QFile::exists(file + ".jpg"))
-        return file + ".jpg";
-
-    if (QFile::exists(file + ".jpeg"))
-        return file + ".jpeg";
-
-    if (QFile::exists(file + ".png"))
-        return file + ".png";
-
-    if (QFile::exists(file + ".gif"))
-        return file + ".gif";
+    iconMap.insert(type + name, QString());
 
     LOG(VB_FILE, LOG_INFO, QString("findicon: not found for type: %1, name: %2").arg(type).arg(name));
 
     return QString();
-}
-
-//TODO this needs updating to also use storage groups
-uint calcTrackLength(const QString &musicFile)
-{
-//    const char *type = NULL;
-
-    AVFormatContext *inputFC = NULL;
-    AVInputFormat *fmt = NULL;
-
-//     if (type)
-//         fmt = av_find_input_format(type);
-
-    // Open recording
-    LOG(VB_GENERAL, LOG_DEBUG, QString("calcTrackLength: Opening '%1'")
-            .arg(musicFile));
-
-    QByteArray inFileBA = musicFile.toLocal8Bit();
-
-    int ret = avformat_open_input(&inputFC, inFileBA.constData(), fmt, NULL);
-
-    if (ret)
-    {
-        LOG(VB_GENERAL, LOG_ERR, "calcTrackLength: Couldn't open input file" +
-                                  ENO);
-        return 0;
-    }
-
-    // Getting stream information
-    ret = avformat_find_stream_info(inputFC, NULL);
-
-    if (ret < 0)
-    {
-        LOG(VB_GENERAL, LOG_ERR,
-            QString("calcTrackLength: Couldn't get stream info, error #%1").arg(ret));
-        avformat_close_input(&inputFC);
-        inputFC = NULL;
-        return 0;
-    }
-
-    uint duration = 0;
-    long long time = 0;
-
-    for (uint i = 0; i < inputFC->nb_streams; i++)
-    {
-        AVStream *st = inputFC->streams[i];
-        char buf[256];
-
-        avcodec_string(buf, sizeof(buf), st->codec, false);
-
-        switch (inputFC->streams[i]->codec->codec_type)
-        {
-            case AVMEDIA_TYPE_AUDIO:
-            {
-                AVPacket pkt;
-                av_init_packet(&pkt);
-
-                while (av_read_frame(inputFC, &pkt) >= 0)
-                {
-                    if (pkt.stream_index == (int)i)
-                        time = time + pkt.duration;
-
-                    av_free_packet(&pkt);
-                }
-
-                duration = time * av_q2d(inputFC->streams[i]->time_base);
-                break;
-            }
-
-            default:
-                LOG(VB_GENERAL, LOG_ERR,
-                    QString("Skipping unsupported codec %1 on stream %2")
-                        .arg(inputFC->streams[i]->codec->codec_type).arg(i));
-                break;
-        }
-    }
-
-    // Close input file
-    avformat_close_input(&inputFC);
-    inputFC = NULL;
-
-    return duration;
 }
 
 inline QString fixFileToken_sl(QString token)
@@ -182,9 +72,8 @@ inline QString fixFileToken_sl(QString token)
     return token;
 }
 
-QString filenameFromMetadata(MusicMetadata *track, bool createDir)
+QString filenameFromMetadata(MusicMetadata *track)
 {
-    QDir directoryQD(getMusicDirectory());
     QString filename;
     QString fntempl = gCoreContext->GetSetting("FilenameTemplate");
     bool no_ws = gCoreContext->GetNumSetting("NoWhitespace", 0);
@@ -240,14 +129,6 @@ QString filenameFromMetadata(MusicMetadata *track, bool createDir)
         tempstr += " - " + track->FormatTitle();
         filename = fixFilename(tempstr);
         LOG(VB_GENERAL, LOG_ERR, "Invalid file storage definition.");
-    }
-
-    if (createDir)
-    {
-        QFileInfo fi(filename);
-        if (!directoryQD.mkpath(getMusicDirectory() + fi.path()))
-            LOG(VB_GENERAL, LOG_ERR,
-                QString("filenameFromMetadata: Failed to create directory path: '%1'").arg(getMusicDirectory() + filename));
     }
 
     return filename;

@@ -5,13 +5,6 @@ import "/js/utility.js"
 import "/tv/js/constants.js"
 import "/tv/js/tvutil.qjs"
 
-    var args = arguments[1];
-    function getArg(name)
-    {
-        name = name.toLowerCase();
-        return args[name];
-    }
-
     var filter = "";
     if (getArg("ViewFilter"))
         filter = getArg("ViewFilter");
@@ -22,7 +15,7 @@ import "/tv/js/tvutil.qjs"
 
     var startIndex = 0;
     if (getArg("Start"))
-        startIndex = Number(getArg("Start"));
+        startIndex = getIntegerArg("Start");
 
     var myth  = new Myth();
     var dvr = new Dvr();

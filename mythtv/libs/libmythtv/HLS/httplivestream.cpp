@@ -121,10 +121,10 @@ HTTPLiveStream::HTTPLiveStream(QString srcFile, uint16_t width, uint16_t height,
         m_audioBitrate = 64000;
 
     if (m_segmentSize == 0)
-        m_segmentSize = 10;
+        m_segmentSize = 4;
 
     if (m_audioOnlyBitrate == 0)
-        m_audioOnlyBitrate = 32000;
+        m_audioOnlyBitrate = 64000;
 
     m_sourceHost = gCoreContext->GetHostName();
 
@@ -224,54 +224,83 @@ int HTTPLiveStream::AddStream(void)
         tmpRelURL = m_relativeURL;
     }
 
+    // Check that this stream has not already been created.
+    // We want to avoid creating multiple identical streams and transcode
+    // jobs
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare(
-        "INSERT INTO livestream "
-        "    ( width, height, bitrate, audiobitrate, segmentsize, "
-        "      maxsegments, startsegment, currentsegment, segmentcount, "
-        "      percentcomplete, created, lastmodified, relativeurl, "
-        "      fullurl, status, statusmessage, sourcefile, sourcehost, "
-        "      sourcewidth, sourceheight, outdir, outbase, "
-        "      audioonlybitrate, samplerate ) "
-        "VALUES "
-        "    ( :WIDTH, :HEIGHT, :BITRATE, :AUDIOBITRATE, :SEGMENTSIZE, "
-        "      :MAXSEGMENTS, 0, 0, 0, "
-        "      0, :CREATED, :LASTMODIFIED, :RELATIVEURL, "
-        "      :FULLURL, :STATUS, :STATUSMESSAGE, :SOURCEFILE, :SOURCEHOST, "
-        "      :SOURCEWIDTH, :SOURCEHEIGHT, :OUTDIR, :OUTBASE, "
-        "      :AUDIOONLYBITRATE, :SAMPLERATE ) ");
+        "SELECT id FROM livestream "
+        "WHERE "
+        "(width = :WIDTH OR height = :HEIGHT) AND bitrate = :BITRATE AND "
+        "audioonlybitrate = :AUDIOONLYBITRATE AND samplerate = :SAMPLERATE AND "
+        "audiobitrate = :AUDIOBITRATE AND segmentsize = :SEGMENTSIZE AND "
+        "sourcefile = :SOURCEFILE AND status <= :STATUS ");
     query.bindValue(":WIDTH", m_width);
     query.bindValue(":HEIGHT", m_height);
     query.bindValue(":BITRATE", m_bitrate);
     query.bindValue(":AUDIOBITRATE", m_audioBitrate);
     query.bindValue(":SEGMENTSIZE", m_segmentSize);
-    query.bindValue(":MAXSEGMENTS", m_maxSegments);
-    query.bindValue(":CREATED", m_created);
-    query.bindValue(":LASTMODIFIED", m_lastModified);
-    query.bindValue(":RELATIVEURL", tmpRelURL);
-    query.bindValue(":FULLURL", tmpFullURL);
-    query.bindValue(":STATUS", (int)m_status);
-    query.bindValue(":STATUSMESSAGE",
-        QString("Waiting for mythtranscode startup."));
+    query.bindValue(":STATUS", (int)kHLSStatusCompleted);
     query.bindValue(":SOURCEFILE", m_sourceFile);
-    query.bindValue(":SOURCEHOST", gCoreContext->GetHostName());
-    query.bindValue(":SOURCEWIDTH", 0);
-    query.bindValue(":SOURCEHEIGHT", 0);
-    query.bindValue(":OUTDIR", m_outDir);
-    query.bindValue(":OUTBASE", tmpBase);
     query.bindValue(":AUDIOONLYBITRATE", m_audioOnlyBitrate);
-    query.bindValue(":SAMPLERATE", m_sampleRate);
+    query.bindValue(":SAMPLERATE", (m_sampleRate == -1) ? 0 : m_sampleRate); // samplerate column is unsigned, -1 becomes 0
 
     if (!query.exec())
     {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "LiveStream insert failed.");
+        LOG(VB_GENERAL, LOG_ERR, LOC + "LiveStream existing stream check failed.");
         return -1;
     }
 
-    if (!query.exec("SELECT LAST_INSERT_ID()") || !query.next())
+    if (!query.next())
     {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to query LiveStream streamid.");
-        return -1;
+        query.prepare(
+            "INSERT INTO livestream "
+            "    ( width, height, bitrate, audiobitrate, segmentsize, "
+            "      maxsegments, startsegment, currentsegment, segmentcount, "
+            "      percentcomplete, created, lastmodified, relativeurl, "
+            "      fullurl, status, statusmessage, sourcefile, sourcehost, "
+            "      sourcewidth, sourceheight, outdir, outbase, "
+            "      audioonlybitrate, samplerate ) "
+            "VALUES "
+            "    ( :WIDTH, :HEIGHT, :BITRATE, :AUDIOBITRATE, :SEGMENTSIZE, "
+            "      :MAXSEGMENTS, 0, 0, 0, "
+            "      0, :CREATED, :LASTMODIFIED, :RELATIVEURL, "
+            "      :FULLURL, :STATUS, :STATUSMESSAGE, :SOURCEFILE, :SOURCEHOST, "
+            "      :SOURCEWIDTH, :SOURCEHEIGHT, :OUTDIR, :OUTBASE, "
+            "      :AUDIOONLYBITRATE, :SAMPLERATE ) ");
+        query.bindValue(":WIDTH", m_width);
+        query.bindValue(":HEIGHT", m_height);
+        query.bindValue(":BITRATE", m_bitrate);
+        query.bindValue(":AUDIOBITRATE", m_audioBitrate);
+        query.bindValue(":SEGMENTSIZE", m_segmentSize);
+        query.bindValue(":MAXSEGMENTS", m_maxSegments);
+        query.bindValue(":CREATED", m_created);
+        query.bindValue(":LASTMODIFIED", m_lastModified);
+        query.bindValue(":RELATIVEURL", tmpRelURL);
+        query.bindValue(":FULLURL", tmpFullURL);
+        query.bindValue(":STATUS", (int)m_status);
+        query.bindValue(":STATUSMESSAGE",
+            QString("Waiting for mythtranscode startup."));
+        query.bindValue(":SOURCEFILE", m_sourceFile);
+        query.bindValue(":SOURCEHOST", gCoreContext->GetHostName());
+        query.bindValue(":SOURCEWIDTH", 0);
+        query.bindValue(":SOURCEHEIGHT", 0);
+        query.bindValue(":OUTDIR", m_outDir);
+        query.bindValue(":OUTBASE", tmpBase);
+        query.bindValue(":AUDIOONLYBITRATE", m_audioOnlyBitrate);
+        query.bindValue(":SAMPLERATE", (m_sampleRate == -1) ? 0 : m_sampleRate); // samplerate column is unsigned, -1 becomes 0
+
+        if (!query.exec())
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + "LiveStream insert failed.");
+            return -1;
+        }
+
+        if (!query.exec("SELECT LAST_INSERT_ID()") || !query.next())
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to query LiveStream streamid.");
+            return -1;
+        }
     }
 
     m_streamid = query.value(0).toUInt();
@@ -383,6 +412,8 @@ bool HTTPLiveStream::WriteMetaPlaylist(void)
 
     file.write(QString(
         "#EXTM3U\n"
+        "#EXT-X-VERSION:4\n"
+        "#EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID=\"AV\",NAME=\"Main\",DEFAULT=YES,URI=\"%2.m3u8\"\n"
         "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=%1\n"
         "%2.m3u8\n"
         ).arg((int)((m_bitrate + m_audioBitrate) * 1.1))
@@ -391,6 +422,7 @@ bool HTTPLiveStream::WriteMetaPlaylist(void)
     if (m_audioOnlyBitrate)
     {
         file.write(QString(
+            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"AO\",NAME=\"Main\",DEFAULT=NO,URI=\"%2.m3u8\"\n"
             "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=%1\n"
             "%2.m3u8\n"
             ).arg((int)((m_audioOnlyBitrate) * 1.1))
@@ -433,6 +465,7 @@ bool HTTPLiveStream::WritePlaylist(bool audioOnly, bool writeEndTag)
 
     file.write(QString(
         "#EXTM3U\n"
+        "#EXT-X-ALLOW-CACHE:YES\n"
         "#EXT-X-TARGETDURATION:%1\n"
         "#EXT-X-MEDIA-SEQUENCE:%2\n"
         ).arg(m_segmentSize).arg(m_startSegment).toLatin1());
@@ -786,6 +819,9 @@ bool HTTPLiveStream::CheckStop(void)
 
 DTC::LiveStreamInfo *HTTPLiveStream::StartStream(void)
 {
+    if (GetDBStatus() != kHLSStatusQueued)
+        return GetLiveStreamInfo();
+
     HTTPLiveStreamThread *streamThread =
         new HTTPLiveStreamThread(GetStreamID());
     MThreadPool::globalInstance()->startReserved(streamThread,

@@ -695,7 +695,7 @@ void TVRec::SetRecordingStatus(
         pendingRecLock.unlock();
     }
 
-    LOG(VB_RECORD, LOG_DEBUG, LOC +
+    LOG(VB_RECORD, LOG_INFO, LOC +
         QString("SetRecordingStatus(%1->%2) on line %3")
         .arg(toString(old_status, kSingleRecord))
         .arg(toString(new_status, kSingleRecord))
@@ -3744,6 +3744,8 @@ void TVRec::TuningFrequency(const TuningRequest &request)
         }
         else if (request.progNum >= 0)
         {
+            channel->SetChannelByString(request.channel);
+
             if (mpeg)
                 mpeg->SetDesiredProgram(request.progNum);
         }
@@ -3871,7 +3873,10 @@ void TVRec::TuningFrequency(const TuningRequest &request)
             {
                 SetFlags(kFlagWaitingForSignal);
                 if (curRecording)
-                    signalMonitorDeadline = curRecording->GetScheduledEndTime();
+                {
+                    signalMonitorDeadline = curRecording->GetScheduledEndTime()
+                                            .addSecs(-50);
+                }
                 else
                 {
                     QDateTime expire = MythDate::current();

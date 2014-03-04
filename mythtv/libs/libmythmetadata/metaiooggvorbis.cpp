@@ -41,12 +41,17 @@ TagLib::Ogg::Vorbis::File *MetaIOOggVorbis::OpenFile(const QString &filename)
 /*!
  * \copydoc MetaIO::write()
  */
-bool MetaIOOggVorbis::write(const MusicMetadata* mdata)
+bool MetaIOOggVorbis::write(const QString &filename, MusicMetadata* mdata)
 {
     if (!mdata)
         return false;
 
-    TagLib::Ogg::Vorbis::File *oggfile = OpenFile(mdata->Filename());
+    m_filename = filename;
+
+    if (m_filename.isEmpty())
+        return false;
+
+    TagLib::Ogg::Vorbis::File *oggfile = OpenFile(m_filename);
 
     if (!oggfile)
         return false;
@@ -81,7 +86,9 @@ bool MetaIOOggVorbis::write(const MusicMetadata* mdata)
         tag->removeField("COMPILATION_ARTIST");
     }
 
+    saveTimeStamps();
     bool result = oggfile->save();
+    restoreTimeStamps();
 
     if (oggfile)
         delete oggfile;

@@ -32,7 +32,7 @@ class SystemEventThread : public QRunnable
      *  \param cmd       Command line to run for this System Event
      *  \param eventName Optional System Event name for this command
      */
-    SystemEventThread(const QString cmd, QString eventName = "")
+    SystemEventThread(const QString &cmd, QString eventName = "")
       : m_command(cmd), m_event(eventName) {};
 
     /** \fn SystemEventThread::run()
@@ -130,6 +130,7 @@ void MythSystemEventHandler::SubstituteMatches(const QStringList &tokens,
         // Check for some token names that we substitute one for one as
         // %MATCH% type variables.
         if ((*it == "CARDID") ||
+            (*it == "COMMAND") ||
             (*it == "RECSTATUS") ||
             (*it == "HOSTNAME") ||
             (*it == "SECS") ||
@@ -319,7 +320,7 @@ void MythSystemEventHandler::customEvent(QEvent *e)
  *  \param msg    Const QString to send as a System Event
  *  \param pginfo Pointer to a RecordingInfo containing info on a recording
  */
-void SendMythSystemRecEvent(const QString msg, const RecordingInfo *pginfo)
+void SendMythSystemRecEvent(const QString &msg, const RecordingInfo *pginfo)
 {
     if (pginfo)
     {
@@ -343,7 +344,7 @@ void SendMythSystemRecEvent(const QString msg, const RecordingInfo *pginfo)
  *  \param msg    Const QString to send as a System Event
  *  \param pginfo Pointer to a RecordingInfo containing info on a recording
  */
-void SendMythSystemPlayEvent(const QString msg, const ProgramInfo *pginfo)
+void SendMythSystemPlayEvent(const QString &msg, const ProgramInfo *pginfo)
 {
     if (pginfo)
         gCoreContext->SendSystemEvent(
@@ -446,6 +447,8 @@ MythSystemEventEditor::MythSystemEventEditor(MythScreenStack *parent,
         tr("Keystroke event #9");
     m_settings["EventCmdKey10"]                = // KEY_%1
         tr("Keystroke event #10");
+    m_settings["EventCmdCecCommandReceived"]   = // CEC_COMMAND_RECEIVED
+        tr("CEC command received");
     m_settings["EventCmdAll"]                  = // EventCmdAll
         tr("Any event");
 }

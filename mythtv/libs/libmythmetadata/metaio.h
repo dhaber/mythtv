@@ -1,6 +1,11 @@
 #ifndef METAIO_H_
 #define METAIO_H_
 
+// POSIX C headers
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
 // QT
 #include <QString>
 
@@ -18,20 +23,20 @@ class META_PUBLIC MetaIO
     /*!
     * \brief Writes all metadata back to a file
     *
+    * \param filename The filename to write metadata to
     * \param mdata A pointer to a MusicMetadata object
     * \returns Boolean to indicate success/failure.
     */
-    virtual bool write(const MusicMetadata* mdata) = 0;
+    virtual bool write(const QString &filename, MusicMetadata* mdata) = 0;
 
     /*!
     * \brief Writes rating and playcount back to a file
-    *
+    * \param filename The filename to write metadata to
     * \param mdata A pointer to a MusicMetadata object
     * \returns Boolean to indicate success/failure.
     */
-    virtual bool writeVolatileMetadata(const MusicMetadata* mdata)
+    virtual bool writeVolatileMetadata(const QString & /*filename*/, MusicMetadata* /*mdata*/)
     {
-        (void)mdata;
         return false;
     }
 
@@ -156,13 +161,18 @@ class META_PUBLIC MetaIO
     */
     static MusicMetadata *getMetadata(const QString &filename);
 
-  protected:
+    static const QString ValidFileExtensions;
 
-  private:
+  protected:
+    void saveTimeStamps(void);
+    void restoreTimeStamps(void);
+
     virtual int getTrackLength(const QString &filename) = 0;
 
-    QString mFilename;
-    QString mFilenameFormat;
+    QString m_filename;
+    QString m_filenameFormat;
+
+    struct stat m_fileinfo;
 };
 
 #endif

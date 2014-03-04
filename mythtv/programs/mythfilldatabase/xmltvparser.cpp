@@ -473,7 +473,7 @@ ProgInfo *XMLTVParser::parseProgram(QDomElement &element)
 
                     if (!totalepisodes.isEmpty())
                     {
-                        pginfo->totalepisodes = totalepisodes.toUInt() + 1;
+                        pginfo->totalepisodes = totalepisodes.toUInt();
                     }
 
                     uint partno = 0;
@@ -495,11 +495,13 @@ ProgInfo *XMLTVParser::parseProgram(QDomElement &element)
                         }
                     }
                 }
-                else if (info.attribute("system") == "onscreen" &&
-                        pginfo->subtitle.isEmpty())
+                else if (info.attribute("system") == "onscreen")
                 {
                     pginfo->categoryType = ProgramInfo::kCategorySeries;
-                    pginfo->subtitle = getFirstText(info);
+                    if (pginfo->subtitle.isEmpty())
+                    {
+                        pginfo->subtitle = getFirstText(info);
+                    }
                 }
             }
         }
