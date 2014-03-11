@@ -28,6 +28,7 @@ class FileTransfer : public SocketHandler
                  MythSocketManager *parent, bool write);
 
     bool isOpen(void);
+    bool ReOpen(QString newFilename = "");
 
     void Stop(void);
 
@@ -39,6 +40,7 @@ class FileTransfer : public SocketHandler
     long long Seek(long long curpos, long long pos, int whence);
 
     uint64_t GetFileSize(void);
+    QString GetFileName(void);
 
     void SetTimeout(bool fast);
 

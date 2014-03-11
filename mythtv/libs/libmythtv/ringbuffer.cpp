@@ -206,7 +206,7 @@ RingBuffer::RingBuffer(RingBufferType rbtype) :
     request_pause(false),     paused(false),
     ateof(false),             readsallowed(false),
     setswitchtonext(false),
-    rawbitrate(8000),         playspeed(1.0f),
+    rawbitrate(800),          playspeed(1.0f),
     fill_threshold(65536),    fill_min(-1),
     readblocksize(CHUNK),     wanttoread(0),
     numfailures(0),           commserror(false),
@@ -360,7 +360,6 @@ void RingBuffer::CalcReadAheadThresh(void)
     uint estbitrate = 0;
 
     readsallowed   = false;
-    readblocksize  = max(readblocksize, CHUNK);
 
     // loop without sleeping if the buffered data is less than this
     fill_threshold = 7 * bufferSize / 8;
@@ -368,6 +367,7 @@ void RingBuffer::CalcReadAheadThresh(void)
     const uint KB2   =   2*1024;
     const uint KB4   =   4*1024;
     const uint KB8   =   8*1024;
+    const uint KB16  =  16*1024;
     const uint KB32  =  32*1024;
     const uint KB64  =  64*1024;
     const uint KB128 = 128*1024;
@@ -381,13 +381,18 @@ void RingBuffer::CalcReadAheadThresh(void)
                      (estbitrate >  9000) ? KB256 :
                      (estbitrate >  5000) ? KB128 :
                      (estbitrate >  2500) ? KB64  :
-                     (estbitrate >=  500) ? KB32  :
+                     (estbitrate >  1250) ? KB32  :
+                     (estbitrate >=  500) ? KB16  :
                      (estbitrate >   250) ? KB8   :
                      (estbitrate >   125) ? KB4   : KB2;
     if (rbs < CHUNK)
+    {
         readblocksize = rbs;
+    }
     else
+    {
         readblocksize = max(rbs,readblocksize);
+    }
 
     // minumum seconds of buffering before allowing read
     float secs_min = 0.35;
@@ -420,32 +425,37 @@ void RingBuffer::CalcReadAheadThresh(void)
 
 bool RingBuffer::IsNearEnd(double fps, uint vvf) const
 {
-    rwlock.lockForRead();
-    long long sz2 = ReadBufAvail();
+    QReadLocker lock(&rwlock);
+
+    if (!ateof && !setswitchtonext)
+    {
+        // file is still being read, so can't be finished
+        return false;
+    }
+
     poslock.lockForRead();
-    long long rp  = readpos;
+    long long rp = readpos;
+    long long sz = internalreadpos - readpos;
     poslock.unlock();
-    long long sz  = GetRealFileSize() - rp;
-    sz = max(sz, sz2);
 
     // telecom kilobytes (i.e. 1000 per k not 1024)
     uint   tmp = (uint) max(abs(rawbitrate * playspeed), 0.5f * rawbitrate);
     uint   kbits_per_sec = min(rawbitrate * 3, tmp);
-    rwlock.unlock();
 
-    // WARNING: readahead_frames can greatly overestimate or underestimate
-    //          the number of frames available in the read ahead buffer
-    //          when rh_frames is less than the keyframe distance.
-    double bytes_per_frame = kbits_per_sec * (1000.0/8.0) / fps;
-    double readahead_frames = sz / bytes_per_frame;
+    double readahead_time   = sz / (kbits_per_sec * (1000.0/8.0));
 
-    bool near_end = (vvf + readahead_frames) < 20.0;
-
+    bool near_end = readahead_time <= 1.5;
     LOG(VB_PLAYBACK, LOG_INFO, LOC + "IsReallyNearEnd()" +
             QString(" br(%1KB)").arg(kbits_per_sec/8) +
             QString(" sz(%1KB)").arg(sz / 1000LL) +
             QString(" vfl(%1)").arg(vvf) +
-            QString(" frh(%1)").arg(((uint)readahead_frames)) +
+            QString(" time(%1)").arg(readahead_time) +
+            QString(" rawbitrate(%1)").arg(rawbitrate) +
+            QString(" avail(%1)").arg(sz) +
+            QString(" internal_size(%1)").arg(internalreadpos) +
+            QString(" readposition(%1)").arg(rp) +
+            QString(" stopreads(%1)").arg(stopreads) +
+            QString(" paused(%1)").arg(paused) +
             QString(" ne:%1").arg(near_end));
 
     return near_end;
