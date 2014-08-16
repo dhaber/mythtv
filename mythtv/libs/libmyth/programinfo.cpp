@@ -1,16 +1,16 @@
 // -*- Mode: c++ -*-
 
 // POSIX headers
-#include <sys/types.h>
-#include <unistd.h>
-
-// C headers
-#include <cstdlib>
+// FIXME What are these used for?
+// #include <sys/types.h>
+// #include <unistd.h>
 
 // C++ headers
-#include <iostream>
 #include <algorithm>
-using namespace std;
+using std::max;
+using std::min;
+#include <deque>
+using std::deque;
 
 // Qt headers
 #include <QRegExp>
@@ -66,7 +66,7 @@ const QString ProgramInfo::kFromRecordedQuery =
     "       r.findid,           rec.dupin,      rec.dupmethod,     "//45-47
     "       p.syndicatedepisodenumber, p.partnumber, p.parttotal,  "//48-50
     "       p.season,           p.episode,      p.totalepisodes,   "//51-53
-    "       p.category_type                                        "//54
+    "       p.category_type,    r.recordedid                       "//54-55
     "FROM recorded AS r "
     "LEFT JOIN channel AS c "
     "ON (r.chanid    = c.chanid) "
@@ -178,7 +178,9 @@ ProgramInfo::ProgramInfo(void) :
     oldrecstatus(rsUnknown),
     rectype(kNotRecording),
     dupin(kDupsInAll),
-    dupmethod(kDupCheckSubDesc),
+    dupmethod(kDupCheckSubThenDesc),
+
+    recordedid(0),
 
     // everything below this line is not serialized
     availableStatus(asAvailable),
@@ -262,6 +264,8 @@ ProgramInfo::ProgramInfo(const ProgramInfo &other) :
     dupin(other.dupin),
     dupmethod(other.dupmethod),
 
+    recordedid(other.recordedid),
+
     // everything below this line is not serialized
     availableStatus(other.availableStatus),
     spread(other.spread),
@@ -274,13 +278,43 @@ ProgramInfo::ProgramInfo(const ProgramInfo &other) :
 {
 }
 
+/** \fn ProgramInfo::ProgramInfo(uint _recordedid)
+ *  \brief Constructs a ProgramInfo from data in 'recorded' table
+ */
+ProgramInfo::ProgramInfo(uint _recordedid)
+{
+    clear();
+
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare(
+        "SELECT chanid, starttime "
+        "FROM recorded "
+        "WHERE recordedid = :RECORDEDID");
+    query.bindValue(":RECORDEDID", _recordedid);
+
+    if (query.exec() && query.next())
+    {
+        uint _chanid          = query.value(0).toUInt();
+        QDateTime _recstartts = MythDate::as_utc(query.value(1).toDateTime());
+        LoadProgramFromRecorded(_chanid, _recstartts);
+    }
+    else
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Failed to find recorded entry for %1.")
+            .arg(_recordedid));
+        clear();
+    }
+}
+
 /** \fn ProgramInfo::ProgramInfo(uint _chanid, const QDateTime &_recstartts)
  *  \brief Constructs a ProgramInfo from data in 'recorded' table
  */
 ProgramInfo::ProgramInfo(uint _chanid, const QDateTime &_recstartts) :
-    chanid(0),
     positionMapDBReplacement(NULL)
 {
+    clear();
+
     LoadProgramFromRecorded(_chanid, _recstartts);
 }
 
@@ -288,6 +322,7 @@ ProgramInfo::ProgramInfo(uint _chanid, const QDateTime &_recstartts) :
  *  \brief Constructs a ProgramInfo from data in 'recorded' table
  */
 ProgramInfo::ProgramInfo(
+    uint  _recordedid,
     const QString &_title,
     const QString &_subtitle,
     const QString &_description,
@@ -415,6 +450,8 @@ ProgramInfo::ProgramInfo(
     dupin(_dupin),
     dupmethod(_dupmethod),
 
+    recordedid(_recordedid),
+
     // everything below this line is not serialized
     availableStatus(asAvailable),
     spread(-1),
@@ -530,6 +567,8 @@ ProgramInfo::ProgramInfo(
     rectype(_rectype),
     dupin(0),
     dupmethod(0),
+
+    recordedid(0),
 
     // everything below this line is not serialized
     availableStatus(asAvailable),
@@ -658,7 +697,9 @@ ProgramInfo::ProgramInfo(
     oldrecstatus(rsUnknown),
     rectype(_rectype),
     dupin(kDupsInAll),
-    dupmethod(kDupCheckSubDesc),
+    dupmethod(kDupCheckSubThenDesc),
+
+    recordedid(0),
 
     // everything below this line is not serialized
     availableStatus(asAvailable),
@@ -679,12 +720,17 @@ ProgramInfo::ProgramInfo(
     ProgramList::const_iterator it = schedList.begin();
     for (; it != schedList.end(); ++it)
     {
+        // If this showing is scheduled to be recorded, then we need to copy
+        // some of the information from the scheduler
+        //
+        // This applies even if the showing may be on a different channel
+        // to the one which is actually being recorded e.g. A regional or HD
+        // variant of the same channel
         if (!IsSameProgramAndStartTime(**it))
             continue;
 
         const ProgramInfo &s = **it;
         recordid    = s.recordid;
-        recstatus   = s.recstatus;
         rectype     = s.rectype;
         recpriority = s.recpriority;
         recstartts  = s.recstartts;
@@ -694,16 +740,21 @@ ProgramInfo::ProgramInfo(
         dupin       = s.dupin;
         dupmethod   = s.dupmethod;
         findid      = s.findid;
+        recordedid  = s.recordedid;
 
-        if (chansign != s.chansign)
+        // This is the exact showing (same chanid or callsign)
+        // which will be recorded
+        if (IsSameChannel(s))
         {
-            if (s.recstatus == rsWillRecord)
-                recstatus = rsOtherShowing;
-            else if (s.recstatus == rsRecording)
-                recstatus = rsOtherRecording;
-            else if (s.recstatus == rsTuning)
-                recstatus = rsOtherTuning;
+            recstatus   = s.recstatus;
+            break;
         }
+
+        if (s.recstatus == rsWillRecord ||
+            s.recstatus == rsRecording ||
+            s.recstatus == rsTuning ||
+            s.recstatus == rsFailing)
+        recstatus = s.recstatus;
     }
 }
 
@@ -800,7 +851,9 @@ ProgramInfo::ProgramInfo(
     oldrecstatus(rsUnknown),
     rectype(kNotRecording),
     dupin(kDupsInAll),
-    dupmethod(kDupCheckSubDesc),
+    dupmethod(kDupCheckSubThenDesc),
+
+    recordedid(0),
 
     // everything below this line is not serialized
     availableStatus(asAvailable),
@@ -818,12 +871,11 @@ ProgramInfo::ProgramInfo(
  *  \brief Constructs a ProgramInfo for a pathname.
  */
 ProgramInfo::ProgramInfo(const QString &_pathname) :
-    chanid(0),
     positionMapDBReplacement(NULL)
 {
+    clear();
     if (_pathname.isEmpty())
     {
-        clear();
         return;
     }
 
@@ -876,6 +928,7 @@ ProgramInfo::ProgramInfo(const QString &_pathname,
     director = _director;
     programid = _programid;
     inetref = _inetref;
+    year = _year;
 
     QDateTime cur = MythDate::current();
     recstartts = cur.addSecs(((int)_length_in_minutes + 1) * -60);
@@ -1040,6 +1093,8 @@ void ProgramInfo::clone(const ProgramInfo &other,
     dupin = other.dupin;
     dupmethod = other.dupmethod;
 
+    recordedid = other.recordedid;
+
     sourceid = other.sourceid;
     inputid = other.inputid;
     cardid = other.cardid;
@@ -1146,7 +1201,9 @@ void ProgramInfo::clear(void)
 
     rectype = kNotRecording;
     dupin = kDupsInAll;
-    dupmethod = kDupCheckSubDesc;
+    dupmethod = kDupCheckSubThenDesc;
+
+    recordedid = 0;
 
     sourceid = 0;
     inputid = 0;
@@ -1312,6 +1369,8 @@ void ProgramInfo::ToStringList(QStringList &list) const
     INT_TO_LIST(partnumber);   // 46
     INT_TO_LIST(parttotal);    // 47
     INT_TO_LIST(catType);      // 48
+
+    INT_TO_LIST(recordedid);   //49
 /* do not forget to update the NUMPROGRAMLINES defines! */
 }
 
@@ -1416,6 +1475,8 @@ bool ProgramInfo::FromStringList(QStringList::const_iterator &it,
     INT_FROM_LIST(partnumber);        // 46
     INT_FROM_LIST(parttotal);         // 47
     ENUM_FROM_LIST(catType, CategoryType); // 48
+
+    INT_FROM_LIST(recordedid);        // 49
 
     if (!origChanid || !origRecstartts.isValid() ||
         (origChanid != chanid) || (origRecstartts != recstartts))
@@ -1557,6 +1618,9 @@ void ProgramInfo::ToMap(InfoMap &progMap,
     progMap["lastmodified"] =
         MythDate::toString(lastmodified, kDateTimeFull | kSimplify);
 
+    if (recordedid)
+        progMap["recordedid"] = recordedid;
+
     progMap["channum"] = chanstr;
     progMap["chanid"] = chanid;
     progMap["channame"] = channame;
@@ -1672,7 +1736,7 @@ void ProgramInfo::ToMap(InfoMap &progMap,
     progMap["inetref"] = inetref;
     progMap["catType"] = myth_category_type_to_string(catType);
 
-    progMap["year"] = year ? QString::number(year) : "";
+    progMap["year"] = year > 1895 ? QString::number(year) : "";
 
     progMap["partnumber"] = partnumber ? QString::number(partnumber) : "";
     progMap["parttotal"] = parttotal ? QString::number(parttotal) : "";
@@ -1753,7 +1817,7 @@ uint ProgramInfo::GetSecondsInRecording(void) const
 /// \brief Returns catType as a string
 QString ProgramInfo::GetCategoryTypeString(void) const
 {
-    return myth_category_type_to_string(catType); 
+    return myth_category_type_to_string(catType);
 }
 
 /// \brief Returns last frame in position map or 0
@@ -1980,6 +2044,8 @@ bool ProgramInfo::LoadProgramFromRecorded(
     dupin        = RecordingDupInType(query.value(46).toInt());
     dupmethod    = RecordingDupMethodType(query.value(47).toInt());
 
+    recordedid   = query.value(55).toUInt();
+
     // ancillary data -- begin
     programflags = FL_NONE;
     set_flag(programflags, FL_CHANCOMMFREE,
@@ -2036,7 +2102,7 @@ bool ProgramInfo::IsSameProgramWeakCheck(const ProgramInfo &other) const
  *  \brief Checks for duplicates according to dupmethod.
  *  \param other ProgramInfo to compare this one with.
  */
-bool ProgramInfo::IsSameProgram(const ProgramInfo& other) const
+bool ProgramInfo::IsDuplicateProgram(const ProgramInfo& other) const
 {
     if (GetRecordingRuleType() == kOneRecord)
         return recordid == other.recordid;
@@ -2059,6 +2125,65 @@ bool ProgramInfo::IsSameProgram(const ProgramInfo& other) const
 
     if (!programid.isEmpty() && !other.programid.isEmpty())
     {
+        if (usingProgIDAuth)
+        {
+            int index = programid.indexOf('/');
+            int oindex = other.programid.indexOf('/');
+            if (index == oindex && (index < 0 ||
+                programid.leftRef(index) == other.programid.leftRef(oindex)))
+                return programid == other.programid;
+        }
+        else
+        {
+            return programid == other.programid;
+        }
+    }
+
+    if ((dupmethod & kDupCheckSub) &&
+        ((subtitle.isEmpty()) ||
+         (subtitle.compare(other.subtitle, Qt::CaseInsensitive) != 0)))
+        return false;
+
+    if ((dupmethod & kDupCheckDesc) &&
+        ((description.isEmpty()) ||
+         (description.compare(other.description, Qt::CaseInsensitive) != 0)))
+        return false;
+
+    if ((dupmethod & kDupCheckSubThenDesc) &&
+        ((subtitle.isEmpty() &&
+          ((!other.subtitle.isEmpty() &&
+            description.compare(other.subtitle, Qt::CaseInsensitive) != 0) ||
+           (other.subtitle.isEmpty() &&
+            description.compare(other.description, Qt::CaseInsensitive) != 0))) ||
+         (!subtitle.isEmpty() &&
+          ((other.subtitle.isEmpty() &&
+            subtitle.compare(other.description, Qt::CaseInsensitive) != 0) ||
+           (!other.subtitle.isEmpty() &&
+            subtitle.compare(other.subtitle, Qt::CaseInsensitive) != 0)))))
+        return false;
+
+    return true;
+}
+
+/**
+ *  \brief Checks whether this is the same program as "other", which may or may
+ *         not be a repeat or on another channel. Matches based on programid
+ *         with a fallback to dupmethod
+ *  \param other ProgramInfo to compare this one with.
+ */
+bool ProgramInfo::IsSameProgram(const ProgramInfo& other) const
+{
+    if (title.compare(other.title, Qt::CaseInsensitive) != 0)
+        return false;
+
+    if (!programid.isEmpty() && !other.programid.isEmpty())
+    {
+        if (catType == kCategorySeries)
+        {
+            if (programid.endsWith("0000"))
+                return false;
+        }
+
         if (usingProgIDAuth)
         {
             int index = programid.indexOf('/');
@@ -2124,9 +2249,7 @@ bool ProgramInfo::IsSameTitleStartTimeAndChannel(const ProgramInfo& other) const
     if (title.compare(other.title, Qt::CaseInsensitive) != 0)
         return false;
     if (startts == other.startts &&
-        (chanid == other.chanid ||
-         (!chansign.isEmpty() &&
-          chansign.compare(other.chansign, Qt::CaseInsensitive) == 0)))
+        IsSameChannel(other))
         return true;
 
     return false;
@@ -2142,11 +2265,25 @@ bool ProgramInfo::IsSameTitleTimeslotAndChannel(const ProgramInfo &other) const
 {
     if (title.compare(other.title, Qt::CaseInsensitive) != 0)
         return false;
-    if ((chanid == other.chanid ||
-         (!chansign.isEmpty() &&
-          chansign.compare(other.chansign, Qt::CaseInsensitive) == 0)) &&
+    if (IsSameChannel(other) &&
         startts < other.endts &&
         endts > other.startts)
+        return true;
+
+    return false;
+}
+
+/**
+ *  \brief Checks whether channel id or callsign are identical
+ *  \param other ProgramInfo to compare this one with.
+ *  \return true if this program's channel is likely to be the same
+ *          as the "other" program's channel
+ */
+bool ProgramInfo::IsSameChannel(const ProgramInfo& other) const
+{
+    if (chanid == other.chanid ||
+         (!chansign.isEmpty() &&
+          chansign.compare(other.chansign, Qt::CaseInsensitive) == 0))
         return true;
 
     return false;
@@ -2413,18 +2550,18 @@ QString ProgramInfo::GetPlaybackURL(
         (gCoreContext->GetNumSetting("MasterBackendOverride", 0)) &&
         (RemoteCheckFile(this, false)))
     {
-        tmpURL = gCoreContext->GenMythURL(gCoreContext->GetSetting("MasterServerIP"),
-                                          gCoreContext->GetSetting("MasterServerPort").toInt(),
+        tmpURL = gCoreContext->GenMythURL(gCoreContext->GetMasterServerIP(),
+                                          gCoreContext->GetMasterServerPort(),
                                           basename);
 
         LOG(VB_FILE, LOG_INFO, LOC +
             QString("GetPlaybackURL: Found @ '%1'").arg(tmpURL));
         return tmpURL;
-        }
+    }
 
     // Fallback to streaming from the backend the recording was created on
     tmpURL = gCoreContext->GenMythURL(gCoreContext->GetBackendServerIP(hostname),
-                                      gCoreContext->GetSettingOnHost("BackendServerPort", hostname).toInt(),
+                                      gCoreContext->GetBackendServerPort(hostname),
                                       basename);
 
     LOG(VB_FILE, LOG_INFO, LOC +
@@ -3621,25 +3758,31 @@ void ProgramInfo::SavePositionMap(
     if (!query.exec())
         MythDB::DBError("position map clear", query);
 
+    if (posMap.isEmpty())
+        return;
+
+    // Use the multi-value insert syntax to reduce database I/O
+    QStringList q("INSERT INTO ");
+    QString qfields;
     if (IsVideo())
     {
-        query.prepare(
-            "INSERT INTO "
-            "filemarkup (filename, mark, type, offset) "
-            "VALUES ( :PATH , :MARK , :TYPE , :OFFSET )");
-        query.bindValue(":PATH", videoPath);
+        q << "filemarkup (filename, type, mark, offset)";
+        qfields = QString("('%1',%2,") .
+            // ideally, this should be escaped
+            arg(videoPath) .
+            arg(type);
     }
     else // if (IsRecording())
     {
-        query.prepare(
-            "INSERT INTO "
-            "recordedseek (chanid, starttime, mark, type, offset) "
-            " VALUES ( :CHANID , :STARTTIME , :MARK , :TYPE , :OFFSET )");
-        query.bindValue(":CHANID",    chanid);
-        query.bindValue(":STARTTIME", recstartts);
+        q << "recordedseek (chanid, starttime, type, mark, offset)";
+        qfields = QString("(%1,'%2',%3,") .
+            arg(chanid) .
+            arg(recstartts.toString(Qt::ISODate)) .
+            arg(type);
     }
-    query.bindValue(":TYPE", type);
+    q << " VALUES ";
 
+    bool add_comma = false;
     frm_pos_map_t::iterator it;
     for (it = posMap.begin(); it != posMap.end(); ++it)
     {
@@ -3653,20 +3796,29 @@ void ProgramInfo::SavePositionMap(
 
         uint64_t offset = *it;
 
-        query.bindValue(":MARK",   (quint64)frame);
-        query.bindValue(":OFFSET", (quint64)offset);
-
-        if (!query.exec())
+        if (add_comma)
         {
-            MythDB::DBError("position map insert", query);
-            break;
+            q << ",";
         }
+        else
+        {
+            add_comma = true;
+        }
+        q << qfields << QString("%1,%2)").arg(frame).arg(offset);
+    }
+    query.prepare(q.join(""));
+    if (!query.exec())
+    {
+        MythDB::DBError("position map insert", query);
     }
 }
 
 void ProgramInfo::SavePositionMapDelta(
     frm_pos_map_t &posMap, MarkTypes type) const
 {
+    if (posMap.isEmpty())
+        return;
+
     if (positionMapDBReplacement)
     {
         QMutexLocker locker(positionMapDBReplacement->lock);
@@ -3679,45 +3831,54 @@ void ProgramInfo::SavePositionMapDelta(
         return;
     }
 
-    MSqlQuery query(MSqlQuery::InitCon());
-
+    // Use the multi-value insert syntax to reduce database I/O
+    QStringList q("INSERT INTO ");
+    QString qfields;
     if (IsVideo())
     {
-        query.prepare(
-            "INSERT INTO "
-            "filemarkup (filename, mark, type, offset) "
-            "VALUES ( :PATH , :MARK , :TYPE , :OFFSET )");
-        query.bindValue(":PATH", StorageGroup::GetRelativePathname(pathname));
+        q << "filemarkup (filename, type, mark, offset)";
+        qfields = QString("('%1',%2,") .
+            // ideally, this should be escaped
+            arg(StorageGroup::GetRelativePathname(pathname)) .
+            arg(type);
     }
     else if (IsRecording())
     {
-        query.prepare(
-            "INSERT INTO "
-            "recordedseek (chanid, starttime, mark, type, offset) "
-            " VALUES ( :CHANID , :STARTTIME , :MARK , :TYPE , :OFFSET )");
-        query.bindValue(":CHANID",    chanid);
-        query.bindValue(":STARTTIME", recstartts);
+        q << "recordedseek (chanid, starttime, type, mark, offset)";
+        qfields = QString("(%1,'%2',%3,") .
+            arg(chanid) .
+            arg(recstartts.toString(Qt::ISODate)) .
+            arg(type);
     }
     else
     {
         return;
     }
-    query.bindValue(":TYPE", type);
+    q << " VALUES ";
 
+    bool add_comma = false;
     frm_pos_map_t::iterator it;
     for (it = posMap.begin(); it != posMap.end(); ++it)
     {
         uint64_t frame  = it.key();
         uint64_t offset = *it;
 
-        query.bindValue(":MARK",   (quint64)frame);
-        query.bindValue(":OFFSET", (quint64)offset);
-
-        if (!query.exec())
+        if (add_comma)
         {
-            MythDB::DBError("delta position map insert", query);
-            break;
+            q << ",";
         }
+        else
+        {
+            add_comma = true;
+        }
+        q << qfields << QString("%1,%2)").arg(frame).arg(offset);
+    }
+
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare(q.join(""));
+    if (!query.exec())
+    {
+        MythDB::DBError("delta position map insert", query);
     }
 }
 
@@ -4745,27 +4906,44 @@ bool ProgramInfo::QueryTuningInfo(QString &channum, QString &input) const
  */
 QString ProgramInfo::QueryInputDisplayName(void) const
 {
-    if (!inputid)
-        return QString::null;
+    QString result;
 
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("SELECT displayname, cardid, inputname "
-                  "FROM cardinput "
-                  "WHERE cardinputid = :INPUTID");
-    query.bindValue(":INPUTID", inputid);
-
-    if (!query.exec())
-        MythDB::DBError("ProgramInfo::GetInputDisplayName(uint)", query);
-    else if (query.next())
+    if (recordedid)
     {
-        QString result = query.value(0).toString();
-        if (result.isEmpty())
-            result = QString("%1: %2").arg(query.value(1).toInt())
-                                      .arg(query.value(2).toString());
-        return result;
+        MSqlQuery query(MSqlQuery::InitCon());
+        query.prepare("SELECT inputname "
+                      "FROM recorded "
+                      "WHERE recordedid = :RECORDEDID");
+        query.bindValue(":RECORDEDID", recordedid);
+
+        if (!query.exec())
+            MythDB::DBError("ProgramInfo::GetInputDisplayName()", query);
+        else if (query.next())
+            result = query.value(0).toString();
     }
 
-    return QString::null;
+    if (result.isEmpty() && inputid)
+    {
+        MSqlQuery query(MSqlQuery::InitCon());
+        query.prepare("SELECT displayname, cardid, inputname "
+                      "FROM cardinput "
+                      "WHERE cardinputid = :INPUTID");
+        query.bindValue(":INPUTID", inputid);
+
+        if (!query.exec())
+            MythDB::DBError("ProgramInfo::GetInputDisplayName()", query);
+        else if (query.next())
+        {
+            result = query.value(0).toString();
+            if (result.isEmpty())
+            {
+                result = QString("%1: %2").arg(query.value(1).toInt())
+                    .arg(query.value(2).toString());
+            }
+        }
+    }
+
+    return result;
 }
 
 static int init_tr(void)
@@ -5012,22 +5190,43 @@ QStringList ProgramInfo::LoadFromScheduler(
     return slist;
 }
 
-static bool FromProgramQuery(
-    const QString &sql, const MSqlBindings &bindings, MSqlQuery &query)
+// NOTE: This may look ugly, and in some ways it is, but it's designed this
+//       way for with two purposes in mind - Consistent behaviour and speed
+//       So if you do make changes then carefully test that it doesn't result
+//       in any regressions in total speed of execution or adversely affect the
+//       results returned for any of it's users.
+static bool FromProgramQuery(const QString &sql, const MSqlBindings &bindings,
+                             MSqlQuery &query, const uint &start,
+                             const uint &limit, uint &count)
 {
+    count = 0;
+
+    if (sql.contains("OFFSET", Qt::CaseInsensitive))
+        LOG(VB_GENERAL, LOG_WARNING, "LoadFromProgram(): SQL contains OFFSET "
+                                     "clause, caller should be updated to use "
+                                     "start parameter instead");
+
+    if (sql.contains("LIMIT", Qt::CaseInsensitive))
+        LOG(VB_GENERAL, LOG_WARNING, "LoadFromProgram(): SQL contains LIMIT "
+                                     "clause, caller should be updated to use "
+                                     "limit parameter instead");
+
+    QString columns = QString(
+        "program.chanid, program.starttime, program.endtime, "
+        "program.title, program.subtitle, program.description, "
+        "program.category, channel.channum, channel.callsign, "
+        "channel.name, program.previouslyshown, channel.commmethod, "
+        "channel.outputfilters, program.seriesid, program.programid, "
+        "program.airdate, program.stars, program.originalairdate, "
+        "program.category_type, oldrecstatus.recordid, "
+        "oldrecstatus.rectype, oldrecstatus.recstatus, "
+        "oldrecstatus.findid, program.videoprop+0, program.audioprop+0, "
+        "program.subtitletypes+0, program.syndicatedepisodenumber, "
+        "program.partnumber, program.parttotal, "
+        "program.season, program.episode, program.totalepisodes ");
+
     QString querystr = QString(
-        "SELECT program.chanid, program.starttime, program.endtime, "
-        "    program.title, program.subtitle, program.description, "
-        "    program.category, channel.channum, channel.callsign, "
-        "    channel.name, program.previouslyshown, channel.commmethod, "
-        "    channel.outputfilters, program.seriesid, program.programid, "
-        "    program.airdate, program.stars, program.originalairdate, "
-        "    program.category_type, oldrecstatus.recordid, "
-        "    oldrecstatus.rectype, oldrecstatus.recstatus, "
-        "    oldrecstatus.findid, program.videoprop+0, program.audioprop+0, "
-        "    program.subtitletypes+0, program.syndicatedepisodenumber, "
-        "    program.partnumber, program.parttotal, "
-        "    program.season, program.episode, program.totalepisodes "
+        "SELECT %1 "
         "FROM program "
         "LEFT JOIN channel ON program.chanid = channel.chanid "
         "LEFT JOIN oldrecorded AS oldrecstatus ON "
@@ -5037,26 +5236,55 @@ static bool FromProgramQuery(
         "    program.starttime = oldrecstatus.starttime "
         ) + sql;
 
-    if (!sql.contains("WHERE"))
-        querystr += " WHERE visible != 0 ";
-    if (!sql.contains("GROUP BY"))
-        querystr += " GROUP BY program.starttime, channel.channum, "
-            "  channel.callsign, program.title ";
-    if (!sql.contains("ORDER BY"))
-    {
-        querystr += " ORDER BY program.starttime, ";
-        QString chanorder =
-            gCoreContext->GetSetting("ChannelOrdering", "channum");
-        if (chanorder != "channum")
-            querystr += chanorder + " ";
-        else // approximation which the DB can handle
-            querystr += "atsc_major_chan,atsc_minor_chan,channum,callsign ";
-    }
-    if (!sql.contains("LIMIT"))
-        querystr += " LIMIT 20000 ";
+    // If a limit arg was given then append the LIMIT, otherwise set a hard
+    // limit of 20000.
+    if (limit > 0)
+        querystr += QString("LIMIT %1 ").arg(limit);
+    else if (!querystr.contains("LIMIT"))
+        querystr += " LIMIT 20000 "; // For performance reasons we have to have an upper limit
 
-    query.prepare(querystr);
     MSqlBindings::const_iterator it;
+    // Some end users need to know the total number of matching records,
+    // irrespective of any LIMIT clause
+    //
+    // SQL_CALC_FOUND_ROWS is better than COUNT(*), as COUNT(*) won't work
+    // with any GROUP BY clauses. COUNT is marginally faster but not enough to
+    // matter
+    //
+    // It's considerably faster in my tests to do a separate query which returns
+    // no data using SQL_CALC_FOUND_ROWS than it is to use SQL_CALC_FOUND_ROWS
+    // with the full query. Unfortunate but true.
+    //
+    // e.g. Fetching all programs for the next 14 days with a LIMIT of 10 - 220ms
+    //      Same query with SQL_CALC_FOUND_ROWS - 1920ms
+    //      Same query but only one column and with SQL_CALC_FOUND_ROWS - 370ms
+    //      Total to fetch both the count and the data = 590ms vs 1920ms
+    //      Therefore two queries is 1.4 seconds faster than one query.
+    if (start > 0 || limit > 0)
+    {
+        QString countStr = querystr.arg("SQL_CALC_FOUND_ROWS program.chanid");
+        query.prepare(countStr);
+        for (it = bindings.begin(); it != bindings.end(); ++it)
+        {
+            if (countStr.contains(it.key()))
+                query.bindValue(it.key(), it.value());
+        }
+
+        if (!query.exec())
+        {
+            MythDB::DBError("LoadFromProgramQuery", query);
+            return false;
+        }
+
+        if (query.exec("SELECT FOUND_ROWS()") && query.next())
+            count = query.value(0).toUInt();
+    }
+
+    if (start > 0)
+        querystr += QString("OFFSET %1 ").arg(start);
+
+    querystr = querystr.arg(columns);
+    query.prepare(querystr);
     for (it = bindings.begin(); it != bindings.end(); ++it)
     {
         if (querystr.contains(it.key()))
@@ -5072,16 +5300,64 @@ static bool FromProgramQuery(
     return true;
 }
 
-bool LoadFromProgram(
-    ProgramList &destination,
-    const QString &sql, const MSqlBindings &bindings,
-    const ProgramList &schedList)
+bool LoadFromProgram(ProgramList &destination,
+                     const QString &sql, const MSqlBindings &bindings,
+                     const ProgramList &schedList)
+{
+    uint count;
+
+    QString queryStr = sql;
+    // ------------------------------------------------------------------------
+    // FIXME: Remove the following. These all make assumptions about the content
+    //        of the sql passed in, they can end up breaking that query by
+    //        inserting a WHERE clause after a GROUP BY, or a GROUP BY after
+    //        an ORDER BY. These should be part of the sql passed in otherwise
+    //        the caller isn't getting what they asked for and to fix that they
+    //        are forced to include a GROUP BY, ORDER BY or WHERE that they
+    //        do not want
+    if (!queryStr.contains("WHERE"))
+        queryStr += " WHERE visible != 0 ";
+
+    // NOTE: Any GROUP BY clause with a LIMIT is slow, adding at least
+    // a couple of seconds to the query execution time
+
+    // TODO: This one seems to be dealing with eliminating duplicate channels (same
+    // programming, different source), but using GROUP BY for that isn't very
+    // efficient so another approach is required
+    if (!queryStr.contains("GROUP BY"))
+        queryStr += " GROUP BY program.starttime, channel.channum, "
+                    "          channel.callsign, program.title ";
+
+    if (!queryStr.contains("ORDER BY"))
+    {
+        queryStr += " ORDER BY program.starttime, ";
+        QString chanorder =
+            gCoreContext->GetSetting("ChannelOrdering", "channum");
+        if (chanorder != "channum")
+            queryStr += chanorder + " ";
+        else // approximation which the DB can handle
+            queryStr += "atsc_major_chan,atsc_minor_chan,channum,callsign ";
+    }
+
+    // ------------------------------------------------------------------------
+
+    return LoadFromProgram(destination, sql, bindings, schedList, 0, 0, count);
+}
+
+bool LoadFromProgram( ProgramList &destination,
+                      const QString &sql, const MSqlBindings &bindings,
+                      const ProgramList &schedList,
+                      const uint &start, const uint &limit, uint &count)
 {
     destination.clear();
 
     MSqlQuery query(MSqlQuery::InitCon());
-    if (!FromProgramQuery(sql, bindings, query))
+    query.setForwardOnly(true);
+    if (!FromProgramQuery(sql, bindings, query, start, limit, count))
         return false;
+
+    if (count == 0)
+        count = query.size();
 
     while (query.next())
     {
@@ -5370,6 +5646,7 @@ bool LoadFromRecorded(
 
         destination.push_back(
             new ProgramInfo(
+                query.value(55).toUInt(),
                 query.value(0).toString(),
                 query.value(1).toString(),
                 query.value(2).toString(),

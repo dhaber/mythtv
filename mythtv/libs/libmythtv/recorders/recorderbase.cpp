@@ -17,6 +17,7 @@ using namespace std;
 #include "cetonchannel.h"
 #include "asirecorder.h"
 #include "dvbrecorder.h"
+#include "ExternalRecorder.h"
 #include "hdhrchannel.h"
 #include "iptvchannel.h"
 #include "mythlogging.h"
@@ -25,6 +26,7 @@ using namespace std;
 #include "dtvchannel.h"
 #include "dvbchannel.h"
 #include "v4lchannel.h"
+#include "ExternalChannel.h"
 #include "ringbuffer.h"
 #include "cardutil.h"
 #include "tv_rec.h"
@@ -369,6 +371,30 @@ void RecorderBase::CheckForRingBufferSwitch(void)
         tvrec->RingBufferChanged(ringBuffer, curRecording, recq);
 }
 
+void RecorderBase::SetRecordingStatus(RecStatusType status,
+                                      const QString& file, int line)
+{
+    if (curRecording)
+    {
+        LOG(VB_RECORD, LOG_INFO, QString("Modifying recording status to %1 "
+                                         "at %2:%3")
+            .arg(toString(status, kSingleRecord)).arg(file).arg(line));
+
+        curRecording->SetRecordingStatus(status);
+
+        if (status == rsFailing)
+            curRecording->SaveVideoProperties(VID_DAMAGED, VID_DAMAGED);
+
+        MythEvent me(QString("UPDATE_RECORDING_STATUS %1 %2 %3 %4 %5")
+                    .arg(curRecording->GetCardID())
+                    .arg(curRecording->GetChanID())
+                    .arg(curRecording->GetScheduledStartTime(MythDate::ISODate))
+                    .arg(status)
+                    .arg(curRecording->GetRecordingEndTime(MythDate::ISODate)));
+        gCoreContext->dispatch(me);
+    }
+}
+
 void RecorderBase::ClearStatistics(void)
 {
     QMutexLocker locker(&statisticsLock);
@@ -395,7 +421,7 @@ RecordingQuality *RecorderBase::GetRecordingQuality(
         timeOfFirstData, timeOfLatestData);
 }
 
-int64_t RecorderBase::GetKeyframePosition(uint64_t desired) const
+long long RecorderBase::GetKeyframePosition(long long desired) const
 {
     QMutexLocker locker(&positionMapLock);
     long long ret = -1;
@@ -416,7 +442,7 @@ int64_t RecorderBase::GetKeyframePosition(uint64_t desired) const
 }
 
 bool RecorderBase::GetKeyframePositions(
-    int64_t start, int64_t end, frm_pos_map_t &map) const
+    long long start, long long end, frm_pos_map_t &map) const
 {
     map.clear();
 
@@ -427,7 +453,7 @@ bool RecorderBase::GetKeyframePositions(
     frm_pos_map_t::const_iterator it = positionMap.lowerBound(start);
     end = (end < 0) ? INT64_MAX : end;
     for (; (it != positionMap.end()) &&
-             (it.key() <= (uint64_t)end); ++it)
+             (it.key() <= end); ++it)
         map[it.key()] = *it;
 
     LOG(VB_GENERAL, LOG_DEBUG, LOC +
@@ -438,7 +464,7 @@ bool RecorderBase::GetKeyframePositions(
 }
 
 bool RecorderBase::GetKeyframeDurations(
-    int64_t start, int64_t end, frm_pos_map_t &map) const
+    long long start, long long end, frm_pos_map_t &map) const
 {
     map.clear();
 
@@ -449,7 +475,7 @@ bool RecorderBase::GetKeyframeDurations(
     frm_pos_map_t::const_iterator it = durationMap.lowerBound(start);
     end = (end < 0) ? INT64_MAX : end;
     for (; (it != durationMap.end()) &&
-             (it.key() <= (uint64_t)end); ++it)
+             (it.key() <= end); ++it)
         map[it.key()] = *it;
 
     LOG(VB_GENERAL, LOG_DEBUG, LOC +
@@ -656,6 +682,11 @@ RecorderBase *RecorderBase::CreateRecorder(
         recorder = new NuppelVideoRecorder(tvrec, channel);
         recorder->SetOption("skipbtaudio", genOpt.skip_btaudio);
 #endif // USING_V4L2
+    }
+    else if (genOpt.cardtype == "EXTERNAL")
+    {
+        recorder = new ExternalRecorder(tvrec,
+                                dynamic_cast<ExternalChannel*>(channel));
     }
 
     if (recorder)

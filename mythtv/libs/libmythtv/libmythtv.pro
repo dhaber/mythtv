@@ -50,7 +50,6 @@ INCLUDEPATH += $$POSTINC
 
 !win32-msvc* {
     QMAKE_CXXFLAGS += $${FREETYPE_CFLAGS}
-    QMAKE_LFLAGS_SHLIB += $${FREETYPE_LIBS}
 }
 
 macx {
@@ -107,12 +106,7 @@ QMAKE_CLEAN += $(TARGET) $(TARGETA) $(TARGETD) $(TARGET0) $(TARGET1) $(TARGET2)
 
 # Headers needed by frontend & backend
 HEADERS += filter.h                 format.h
-HEADERS += frame.h
-
-# LZO used by NuppelDecoder & NuppelVideoRecorder
-HEADERS += lzoconf.h
-HEADERS += minilzo.h
-SOURCES += minilzo.cpp
+HEADERS += mythframe.h
 
 # Misc. needed by backend/frontend
 HEADERS += mythtvexp.h
@@ -136,7 +130,6 @@ HEADERS += channelsettings.h
 HEADERS += previewgenerator.h       previewgeneratorqueue.h
 HEADERS += audiopropsgenerator.h
 HEADERS += transporteditor.h        listingsources.h
-HEADERS += myth_imgconvert.h
 HEADERS += channelgroup.h           channelgroupsettings.h
 HEADERS += recordingrule.h
 HEADERS += mythsystemevent.h
@@ -144,6 +137,7 @@ HEADERS += avfringbuffer.h
 HEADERS += ringbuffer.h             fileringbuffer.h
 HEADERS += streamingringbuffer.h    metadataimagehelper.h
 HEADERS += icringbuffer.h
+HEADERS += mythavutil.h
 
 SOURCES += recordinginfo.cpp
 SOURCES += dbcheck.cpp
@@ -166,13 +160,13 @@ SOURCES += previewgenerator.cpp     previewgeneratorqueue.cpp
 SOURCES += audiopropsgenerator.cpp
 SOURCES += transporteditor.cpp
 SOURCES += channelgroup.cpp         channelgroupsettings.cpp
-SOURCES += myth_imgconvert.cpp
 SOURCES += recordingrule.cpp
 SOURCES += mythsystemevent.cpp
 SOURCES += avfringbuffer.cpp
 SOURCES += ringbuffer.cpp           fileringBuffer.cpp
 SOURCES += streamingringbuffer.cpp  metadataimagehelper.cpp
 SOURCES += icringbuffer.cpp
+SOURCES += mythframe.cpp            mythavutil.cpp
 
 # DiSEqC
 HEADERS += diseqc.h                 diseqcsettings.h
@@ -252,6 +246,7 @@ SOURCES += srtwriter.cpp
 inc.path = $${PREFIX}/include/mythtv/
 inc.files  = playgroup.h
 inc.files += mythtvexp.h            metadataimagehelper.h
+inc.files += mythavutil.h
 
 INSTALLS += inc
 
@@ -296,6 +291,8 @@ HEADERS += HLS/httplivestream.h
 SOURCES += HLS/httplivestream.cpp
 HEADERS += HLS/httplivestreambuffer.h
 SOURCES += HLS/httplivestreambuffer.cpp
+HEADERS += HLS/m3u.h
+SOURCES += HLS/m3u.cpp
 using_libcrypto:DEFINES += USING_LIBCRYPTO
 using_libcrypto:LIBS    += -lcrypto
 
@@ -323,7 +320,7 @@ using_frontend {
     SOURCES += mythiowrapper.cpp        tvbrowsehelper.cpp
     SOURCES += netstream.cpp
 
-    win32-msvc*:SOURCES += ../../platform/win32/msvc/src/posix/dirent.c
+    win32-msvc*:SOURCES += ../../../platform/win32/msvc/src/posix/dirent.c
 
     # Text subtitle parser
     HEADERS += textsubtitleparser.h     xine_demux_sputext.h
@@ -574,6 +571,8 @@ using_backend {
     SOURCES += recorders/importrecorder.cpp
 
     # Simple NuppelVideo Recorder
+    INCLUDEPATH += ../../external/minilzo
+    DEPENDPATH += ../../external/minilzo
     using_ffmpeg_threads:DEFINES += USING_FFMPEG_THREADS
     !mingw:!win32-msvc*:HEADERS += recorders/NuppelVideoRecorder.h
     HEADERS += recorders/RTjpegN.h
@@ -656,6 +655,7 @@ using_backend {
     HEADERS += recorders/rtp/rtppacketbuffer.h
     HEADERS += recorders/rtp/rtpdatapacket.h
     HEADERS += recorders/rtp/rtpfecpacket.h
+    HEADERS += recorders/rtp/rtcpdatapacket.h
 
     SOURCES += recorders/cetonrtsp.cpp
     SOURCES += recorders/iptvchannel.cpp
@@ -737,6 +737,16 @@ using_backend {
     using_hdpvr:SOURCES *= recorders/mpegrecorder.cpp
     using_hdpvr:DEFINES += USING_HDPVR
 
+    # External recorder
+    HEADERS += recorders/ExternalChannel.h
+    SOURCES += recorders/ExternalChannel.cpp
+    HEADERS += recorders/ExternalRecorder.h
+    SOURCES += recorders/ExternalRecorder.cpp
+    HEADERS += recorders/ExternalStreamHandler.h
+    SOURCES += recorders/ExternalStreamHandler.cpp
+    HEADERS += recorders/ExternalSignalMonitor.h
+    SOURCES += recorders/ExternalSignalMonitor.cpp
+
     # Support for Linux DVB drivers
     using_dvb {
         # Basic DVB types
@@ -817,6 +827,7 @@ win32-msvc* {
 # Have them at the end in order to properly resolve on mingw platform
 # where the order is of significance
 LIBS += -L../libmyth
+LIBS += -L../../external/FFmpeg/libswresample -lmythswresample
 LIBS += -L../../external/FFmpeg/libavutil
 LIBS += -L../../external/FFmpeg/libavcodec
 LIBS += -L../../external/FFmpeg/libavformat
@@ -836,10 +847,12 @@ using_mheg: LIBS += -L../libmythfreemheg -lmythfreemheg-$$LIBVERSION
 using_live: LIBS += -L../libmythlivemedia -lmythlivemedia-$$LIBVERSION
 using_hdhomerun: LIBS += -L../../external/libhdhomerun -lmythhdhomerun-$$LIBVERSION
 using_backend: LIBS += -lmp3lame
+using_backend: LIBS += -L../../external/minilzo -lmythminilzo-$$LIBVERSION
 LIBS += $$EXTRA_LIBS $$QMAKE_LIBS_DYNLOAD
 
 !win32-msvc* {
     POST_TARGETDEPS += ../libmyth/libmyth-$${MYTH_SHLIB_EXT}
+    POST_TARGETDEPS += ../../external/FFmpeg/libswresample/$$avLibName(swresample)
     POST_TARGETDEPS += ../../external/FFmpeg/libavutil/$$avLibName(avutil)
     POST_TARGETDEPS += ../../external/FFmpeg/libavcodec/$$avLibName(avcodec)
     POST_TARGETDEPS += ../../external/FFmpeg/libavformat/$$avLibName(avformat)
@@ -848,6 +861,7 @@ LIBS += $$EXTRA_LIBS $$QMAKE_LIBS_DYNLOAD
     using_mheg: POST_TARGETDEPS += ../libmythfreemheg/libmythfreemheg-$${MYTH_SHLIB_EXT}
     using_live: POST_TARGETDEPS += ../libmythlivemedia/libmythlivemedia-$${MYTH_SHLIB_EXT}
     using_hdhomerun: POST_TARGETDEPS += ../../external/libhdhomerun/libmythhdhomerun-$${LIBVERSION}.$${QMAKE_EXTENSION_SHLIB}
+    using_backend: POST_TARGETDEPS += ../../external/minilzo/libmythminilzo-$${MYTH_LIB_EXT}
 }
 
 include ( ../libs-targetfix.pro )

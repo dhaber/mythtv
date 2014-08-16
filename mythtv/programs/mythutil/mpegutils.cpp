@@ -304,22 +304,24 @@ class PTSListener :
             m_pts_first[i] = -1LL;
         for (int i = 0; i < 256; i++)
             m_pts_last[i] = -1LL;
-            
+
     }
     bool ProcessTSPacket(const TSPacket &tspacket);
     bool ProcessVideoTSPacket(const TSPacket &tspacket)
-        { return ProcessTSPacket(tspacket); }
+    { return ProcessTSPacket(tspacket); }
     bool ProcessAudioTSPacket(const TSPacket &tspacket)
-        { return ProcessTSPacket(tspacket); }
+    { return ProcessTSPacket(tspacket); }
     int64_t GetFirstPTS(void) const
     {
         QMap<uint,uint>::const_iterator it = m_pts_streams.begin();
         int64_t pts = -1LL;
+        uint32_t pts_count = 0;
         for (; it != m_pts_streams.end(); ++it)
         {
-            int64_t v = m_pts_first[*it];
-            if (v >= 0)
-                pts = min((pts < 0) ? v : pts, v);
+            if(m_pts_count[*it] > pts_count){
+                pts = m_pts_first[*it];
+                pts_count = m_pts_count[*it];
+            }
         }
         return pts;
     }
@@ -327,11 +329,13 @@ class PTSListener :
     {
         QMap<uint,uint>::const_iterator it = m_pts_streams.begin();
         int64_t pts = -1LL;
+        uint32_t pts_count = 0;
         for (; it != m_pts_streams.end(); ++it)
         {
-            int64_t v = m_pts_last[*it];
-            if (v >= 0)
-                pts = max(pts, v);
+            if(m_pts_count[*it] > pts_count){
+                pts = m_pts_last[*it];
+                pts_count = m_pts_count[*it];
+            }
         }
         return pts;
     }
@@ -368,7 +372,7 @@ bool PTSListener::ProcessTSPacket(const TSPacket &tspacket)
 
     while (bufptr < bufend)
     {
-        bufptr = avpriv_mpv_find_start_code(bufptr, bufend, &m_start_code);
+        bufptr = avpriv_find_start_code(bufptr, bufend, &m_start_code);
         int bytes_left = bufend - bufptr;
         if ((m_start_code & 0xffffff00) == 0x00000100)
         {
@@ -796,6 +800,12 @@ static int pid_printer(const MythUtilCommandLineParser &cmdline)
     int offset = 0;
     uint64_t totalBytes = 0ULL;
 
+    if (use_xml) {
+        /* using a random instance of a sub class of PrintOutput */
+        pmsl->Output(QString("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"));
+        pmsl->Output(QString("<MPEGSections>"));
+    }
+
     while (true)
     {
         int r = srcRB->Read(&buffer[offset], kBufSize - offset);
@@ -812,6 +822,12 @@ static int pid_printer(const MythUtilCommandLineParser &cmdline)
                     "Processed %1 bytes")
             .arg(totalBytes));
     }
+
+    if (use_xml) {
+        /* using a random instance of a sub class of PrintOutput */
+        pmsl->Output(QString("</MPEGSections>"));
+    }
+
     LOG(VB_STDIO|VB_FLUSH, LOG_ANY, "\n");
 
     if (ptsl->GetFirstPTS() >= 0)

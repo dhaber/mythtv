@@ -33,6 +33,7 @@
  * should be 4 extra bytes for v1 data and 6 extra bytes for v2 data.
  */
 
+#include "libavutil/attributes.h"
 #include "avcodec.h"
 #include "internal.h"
 #include "wma.h"
@@ -66,11 +67,16 @@ static void dump_floats(WMACodecContext *s, const char *name, int prec, const fl
 }
 #endif
 
-static int wma_decode_init(AVCodecContext * avctx)
+static av_cold int wma_decode_init(AVCodecContext * avctx)
 {
     WMACodecContext *s = avctx->priv_data;
     int i, flags2;
     uint8_t *extradata;
+
+    if (!avctx->block_align) {
+        av_log(avctx, AV_LOG_ERROR, "block_align is not set\n");
+        return AVERROR(EINVAL);
+    }
 
     s->avctx = avctx;
 
@@ -93,6 +99,9 @@ static int wma_decode_init(AVCodecContext * avctx)
             s->use_variable_block_len= 0; // this fixes issue1503
         }
     }
+
+    for (i=0; i<MAX_CHANNELS; i++)
+        s->max_exponent[i] = 1.0;
 
     if(ff_wma_init(avctx, flags2)<0)
         return -1;
@@ -145,7 +154,7 @@ static inline float pow_m1_4(WMACodecContext *s, float x)
     return s->lsp_pow_e_table[e] * (a + b * t.f);
 }
 
-static void wma_lsp_to_curve_init(WMACodecContext *s, int frame_len)
+static av_cold void wma_lsp_to_curve_init(WMACodecContext *s, int frame_len)
 {
     float wdel, a, b;
     int i, e, m;
@@ -506,6 +515,10 @@ static int wma_decode_block(WMACodecContext *s)
        coef escape coding */
     total_gain = 1;
     for(;;) {
+        if (get_bits_left(&s->gb) < 7) {
+            av_log(s->avctx, AV_LOG_ERROR, "total_gain overread\n");
+            return AVERROR_INVALIDDATA;
+        }
         a = get_bits(&s->gb, 7);
         total_gain += a;
         if (a != 127)
@@ -837,10 +850,8 @@ static int wma_decode_superframe(AVCodecContext *avctx, void *data,
 
     /* get output buffer */
     frame->nb_samples = nb_frames * s->frame_len;
-    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
-        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
         return ret;
-    }
     samples = (float **)frame->extended_data;
     samples_offset = 0;
 
@@ -916,7 +927,7 @@ static int wma_decode_superframe(AVCodecContext *avctx, void *data,
         samples_offset += s->frame_len;
     }
 
-    av_dlog(s->avctx, "%d %d %d %d outbytes:%td eaten:%d\n",
+    av_dlog(s->avctx, "%d %d %d %d outbytes:%"PTRDIFF_SPECIFIER" eaten:%d\n",
             s->frame_len_bits, s->block_len_bits, s->frame_len, s->block_len,
             (int8_t *)samples - (int8_t *)data, avctx->block_align);
 
@@ -940,6 +951,7 @@ static av_cold void flush(AVCodecContext *avctx)
 #if CONFIG_WMAV1_DECODER
 AVCodec ff_wmav1_decoder = {
     .name           = "wmav1",
+    .long_name      = NULL_IF_CONFIG_SMALL("Windows Media Audio 1"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_WMAV1,
     .priv_data_size = sizeof(WMACodecContext),
@@ -948,7 +960,6 @@ AVCodec ff_wmav1_decoder = {
     .decode         = wma_decode_superframe,
     .flush          = flush,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Windows Media Audio 1"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                       AV_SAMPLE_FMT_NONE },
 };
@@ -956,6 +967,7 @@ AVCodec ff_wmav1_decoder = {
 #if CONFIG_WMAV2_DECODER
 AVCodec ff_wmav2_decoder = {
     .name           = "wmav2",
+    .long_name      = NULL_IF_CONFIG_SMALL("Windows Media Audio 2"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_WMAV2,
     .priv_data_size = sizeof(WMACodecContext),
@@ -964,7 +976,6 @@ AVCodec ff_wmav2_decoder = {
     .decode         = wma_decode_superframe,
     .flush          = flush,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Windows Media Audio 2"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                       AV_SAMPLE_FMT_NONE },
 };

@@ -11,12 +11,12 @@ using namespace std;
 #include <QButtonGroup>
 #include <QBoxLayout>
 
-DialogBox::DialogBox(MythMainWindow *parent, const QString &text, 
+DialogBox::DialogBox(MythMainWindow *parent, const QString &text,
                      const char *checkboxtext,
                      const char *name)
          : MythDialog(parent, name)
 {
-    QLabel *maintext = new QLabel(text, this);
+    MythLabel *maintext = new MythLabel(text, this);
     maintext->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     maintext->setWordWrap(true);
 
@@ -35,7 +35,7 @@ DialogBox::DialogBox(MythMainWindow *parent, const QString &text,
     }
 
     buttongroup = new QButtonGroup();
-  
+
     if (checkbox)
         buttongroup->addButton(checkbox, -2);
     connect(buttongroup, SIGNAL(buttonClicked(int)),

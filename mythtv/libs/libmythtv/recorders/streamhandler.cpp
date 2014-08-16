@@ -2,6 +2,11 @@
 
 // MythTV headers
 #include "streamhandler.h"
+#include "threadedfilewriter.h"
+
+#ifndef O_LARGEFILE
+#define O_LARGEFILE 0
+#endif
 
 #define LOC      QString("SH(%1): ").arg(_device)
 
@@ -19,6 +24,7 @@ StreamHandler::StreamHandler(const QString &device) :
 
     _pid_lock(QMutex::Recursive),
     _open_pid_filters(0),
+    _mpts_tfw(NULL),
 
     _listener_lock(QMutex::Recursive)
 {
@@ -87,9 +93,6 @@ void StreamHandler::AddListener(MPEGStreamData *data,
     {
         _stream_data_list[data] = output_file;
     }
-
-    if (!output_file.isEmpty())
-        AddNamedOutputFile(output_file);
 
     _listener_lock.unlock();
 
@@ -375,4 +378,75 @@ PIDPriority StreamHandler::GetPIDPriority(uint pid) const
         tmp = max(tmp, it.key()->GetPIDPriority(pid));
 
     return tmp;
+}
+
+void StreamHandler::WriteMPTS(unsigned char * buffer, uint len)
+{
+    if (_mpts_tfw == NULL)
+        return;
+    _mpts_tfw->Write(buffer, len);
+}
+
+bool StreamHandler::AddNamedOutputFile(const QString &file)
+{
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+    QMutexLocker lk(&_mpts_lock);
+
+    _mpts_files.insert(file);
+    QString fn = QString("%1.raw").arg(file);
+
+    if (_mpts_files.size() == 1)
+    {
+        _mpts_base_file = fn;
+        _mpts_tfw = new ThreadedFileWriter(fn,
+                                           O_WRONLY|O_TRUNC|O_CREAT|O_LARGEFILE,
+                                           0644);
+        if (!_mpts_tfw->Open())
+        {
+            delete _mpts_tfw;
+            _mpts_tfw = NULL;
+            return false;
+        }
+        LOG(VB_RECORD, LOG_INFO, LOC +
+            QString("Opened '%1'").arg(_mpts_base_file));
+    }
+    else
+    {
+        if (link(_mpts_base_file.toLocal8Bit(), fn.toLocal8Bit()) < 0)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("Failed to link '%1' to '%2'")
+                .arg(_mpts_base_file)
+                .arg(fn) +
+                ENO);
+        }
+        else
+        {
+            LOG(VB_RECORD, LOG_INFO, LOC +
+                QString("linked '%1' to '%2'")
+                .arg(_mpts_base_file)
+                .arg(fn));
+        }
+    }
+
+#endif //  !defined( USING_MINGW ) && !defined( _MSC_VER )
+    return true;
+}
+
+void StreamHandler::RemoveNamedOutputFile(const QString &file)
+{
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+    QMutexLocker lk(&_mpts_lock);
+
+    QSet<QString>::iterator it = _mpts_files.find(file);
+    if (it != _mpts_files.end())
+    {
+        _mpts_files.erase(it);
+        if (_mpts_files.isEmpty())
+        {
+            delete _mpts_tfw;
+            _mpts_tfw = NULL;
+        }
+    }
+#endif //  !defined( USING_MINGW ) && !defined( _MSC_VER )
 }

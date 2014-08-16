@@ -58,8 +58,18 @@ AppleRemote * AppleRemote::Get()
 AppleRemote::~AppleRemote()
 {
     stopListening();
+
     if (mUsingNewAtv)
         delete mCallbackTimer;
+
+    if (isRunning())
+    {
+        exit(0);
+    }
+    if (this == _instance)
+    {
+        _instance = 0;
+    }
 }
 
 bool AppleRemote::isListeningToRemote()
@@ -395,7 +405,7 @@ bool AppleRemote::_openDevice()
     queue = (*hidDeviceInterface)->allocQueue(hidDeviceInterface);
     if (!queue)
     {
-        LOG(VB_GENERAL, LOG_ERR, LOC + 
+        LOG(VB_GENERAL, LOG_ERR, LOC +
             "_openDevice() - error allocating queue");
         return false;
     }
@@ -424,7 +434,7 @@ bool AppleRemote::_openDevice()
                                               this, NULL);
     if (ioReturnValue != KERN_SUCCESS)
     {
-        LOG(VB_GENERAL, LOG_ERR, LOC + 
+        LOG(VB_GENERAL, LOG_ERR, LOC +
             "_openDevice() - error registering callback");
         return false;
     }

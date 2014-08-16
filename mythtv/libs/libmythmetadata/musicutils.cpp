@@ -33,33 +33,35 @@ QString fixFilename(const QString &filename)
 static QMap<QString, QString> iconMap;
 QString findIcon(const QString &type, const QString &name, bool ignoreCache)
 {
+    LOG(VB_FILE, LOG_INFO, QString("findicon: looking for type: %1, name: %2").arg(type).arg(name));
+
     if (!ignoreCache)
     {
         QMap<QString, QString>::iterator i = iconMap.find(type + name);
         if (i != iconMap.end())
+        {
+            LOG(VB_FILE, LOG_INFO, QString("findicon: found in cache %1").arg(i.value()));
             return i.value();
+        }
     }
 
-    QString cleanName = fixFilename(name);
-    QString file = QString("Icons/%1/%2").arg(type).arg(cleanName);
-    QStringList imageExtensions = QStringList() << ".jpg" << ".jpeg" << ".png" << ".gif";
+    QString cleanName = fixFilename(name) + '.';
+    cleanName = '^' + QRegExp::escape(cleanName);
+    QString file = QString("/Icons/%1/%2").arg(type).arg(cleanName);
+    QString imageExtensions = "(jpg|jpeg|png|gif)";
+    QStringList fileList;
 
-    // TODO also look on any slave BEs?
-    QString filename = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
-                                                0, file, "MusicArt");
-
-    for (int x = 0; x < imageExtensions.count(); x++)
+    fileList = RemoteFile::FindFileList(file + imageExtensions, gCoreContext->GetMasterHostName(), "MusicArt", true, true);
+    if (!fileList.isEmpty())
     {
-        if (RemoteFile::Exists(filename + imageExtensions[x]))
-        {
-            iconMap.insert(type + name, filename + imageExtensions[x]);
-            return filename + imageExtensions[x];
-        }
+        LOG(VB_FILE, LOG_INFO, QString("findicon: found %1 icons using %2").arg(fileList.size()).arg(fileList[0]));
+        iconMap.insert(type + name, fileList[0]);
+        return fileList[0];
     }
 
     iconMap.insert(type + name, QString());
 
-    LOG(VB_FILE, LOG_INFO, QString("findicon: not found for type: %1, name: %2").arg(type).arg(name));
+    LOG(VB_FILE, LOG_INFO, QString("findicon: not found type: %1, name: %2").arg(type).arg(name));
 
     return QString();
 }

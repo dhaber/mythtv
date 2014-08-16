@@ -22,6 +22,9 @@
 #include "dvbdescriptors.h"
 #include "channelinfo.h"
 
+// libmythmetadata headers
+#include "metadatadownload.h"
+
 // filldata headers
 #include "channeldata.h"
 #include "fillutil.h"
@@ -355,7 +358,7 @@ ProgInfo *XMLTVParser::parseProgram(QDomElement &element)
                 QString date = getFirstText(info);
                 pginfo->airdate = date.left(4).toUInt();
             }
-            else if (info.tagName() == "star-rating" && pginfo->stars.isEmpty())
+            else if (info.tagName() == "star-rating" && pginfo->stars == 0.0)
             {
                 QDomNodeList values = info.elementsByTagName("value");
                 QDomElement item;
@@ -381,7 +384,7 @@ ProgInfo *XMLTVParser::parseProgram(QDomElement &element)
                         rating = num.toFloat()/den.toFloat();
                 }
 
-                pginfo->stars.setNum(rating);
+                pginfo->stars = rating;
             }
             else if (info.tagName() == "rating")
             {
@@ -501,6 +504,27 @@ ProgInfo *XMLTVParser::parseProgram(QDomElement &element)
                     if (pginfo->subtitle.isEmpty())
                     {
                         pginfo->subtitle = getFirstText(info);
+                    }
+                }
+                else if ((info.attribute("system") == "themoviedb.org") &&
+                    (MetadataDownload::GetMovieGrabber().endsWith(QString("/tmdb3.py"))))
+                {
+                    /* text is movie/<inetref> */
+                    QString inetrefRaw(getFirstText(info));
+                    if (inetrefRaw.startsWith(QString("movie/"))) {
+                        QString inetref(QString ("tmdb3.py_") + inetrefRaw.section('/',1,1).trimmed());
+                        pginfo->inetref = inetref;
+                    }
+                }
+                else if ((info.attribute("system") == "thetvdb.com") &&
+                    (MetadataDownload::GetTelevisionGrabber().endsWith(QString("/ttvdb.py"))))
+                {
+                    /* text is series/<inetref> */
+                    QString inetrefRaw(getFirstText(info));
+                    if (inetrefRaw.startsWith(QString("series/"))) {
+                        QString inetref(QString ("ttvdb.py_") + inetrefRaw.section('/',1,1).trimmed());
+                        pginfo->inetref = inetref;
+                        /* ProgInfo does not have a collectionref, so we don't set any */
                     }
                 }
             }

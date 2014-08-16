@@ -39,6 +39,7 @@ class VideoOutputNullVDPAU : public VideoOutput
                       const QSize &video_dim_disp,
                       float aspect, WId winid,
                       const QRect &win_rect, MythCodecID codec_id);
+    virtual void* GetDecoderContext(unsigned char* buf, uint8_t*& id);
     virtual bool InputChanged(const QSize &video_dim_buf,
                               const QSize &video_dim_disp,
                               float        aspect,
@@ -93,6 +94,7 @@ class VideoOutputNullVDPAU : public VideoOutput
 
   private:
     MythRenderVDPAU *m_render;
+    AVVDPAUContext   m_context;
     QMutex           m_lock;
     uint             m_decoder;
     int              m_pix_fmt;

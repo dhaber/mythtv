@@ -42,13 +42,14 @@ class HLSReader
     HLSReader(void);
     ~HLSReader(void);
 
-    bool Open(const QString & uri);
+    bool Open(const QString & uri, int bitrate_index = 0);
     void Close(bool quiet = false);
     int Read(uint8_t* buffer, int len);
     void Throttle(bool val);
     bool IsThrottled(void) const { return m_throttle; }
     bool IsOpen(const QString& url) const
     { return m_curstream && m_m3u8 == url; }
+    bool FatalError(void) const { return m_fatal; }
 
     bool LoadMetaPlaylists(MythSingleDownload& downloader);
     void ResetStream(void)
@@ -63,10 +64,8 @@ class HLSReader
 #endif
     static void CancelURL(const QString &url);
     static void CancelURL(const QStringList &urls);
-    static QString RelativeURI(const QString surl, const QString spath);
 
   protected:
-    bool FatalError(void) const { return m_fatal; }
     void Cancel(bool quiet = false);
     bool LoadSegments(MythSingleDownload& downloader);
     uint PercentBuffered(void) const;
@@ -80,35 +79,7 @@ class HLSReader
     int  PlaylistRetryCount(void) const;
 
   private:
-    static QString DecodedURI(const QString uri);
-
     bool IsValidPlaylist(QTextStream & text);
-
-    static QString ParseAttributes(const QString& line, const char* attr);
-    static bool ParseDecimalValue(const QString& line, int& target);
-    static bool ParseDecimalValue(const QString& line, int64_t& target);
-    static bool ParseVersion(const QString& line, int& version,
-			     const QString& loc);
-    static HLSRecStream* ParseStreamInformation(const QString& line,
-						const QString& url,
-						const QString& loc);
-    static bool ParseTargetDuration(HLSRecStream* hls, const QString& line,
-				    const QString& loc);
-    static bool ParseSegmentInformation(const HLSRecStream* hls,
-					const QString& line,
-					uint& duration, QString& title,
-					const QString& url);
-    static bool ParseMediaSequence(int64_t & sequence_num, const QString& line,
-				   const QString& loc);
-    static bool ParseKey(HLSRecStream* hls, const QString& line, bool& aesmsg,
-			 const QString& loc);
-    static bool ParseProgramDateTime(HLSRecStream* hls, const QString& line,
-				     const QString& loc);
-    static bool ParseAllowCache(HLSRecStream* hls, const QString& line,
-				const QString& loc);
-    static bool ParseDiscontinuity(HLSRecStream* hls, const QString& line,
-				   const QString& loc);
-    static bool ParseEndList(HLSRecStream* hls, const QString& loc);
 
     bool ParseM3U8(const QByteArray & buffer, HLSRecStream* stream = NULL);
     void DecreaseBitrate(int progid);
@@ -128,6 +99,7 @@ class HLSReader
     SegmentContainer m_segments;
     HLSRecStream    *m_curstream;
     int64_t          m_cur_seq;
+    int              m_bitrate_index;
 
     bool m_fatal;
     bool m_cancel;

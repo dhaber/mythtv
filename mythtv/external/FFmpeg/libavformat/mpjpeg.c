@@ -47,7 +47,6 @@ static int mpjpeg_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     snprintf(buf1, sizeof(buf1), "\r\n--%s\r\n", BOUNDARY_TAG);
     avio_write(s->pb, buf1, strlen(buf1));
-    avio_flush(s->pb);
     return 0;
 }
 
@@ -66,4 +65,5 @@ AVOutputFormat ff_mpjpeg_muxer = {
     .write_header      = mpjpeg_write_header,
     .write_packet      = mpjpeg_write_packet,
     .write_trailer     = mpjpeg_write_trailer,
+    .flags             = AVFMT_NOTIMESTAMPS,
 };

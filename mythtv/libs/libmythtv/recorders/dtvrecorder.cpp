@@ -78,6 +78,8 @@ DTVRecorder::DTVRecorder(TVRec *rec) :
     _input_pat(NULL),
     _input_pmt(NULL),
     _has_no_av(false),
+    // record 'raw' mpts?
+    _record_mpts(false),
     // statistics
     _use_pts(false),
     _packet_count(0),
@@ -96,9 +98,12 @@ DTVRecorder::DTVRecorder(TVRec *rec) :
     memset(_stream_id,  0, sizeof(_stream_id));
     memset(_pid_status, 0, sizeof(_pid_status));
     memset(_continuity_counter, 0xff, sizeof(_continuity_counter));
+
+    _minimum_recording_quality =
+        gCoreContext->GetNumSetting("MinimumRecordingQuality", 95);
 }
 
-DTVRecorder::~DTVRecorder()
+DTVRecorder::~DTVRecorder(void)
 {
     StopRecording();
 
@@ -135,6 +140,8 @@ void DTVRecorder::SetOption(const QString &name, int value)
 {
     if (name == "wait_for_seqstart")
         _wait_for_keyframe_option = (value == 1);
+    else if (name == "recordmpts")
+        _record_mpts = (value == 1);
     else
         RecorderBase::SetOption(name, value);
 }
@@ -146,6 +153,7 @@ void DTVRecorder::SetOptionsFromProfile(RecordingProfile *profile,
     SetOption("videodevice", videodev);
     DTVRecorder::SetOption("tvformat", gCoreContext->GetSetting("TVFormat"));
     SetStrOption(profile, "recordingtype");
+    SetIntOption(profile, "recordmpts");
 }
 
 /** \fn DTVRecorder::FinishRecording(void)
@@ -446,7 +454,7 @@ bool DTVRecorder::FindMPEG2Keyframes(const TSPacket* tspacket)
 
     while (bufptr < bufend)
     {
-        bufptr = avpriv_mpv_find_start_code(bufptr, bufend, &_start_code);
+        bufptr = avpriv_find_start_code(bufptr, bufend, &_start_code);
         bytes_left = bufend - bufptr;
         if ((_start_code & 0xffffff00) == 0x00000100)
         {
@@ -643,6 +651,7 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
         if (diff > gap_threshold)
         {
             QMutexLocker locker(&statisticsLock);
+
             recordingGaps.push_back(
                 RecordingGap(
                     ts_to_qdatetime(
@@ -652,6 +661,19 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
                         ts, _ts_first[stream_id], _ts_first_dt[stream_id])));
             LOG(VB_RECORD, LOG_DEBUG, LOC + QString("Inserted gap %1 dur %2")
                 .arg(recordingGaps.back().toString()).arg(diff/90000.0));
+
+            if (curRecording && curRecording->GetRecordingStatus() != rsFailing)
+            {
+                RecordingQuality recq(curRecording, recordingGaps);
+                if (recq.IsDamaged())
+                {
+                    LOG(VB_GENERAL, LOG_INFO, LOC +
+                        QString("HandleTimestamps: too much damage, "
+                                "setting status to %1")
+                        .arg(toString(rsFailing, kSingleRecord)));
+                    SetRecordingStatus(rsFailing, __FILE__, __LINE__);
+                }
+            }
         }
     }
 
@@ -836,10 +858,8 @@ bool DTVRecorder::FindH264Keyframes(const TSPacket *tspacket)
     bool hasFrame = false;
     bool hasKeyFrame = false;
 
-    // If payloadStart, account for Adaptation Field Control Offset
-    uint i = payloadStart ? tspacket->AFCOffset() : 0;
-
     // scan for PES packets and H.264 NAL units
+    uint i = tspacket->AFCOffset();
     for (; i < TSPacket::kSize; ++i)
     {
         // special handling required when a new PES packet begins
@@ -1057,7 +1077,7 @@ void DTVRecorder::FindPSKeyFrames(const uint8_t *buffer, uint len)
 
         const uint8_t *tmp = bufptr;
         bufptr =
-            avpriv_mpv_find_start_code(bufptr + skip, bufend, &_start_code);
+            avpriv_find_start_code(bufptr + skip, bufend, &_start_code);
         _audio_bytes_remaining = 0;
         _other_bytes_remaining = 0;
         _video_bytes_remaining -= std::min(
@@ -1265,6 +1285,10 @@ void DTVRecorder::HandlePMT(uint progNum, const ProgramMapTable *_pmt)
 {
     QMutexLocker change_lock(&_pid_lock);
 
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("SetPMT(%1, %2)").arg(progNum)
+        .arg(_pmt == 0 ? "NULL" : "valid"));
+
+
     if ((int)progNum == _stream_data->DesiredProgram())
     {
         LOG(VB_RECORD, LOG_INFO, LOC + QString("SetPMT(%1)").arg(progNum));
@@ -1343,7 +1367,7 @@ bool DTVRecorder::ProcessTSPacket(const TSPacket &tspacket)
         int v = _continuity_error_count.fetchAndAddRelaxed(1) + 1;
         double erate = v * 100.0 / _packet_count.fetchAndAddRelaxed(0);
         LOG(VB_RECORD, LOG_WARNING, LOC +
-            QString("PID 0x%1 discontinuity detected ((%2+1)\%16!=%3) %4\%")
+            QString("PID 0x%1 discontinuity detected ((%2+1)%16!=%3) %4%")
                 .arg(pid,0,16).arg(old_cnt,2)
                 .arg(tspacket.ContinuityCounter(),2)
                 .arg(erate));
@@ -1447,7 +1471,7 @@ bool DTVRecorder::ProcessAVTSPacket(const TSPacket &tspacket)
         int v = _continuity_error_count.fetchAndAddRelaxed(1) + 1;
         double erate = v * 100.0 / _packet_count.fetchAndAddRelaxed(0);
         LOG(VB_RECORD, LOG_WARNING, LOC +
-            QString("A/V PID 0x%1 discontinuity detected ((%2+1)\%16!=%3) %4\%")
+            QString("A/V PID 0x%1 discontinuity detected ((%2+1)%16!=%3) %4%")
                 .arg(pid,0,16).arg(old_cnt).arg(tspacket.ContinuityCounter())
                 .arg(erate,5,'f',2));
     }

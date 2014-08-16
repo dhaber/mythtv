@@ -24,13 +24,14 @@
  * Ut Video decoder
  */
 
+#include <inttypes.h>
 #include <stdlib.h>
 
 #include "libavutil/intreadwrite.h"
 #include "avcodec.h"
+#include "bswapdsp.h"
 #include "bytestream.h"
 #include "get_bits.h"
-#include "dsputil.h"
 #include "thread.h"
 #include "utvideo.h"
 
@@ -70,7 +71,7 @@ static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
         code += 0x80000000u >> (he[i].len - 1);
     }
 
-    return ff_init_vlc_sparse(vlc, FFMIN(he[last].len, 9), last + 1,
+    return ff_init_vlc_sparse(vlc, FFMIN(he[last].len, 11), last + 1,
                               bits,  sizeof(*bits),  sizeof(*bits),
                               codes, sizeof(*codes), sizeof(*codes),
                               syms,  sizeof(*syms),  sizeof(*syms), 0);
@@ -142,8 +143,9 @@ static int decode_plane(UtvideoContext *c, int plane_no,
         memcpy(c->slice_bits, src + slice_data_start + c->slices * 4,
                slice_size);
         memset(c->slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-        c->dsp.bswap_buf((uint32_t *) c->slice_bits, (uint32_t *) c->slice_bits,
-                         (slice_data_end - slice_data_start + 3) >> 2);
+        c->bdsp.bswap_buf((uint32_t *) c->slice_bits,
+                          (uint32_t *) c->slice_bits,
+                          (slice_data_end - slice_data_start + 3) >> 2);
         init_get_bits(&gb, c->slice_bits, slice_size * 8);
 
         prev = 0x80;
@@ -154,7 +156,7 @@ static int decode_plane(UtvideoContext *c, int plane_no,
                            "Slice decoding ran out of bits\n");
                     goto fail;
                 }
-                pix = get_vlc2(&gb, vlc.table, vlc.bits, 4);
+                pix = get_vlc2(&gb, vlc.table, vlc.bits, 3);
                 if (pix < 0) {
                     av_log(c->avctx, AV_LOG_ERROR, "Decoding error\n");
                     goto fail;
@@ -331,16 +333,10 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     int plane_size, max_slice_size = 0, slice_start, slice_end, slice_size;
     int ret;
     GetByteContext gb;
+    ThreadFrame frame = { .f = data };
 
-    if (c->pic.data[0])
-        ff_thread_release_buffer(avctx, &c->pic);
-
-    c->pic.reference = 3;
-    c->pic.buffer_hints = FF_BUFFER_HINTS_VALID;
-    if ((ret = ff_thread_get_buffer(avctx, &c->pic)) < 0) {
-        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+    if ((ret = ff_thread_get_buffer(avctx, &frame, 0)) < 0)
         return ret;
-    }
 
     /* parse plane structure to get frame flags and validate slice offsets */
     bytestream2_init(&gb, buf, buf_size);
@@ -373,12 +369,13 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         return AVERROR_INVALIDDATA;
     }
     c->frame_info = bytestream2_get_le32u(&gb);
-    av_log(avctx, AV_LOG_DEBUG, "frame information flags %X\n", c->frame_info);
+    av_log(avctx, AV_LOG_DEBUG, "frame information flags %"PRIX32"\n",
+           c->frame_info);
 
     c->frame_pred = (c->frame_info >> 8) & 3;
 
     if (c->frame_pred == PRED_GRADIENT) {
-        av_log_ask_for_sample(avctx, "Frame uses gradient prediction\n");
+        avpriv_request_sample(avctx, "Frame with gradient prediction");
         return AVERROR_PATCHWELCOME;
     }
 
@@ -394,42 +391,42 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     case AV_PIX_FMT_RGB24:
     case AV_PIX_FMT_RGBA:
         for (i = 0; i < c->planes; i++) {
-            ret = decode_plane(c, i, c->pic.data[0] + ff_ut_rgb_order[i],
-                               c->planes, c->pic.linesize[0], avctx->width,
+            ret = decode_plane(c, i, frame.f->data[0] + ff_ut_rgb_order[i],
+                               c->planes, frame.f->linesize[0], avctx->width,
                                avctx->height, plane_start[i],
                                c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
                 if (!c->interlaced) {
-                    restore_median(c->pic.data[0] + ff_ut_rgb_order[i],
-                                   c->planes, c->pic.linesize[0], avctx->width,
+                    restore_median(frame.f->data[0] + ff_ut_rgb_order[i],
+                                   c->planes, frame.f->linesize[0], avctx->width,
                                    avctx->height, c->slices, 0);
                 } else {
-                    restore_median_il(c->pic.data[0] + ff_ut_rgb_order[i],
-                                      c->planes, c->pic.linesize[0],
+                    restore_median_il(frame.f->data[0] + ff_ut_rgb_order[i],
+                                      c->planes, frame.f->linesize[0],
                                       avctx->width, avctx->height, c->slices,
                                       0);
                 }
             }
         }
-        restore_rgb_planes(c->pic.data[0], c->planes, c->pic.linesize[0],
+        restore_rgb_planes(frame.f->data[0], c->planes, frame.f->linesize[0],
                            avctx->width, avctx->height);
         break;
     case AV_PIX_FMT_YUV420P:
         for (i = 0; i < 3; i++) {
-            ret = decode_plane(c, i, c->pic.data[i], 1, c->pic.linesize[i],
+            ret = decode_plane(c, i, frame.f->data[i], 1, frame.f->linesize[i],
                                avctx->width >> !!i, avctx->height >> !!i,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
                 if (!c->interlaced) {
-                    restore_median(c->pic.data[i], 1, c->pic.linesize[i],
+                    restore_median(frame.f->data[i], 1, frame.f->linesize[i],
                                    avctx->width >> !!i, avctx->height >> !!i,
                                    c->slices, !i);
                 } else {
-                    restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
+                    restore_median_il(frame.f->data[i], 1, frame.f->linesize[i],
                                       avctx->width  >> !!i,
                                       avctx->height >> !!i,
                                       c->slices, !i);
@@ -439,18 +436,18 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         break;
     case AV_PIX_FMT_YUV422P:
         for (i = 0; i < 3; i++) {
-            ret = decode_plane(c, i, c->pic.data[i], 1, c->pic.linesize[i],
+            ret = decode_plane(c, i, frame.f->data[i], 1, frame.f->linesize[i],
                                avctx->width >> !!i, avctx->height,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
                 if (!c->interlaced) {
-                    restore_median(c->pic.data[i], 1, c->pic.linesize[i],
+                    restore_median(frame.f->data[i], 1, frame.f->linesize[i],
                                    avctx->width >> !!i, avctx->height,
                                    c->slices, 0);
                 } else {
-                    restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
+                    restore_median_il(frame.f->data[i], 1, frame.f->linesize[i],
                                       avctx->width >> !!i, avctx->height,
                                       c->slices, 0);
                 }
@@ -459,12 +456,11 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         break;
     }
 
-    c->pic.key_frame = 1;
-    c->pic.pict_type = AV_PICTURE_TYPE_I;
-    c->pic.interlaced_frame = !!c->interlaced;
+    frame.f->key_frame = 1;
+    frame.f->pict_type = AV_PICTURE_TYPE_I;
+    frame.f->interlaced_frame = !!c->interlaced;
 
-    *got_frame      = 1;
-    *(AVFrame*)data = c->pic;
+    *got_frame = 1;
 
     /* always report that the buffer was completely consumed */
     return buf_size;
@@ -476,7 +472,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     c->avctx = avctx;
 
-    ff_dsputil_init(&c->dsp, avctx);
+    ff_bswapdsp_init(&c->bdsp);
 
     if (avctx->extradata_size < 16) {
         av_log(avctx, AV_LOG_ERROR,
@@ -488,14 +484,14 @@ static av_cold int decode_init(AVCodecContext *avctx)
     av_log(avctx, AV_LOG_DEBUG, "Encoder version %d.%d.%d.%d\n",
            avctx->extradata[3], avctx->extradata[2],
            avctx->extradata[1], avctx->extradata[0]);
-    av_log(avctx, AV_LOG_DEBUG, "Original format %X\n",
+    av_log(avctx, AV_LOG_DEBUG, "Original format %"PRIX32"\n",
            AV_RB32(avctx->extradata + 4));
     c->frame_info_size = AV_RL32(avctx->extradata + 8);
     c->flags           = AV_RL32(avctx->extradata + 12);
 
     if (c->frame_info_size != 4)
-        av_log_ask_for_sample(avctx, "Frame info is not 4 bytes\n");
-    av_log(avctx, AV_LOG_DEBUG, "Encoding parameters %08X\n", c->flags);
+        avpriv_request_sample(avctx, "Frame info not 4 bytes");
+    av_log(avctx, AV_LOG_DEBUG, "Encoding parameters %08"PRIX32"\n", c->flags);
     c->slices      = (c->flags >> 24) + 1;
     c->compression = c->flags & 1;
     c->interlaced  = c->flags & 0x800;
@@ -514,10 +510,22 @@ static av_cold int decode_init(AVCodecContext *avctx)
     case MKTAG('U', 'L', 'Y', '0'):
         c->planes      = 3;
         avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        avctx->colorspace = AVCOL_SPC_BT470BG;
         break;
     case MKTAG('U', 'L', 'Y', '2'):
         c->planes      = 3;
         avctx->pix_fmt = AV_PIX_FMT_YUV422P;
+        avctx->colorspace = AVCOL_SPC_BT470BG;
+        break;
+    case MKTAG('U', 'L', 'H', '0'):
+        c->planes      = 3;
+        avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        avctx->colorspace = AVCOL_SPC_BT709;
+        break;
+    case MKTAG('U', 'L', 'H', '2'):
+        c->planes      = 3;
+        avctx->pix_fmt = AV_PIX_FMT_YUV422P;
+        avctx->colorspace = AVCOL_SPC_BT709;
         break;
     default:
         av_log(avctx, AV_LOG_ERROR, "Unknown Ut Video FOURCC provided (%08X)\n",
@@ -532,9 +540,6 @@ static av_cold int decode_end(AVCodecContext *avctx)
 {
     UtvideoContext * const c = avctx->priv_data;
 
-    if (c->pic.data[0])
-        ff_thread_release_buffer(avctx, &c->pic);
-
     av_freep(&c->slice_bits);
 
     return 0;
@@ -542,6 +547,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
 
 AVCodec ff_utvideo_decoder = {
     .name           = "utvideo",
+    .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_UTVIDEO,
     .priv_data_size = sizeof(UtvideoContext),
@@ -549,5 +555,4 @@ AVCodec ff_utvideo_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
-    .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
 };

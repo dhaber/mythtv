@@ -3,6 +3,7 @@
 
 #include <QString>
 #include <QMap>
+#include <QMutex>
 
 #include "tv.h"
 #include "programinfo.h"
@@ -78,16 +79,16 @@ class EncoderLink
     long long GetMaxBitrate(void);
     int SetSignalMonitoringRate(int rate, int notifyFrontend);
 
-    bool IsBusy(TunedInputInfo *busy_input = NULL, int time_buffer = 5);
+    bool IsBusy(InputInfo *busy_input = NULL, int time_buffer = 5);
     bool IsBusyRecording(void);
 
     TVState GetState();
-    uint GetFlags(void) const;
+    uint GetFlags(void);
     bool IsRecording(const ProgramInfo *rec); // scheduler call only.
 
     bool MatchesRecording(const ProgramInfo *rec);
     void RecordPending(const ProgramInfo *rec, int secsleft, bool hasLater);
-    RecStatusType StartRecording(const ProgramInfo *rec);
+    RecStatusType StartRecording(ProgramInfo *rec);
     RecStatusType GetRecordingStatus(void);
     void StopRecording(bool killFile = false);
     void FinishRecording(void);
@@ -109,7 +110,7 @@ class EncoderLink
     void PauseRecorder(void);
     void SetLiveRecording(int);
     void SetNextLiveTVDir(QString dir);
-    vector<InputInfo> GetFreeInputs(const vector<uint> &excluded_cards) const;
+    vector<InputInfo> GetFreeInputs(const vector<uint> &excluded_cards);
     QString GetInput(void) const;
     QString SetInput(QString);
     void ToggleChannelFavorite(QString);
@@ -137,9 +138,13 @@ class EncoderLink
                         QString channame, QString xmltv);
 
   private:
+    bool HasSockAndIncrRef();
+    bool HasSockAndDecrRef();
+
     int m_capturecardnum;
 
     PlaybackSock *sock;
+    QMutex sockLock;
     QString hostname;
 
     TVRec *tv;

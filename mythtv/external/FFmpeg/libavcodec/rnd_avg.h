@@ -22,10 +22,11 @@
 #ifndef AVCODEC_RND_AVG_H
 #define AVCODEC_RND_AVG_H
 
+#include <stddef.h>
 #include <stdint.h>
 
-#define         BYTE_VEC32(c)   ((c)*0x01010101UL)
-#define         BYTE_VEC64(c)   ((c)*0x0001000100010001UL)
+#define BYTE_VEC32(c) ((c) * 0x01010101UL)
+#define BYTE_VEC64(c) ((c) * 0x0001000100010001UL)
 
 static inline uint32_t rnd_avg32(uint32_t a, uint32_t b)
 {

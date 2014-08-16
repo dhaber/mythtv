@@ -28,6 +28,11 @@ static QString denullify(const QString &str)
     return str.isNull() ? "" : str;
 }
 
+static QVariant denullify(const QDateTime &dt)
+{
+    return dt.isNull() ? QVariant("0000-00-00 00:00:00") : QVariant(dt);
+}
+
 DBPerson::DBPerson(const DBPerson &other) :
     role(other.role), name(other.name)
 {
@@ -164,6 +169,7 @@ DBEvent &DBEvent::operator=(const DBEvent &other)
     categoryType    = other.categoryType;
     seriesId        = other.seriesId;
     programId       = other.programId;
+    inetref         = other.inetref;
     previouslyshown = other.previouslyshown;
     ratings         = other.ratings;
     listingsource   = other.listingsource;
@@ -185,6 +191,7 @@ void DBEvent::Squeeze(void)
     syndicatedepisodenumber.squeeze();
     seriesId.squeeze();
     programId.squeeze();
+    inetref.squeeze();
 }
 
 void DBEvent::AddPerson(DBPerson::Role role, const QString &name)
@@ -209,39 +216,111 @@ bool DBEvent::HasTimeConflict(const DBEvent &o) const
             (o.endtime <= endtime     && starttime   < o.endtime));
 }
 
+// Processing new EIT entry starts here
 uint DBEvent::UpdateDB(
     MSqlQuery &query, uint chanid, int match_threshold) const
 {
+    // List the program that we are going to add
+    LOG(VB_EIT, LOG_DEBUG,
+        QString("EIT: new program: %1 %2 '%3' chanid %4")
+                .arg(starttime.toString(Qt::ISODate))
+                .arg(endtime.toString(Qt::ISODate))
+                .arg(title.left(35))
+                .arg(chanid));
+
+    // Do not insert or update when the program is in the past
+    QDateTime now = QDateTime::currentDateTimeUtc();
+    if (endtime < now)
+    {
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: skip '%1' endtime is in the past")
+                    .arg(title.left(35)));
+        return 0;
+    }
+
+    // Get all programs already in the database that overlap
+    // with our new program.
     vector<DBEvent> programs;
     uint count = GetOverlappingPrograms(query, chanid, programs);
     int  match = INT_MIN;
     int  i     = -1;
 
+    // If there are no programs already in the database that overlap
+    // with our new program then we can simply insert it in the database.
     if (!count)
         return InsertDB(query, chanid);
 
-    // move overlapping programs out of the way and update existing if possible
-    match = GetMatch(programs, i);
-
-    if (match >= match_threshold)
+    // List all overlapping programs with start- and endtime.
+    for (uint j=0; j<count; j++)
     {
         LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: overlap[%1] : %2 %3 '%4'")
+                .arg(j)
+                .arg(programs[j].starttime.toString(Qt::ISODate))
+                .arg(programs[j].endtime.toString(Qt::ISODate))
+                .arg(programs[j].title.left(35)));
+    }
+
+    // Determine which of the overlapping programs is a match with
+    // our new program; if we have a match then our new program is considered
+    // to be an update of the matching program.
+    // The 2nd parameter "i" is the index of the best matching program.
+    match = GetMatch(programs, i);
+
+    // Update an existing program or insert a new program.
+    if (match >= match_threshold)
+    {
+        // We have a good match; update program[i] in the database
+        // with the new program data and move the overlapping programs
+        // out of the way.
+        LOG(VB_EIT, LOG_DEBUG,
             QString("EIT: accept match[%1]: %2 '%3' vs. '%4'")
-                .arg(i).arg(match).arg(title).arg(programs[i].title));
+                .arg(i).arg(match).arg(title.left(35))
+                .arg(programs[i].title.left(35)));
         return UpdateDB(query, chanid, programs, i);
     }
     else
     {
+        // If we are here then either we have a match but the match is
+        // not good enough (the "i >= 0" case) or we did not find
+        // a match at all.
         if (i >= 0)
         {
             LOG(VB_EIT, LOG_DEBUG,
                 QString("EIT: reject match[%1]: %2 '%3' vs. '%4'")
-                    .arg(i).arg(match).arg(title).arg(programs[i].title));
+                    .arg(i).arg(match).arg(title.left(35))
+                    .arg(programs[i].title.left(35)));
         }
+
+        // Move the overlapping programs out of the way and
+        // insert the new program.
         return UpdateDB(query, chanid, programs, -1);
     }
 }
 
+// Get all programs in the database that overlap with our new program.
+// We check for three ways in which we can have an overlap:
+// (1)   Start of old program is inside our new program:
+//           old program starts at or after our program AND
+//           old program starts before end of our program;
+//       e.g. new program  s-------------e
+//            old program      s-------------e
+//         or old program      s-----e
+//       This is the STIME1/ETIME1 comparison.
+// (2)   End of old program is inside our new program:
+//           old program ends after our program starts AND
+//           old program ends before end of our program
+//       e.g. new program      s-------------e
+//            old program  s-------------e
+//         or old program          s-----e
+//       This is the STIME2/ETIME2 comparison.
+// (3)   We can have a new program is "inside" the old program:
+//           old program starts before our program AND
+//          old program ends after end of our program
+//       e.g. new program      s---------e
+//            old program  s-----------------e
+//       This is the STIME3/ETIME3 comparison.
+//
 uint DBEvent::GetOverlappingPrograms(
     MSqlQuery &query, uint chanid, vector<DBEvent> &programs) const
 {
@@ -257,17 +336,21 @@ uint DBEvent::GetOverlappingPrograms(
         "       airdate,        originalairdate, "
         "       previouslyshown,listingsource, "
         "       stars+0, "
-        "       season,         episode,       totalepisodes "
+        "       season,         episode,       totalepisodes, "
+        "       inetref "
         "FROM program "
         "WHERE chanid   = :CHANID AND "
         "      manualid = 0       AND "
         "      ( ( starttime >= :STIME1 AND starttime <  :ETIME1 ) OR "
-        "        ( endtime   >  :STIME2 AND endtime   <= :ETIME2 ) )");
+        "        ( endtime   >  :STIME2 AND endtime   <= :ETIME2 ) OR "
+        "        ( starttime <  :STIME3 AND endtime   >  :ETIME3 ) )");
     query.bindValue(":CHANID", chanid);
     query.bindValue(":STIME1", starttime);
     query.bindValue(":ETIME1", endtime);
     query.bindValue(":STIME2", starttime);
     query.bindValue(":ETIME2", endtime);
+    query.bindValue(":STIME3", starttime);
+    query.bindValue(":ETIME3", endtime);
 
     if (!query.exec())
     {
@@ -299,6 +382,7 @@ uint DBEvent::GetOverlappingPrograms(
             query.value(21).toUInt(),  // Episode
             query.value(22).toUInt()); // Total Episodes
 
+        prog.inetref    = query.value(23).toString();
         prog.partnumber = query.value(12).toUInt();
         prog.parttotal  = query.value(13).toUInt();
         prog.syndicatedepisodenumber = query.value(14).toString();
@@ -414,7 +498,7 @@ int DBEvent::GetMatch(const vector<DBEvent> &programs, int &bestmatch) const
         {
             /* crappy providers apparently have events without duration
              * ensure that the minimal duration is 2 second to avoid
-             * muliplying and more importantly dividing by zero */
+             * multiplying and more importantly dividing by zero */
             int min_dur = max(2, min(duration, duration_loop));
             overlap = min(overlap, min_dur/2);
             mv *= overlap * 2;
@@ -425,10 +509,10 @@ int DBEvent::GetMatch(const vector<DBEvent> &programs, int &bestmatch) const
             LOG(VB_GENERAL, LOG_ERR,
                 QString("Unexpected result: shows don't "
                         "overlap\n\t%1: %2 - %3\n\t%4: %5 - %6")
-                    .arg(title.left(30), 30)
+                    .arg(title.left(35))
                     .arg(starttime.toString(Qt::ISODate))
                     .arg(endtime.toString(Qt::ISODate))
-                    .arg(programs[i].title.left(30), 30)
+                    .arg(programs[i].title.left(35), 35)
                     .arg(programs[i].starttime.toString(Qt::ISODate))
                     .arg(programs[i].endtime.toString(Qt::ISODate))
                 );
@@ -437,9 +521,9 @@ int DBEvent::GetMatch(const vector<DBEvent> &programs, int &bestmatch) const
         if (mv > match_val)
         {
             LOG(VB_EIT, LOG_DEBUG,
-                QString("GM : %1 new best match %2 with score %3")
-                    .arg(title.left(25))
-                    .arg(programs[i].title.left(25)).arg(mv));
+                QString("GM : '%1' new best match '%2' with score %3")
+                    .arg(title.left(35))
+                    .arg(programs[i].title.left(35)).arg(mv));
             bestmatch = i;
             match_val = mv;
         }
@@ -451,7 +535,7 @@ int DBEvent::GetMatch(const vector<DBEvent> &programs, int &bestmatch) const
 uint DBEvent::UpdateDB(
     MSqlQuery &q, uint chanid, const vector<DBEvent> &p, int match) const
 {
-    // adjust/delete overlaps;
+    // Adjust/delete overlaps;
     bool ok = true;
     for (uint i = 0; i < p.size(); i++)
     {
@@ -459,20 +543,52 @@ uint DBEvent::UpdateDB(
             ok &= MoveOutOfTheWayDB(q, chanid, p[i]);
     }
 
-    // if we failed to move programs out of the way, don't insert new ones..
+    // If we failed to move programs out of the way, don't insert new ones..
     if (!ok)
+    {
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: cannot insert '%1' MoveOutOfTheWayDB failed")
+                    .arg(title.left(35)));
         return 0;
+    }
 
-    // if no match, insert current item
+    // No match, insert current item
     if ((match < 0) || ((uint)match >= p.size()))
+    {
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: insert '%1'")
+                    .arg(title.left(35)));
         return InsertDB(q, chanid);
+    }
 
-    // update matched item with current data
+    // Changing a starttime of a program that is being recorded can
+    // start another recording of the same program.
+    // Therefore we skip updates that change a starttime in the past
+    // unless the endtime is later.
+    if (starttime != p[match].starttime)
+    {
+        QDateTime now = QDateTime::currentDateTimeUtc();
+        if (starttime < now && endtime <= p[match].endtime)
+        {
+            LOG(VB_EIT, LOG_DEBUG,
+                QString("EIT:  skip '%1' starttime is in the past")
+                        .arg(title.left(35)));
+            return 0;
+        }
+    }
+
+    // Update matched item with current data
+    LOG(VB_EIT, LOG_DEBUG,
+         QString("EIT: update '%1' with '%2'")
+                 .arg(p[match].title.left(35))
+                 .arg(title.left(35)));
     return UpdateDB(q, chanid, p[match]);
 }
 
+// Update matched item with current data.
+//
 uint DBEvent::UpdateDB(
-    MSqlQuery &query, uint chanid, const DBEvent &match) const
+    MSqlQuery &query, uint chanid, const DBEvent &match)  const
 {
     QString  ltitle     = title;
     QString  lsubtitle  = subtitle;
@@ -481,6 +597,7 @@ uint DBEvent::UpdateDB(
     uint16_t lairdate   = airdate;
     QString  lprogramId = programId;
     QString  lseriesId  = seriesId;
+    QString  linetref   = inetref;
     QDate loriginalairdate = originalairdate;
 
     if (match.title.length() >= ltitle.length())
@@ -506,6 +623,9 @@ uint DBEvent::UpdateDB(
 
     if (lseriesId.isEmpty() && !match.seriesId.isEmpty())
         lseriesId = match.seriesId;
+
+    if (linetref.isEmpty() && !match.inetref.isEmpty())
+        linetref= match.inetref;
 
     ProgramInfo::CategoryType tmp = categoryType;
     if (!categoryType && match.categoryType)
@@ -546,7 +666,7 @@ uint DBEvent::UpdateDB(
         "    airdate        = :AIRDATE,   originalairdate=:ORIGAIRDATE, "
         "    listingsource  = :LSOURCE, "
         "    seriesid       = :SERIESID,  programid     = :PROGRAMID, "
-        "    previouslyshown = :PREVSHOWN "
+        "    previouslyshown = :PREVSHOWN, inetref      = :INETREF "
         "WHERE chanid    = :CHANID AND "
         "      starttime = :OLDSTART ");
 
@@ -575,6 +695,7 @@ uint DBEvent::UpdateDB(
     query.bindValue(":SERIESID",    denullify(lseriesId));
     query.bindValue(":PROGRAMID",   denullify(lprogramId));
     query.bindValue(":PREVSHOWN",   lpreviouslyshown);
+    query.bindValue(":INETREF",     linetref);
 
     if (!query.exec())
     {
@@ -587,7 +708,7 @@ uint DBEvent::UpdateDB(
         for (uint i = 0; i < credits->size(); i++)
             (*credits)[i].InsertDB(query, chanid, starttime);
     }
-    
+
     QList<EventRating>::const_iterator j = ratings.begin();
     for (; j != ratings.end(); ++j)
     {
@@ -640,6 +761,25 @@ static bool delete_program(MSqlQuery &query, uint chanid, const QDateTime &st)
     return true;
 }
 
+static bool program_exists(MSqlQuery &query, uint chanid, const QDateTime &st)
+{
+    query.prepare(
+        "SELECT title FROM program "
+        "WHERE chanid    = :CHANID AND "
+        "      starttime = :OLDSTART");
+    query.bindValue(":CHANID",   chanid);
+    query.bindValue(":OLDSTART", st);
+    if (!query.exec())
+    {
+        MythDB::DBError("program_exists", query);
+    }
+    if (query.next())
+    {
+        return true;
+    }
+    return false;
+}
+
 static bool change_program(MSqlQuery &query, uint chanid, const QDateTime &st,
                            const QDateTime &new_st, const QDateTime &new_end)
 {
@@ -680,25 +820,62 @@ static bool change_program(MSqlQuery &query, uint chanid, const QDateTime &st,
     return true;
 }
 
+// Move the program "prog" (3rd parameter) out of the way
+// because it overlaps with our new program.
 bool DBEvent::MoveOutOfTheWayDB(
     MSqlQuery &query, uint chanid, const DBEvent &prog) const
 {
     if (prog.starttime >= starttime && prog.endtime <= endtime)
     {
-        // inside current program
+        // Old program completely inside our new program.
+        // Delete the old program completely.
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: delete '%1' %2 - %3")
+                    .arg(prog.title.left(35))
+                    .arg(prog.starttime.toString(Qt::ISODate))
+                    .arg(prog.endtime.toString(Qt::ISODate)));
         return delete_program(query, chanid, prog.starttime);
     }
     else if (prog.starttime < starttime && prog.endtime > starttime)
     {
-        // starts before, but ends during our program
+        // Old program starts before, but ends during or after our new program.
+        // Adjust the end time of the old program to the start time
+        // of our new program.
+        // This will leave a hole after our new program when the end time of
+        // the old program was after the end time of the new program!!
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: change '%1' endtime to %2")
+                    .arg(prog.title.left(35))
+                    .arg(starttime.toString(Qt::ISODate)));
         return change_program(query, chanid, prog.starttime,
-                              prog.starttime, starttime);
+                              prog.starttime, // Keep the start time
+                              starttime);     // New end time is our start time
     }
     else if (prog.starttime < endtime && prog.endtime > endtime)
     {
-        // starts during, but ends after our program
+        // Old program starts during, but ends after our new program.
+        // Adjust the starttime of the old program to the end time
+        // of our new program.
+        // If there is already a program starting just when our
+        // new program ends we cannot move the old program
+        // so then we have to delete the old program.
+        if (program_exists(query, chanid, endtime))
+        {
+            LOG(VB_EIT, LOG_DEBUG,
+                QString("EIT: delete '%1' %2 - %3")
+                        .arg(prog.title.left(35))
+                        .arg(prog.starttime.toString(Qt::ISODate))
+                        .arg(prog.endtime.toString(Qt::ISODate)));
+            return delete_program(query, chanid, prog.starttime);
+        }
+        LOG(VB_EIT, LOG_DEBUG,
+            QString("EIT: change '%1' starttime to %2")
+                    .arg(prog.title.left(35))
+                    .arg(endtime.toString(Qt::ISODate)));
+
         return change_program(query, chanid, prog.starttime,
-                              endtime, prog.endtime);
+                              endtime,        // New start time is our endtime
+                              prog.endtime);  // Keep the end time
     }
     // must be non-conflicting...
     return true;
@@ -717,7 +894,8 @@ uint DBEvent::InsertDB(MSqlQuery &query, uint chanid) const
         "  syndicatedepisodenumber, "
         "  airdate,        originalairdate,listingsource, "
         "  seriesid,       programid,      previouslyshown, "
-        "  season,         episode,        totalepisodes ) "
+        "  season,         episode,        totalepisodes, "
+        "  inetref ) "
         "VALUES ("
         " :CHANID,        :TITLE,         :SUBTITLE,       :DESCRIPTION, "
         " :CATEGORY,      :CATTYPE, "
@@ -728,7 +906,8 @@ uint DBEvent::InsertDB(MSqlQuery &query, uint chanid) const
         " :SYNDICATENO, "
         " :AIRDATE,       :ORIGAIRDATE,   :LSOURCE, "
         " :SERIESID,      :PROGRAMID,     :PREVSHOWN, "
-        " :SEASON,        :EPISODE,       :TOTALEPISODES ) ");
+        " :SEASON,        :EPISODE,       :TOTALEPISODES, "
+        " :INETREF ) ");
 
     QString cattype = myth_category_type_to_string(categoryType);
     QString empty("");
@@ -760,6 +939,7 @@ uint DBEvent::InsertDB(MSqlQuery &query, uint chanid) const
     query.bindValue(":SEASON",      season);
     query.bindValue(":EPISODE",     episode);
     query.bindValue(":TOTALEPISODES", totalepisodes);
+    query.bindValue(":INETREF",     inetref);
 
     if (!query.exec())
     {
@@ -792,7 +972,6 @@ ProgInfo &ProgInfo::operator=(const ProgInfo &other)
     channel         = other.channel;
     startts         = other.startts;
     endts           = other.endts;
-    stars           = other.stars;
     title_pronounce = other.title_pronounce;
     showtype        = other.showtype;
     colorcode       = other.colorcode;
@@ -802,7 +981,6 @@ ProgInfo &ProgInfo::operator=(const ProgInfo &other)
     channel.squeeze();
     startts.squeeze();
     endts.squeeze();
-    stars.squeeze();
     title_pronounce.squeeze();
     showtype.squeeze();
     colorcode.squeeze();
@@ -818,7 +996,6 @@ void ProgInfo::Squeeze(void)
     channel.squeeze();
     startts.squeeze();
     endts.squeeze();
-    stars.squeeze();
     title_pronounce.squeeze();
     showtype.squeeze();
     colorcode.squeeze();
@@ -847,7 +1024,8 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
         "  airdate,        originalairdate,listingsource, "
         "  seriesid,       programid,      previouslyshown, "
         "  stars,          showtype,       title_pronounce, colorcode, "
-        "  season,         episode,        totalepisodes ) "
+        "  season,         episode,        totalepisodes, "
+        "  inetref ) "
 
         "VALUES("
         " :CHANID,        :TITLE,         :SUBTITLE,       :DESCRIPTION, "
@@ -860,7 +1038,8 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
         " :AIRDATE,       :ORIGAIRDATE,   :LSOURCE, "
         " :SERIESID,      :PROGRAMID,     :PREVSHOWN, "
         " :STARS,         :SHOWTYPE,      :TITLEPRON,      :COLORCODE, "
-        " :SEASON,        :EPISODE,       :TOTALEPISODES )");
+        " :SEASON,        :EPISODE,       :TOTALEPISODES, "
+        " :INETREF )");
 
     QString cattype = myth_category_type_to_string(categoryType);
 
@@ -871,7 +1050,7 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
     query.bindValue(":CATEGORY",    denullify(category));
     query.bindValue(":CATTYPE",     cattype);
     query.bindValue(":STARTTIME",   starttime);
-    query.bindValue(":ENDTIME",     endtime);
+    query.bindValue(":ENDTIME",     denullify(endtime));
     query.bindValue(":CC",
                     subtitleType & SUB_HARDHEAR ? true : false);
     query.bindValue(":STEREO",
@@ -899,6 +1078,7 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
     query.bindValue(":SEASON",      season);
     query.bindValue(":EPISODE",     episode);
     query.bindValue(":TOTALEPISODES", totalepisodes);
+    query.bindValue(":INETREF",     inetref);
 
     if (!query.exec())
     {
@@ -1014,25 +1194,9 @@ void ProgramData::FixProgramList(QList<ProgInfo*> &fixlist)
                 (*cur)->endts   = (*it)->startts;
                 (*cur)->endtime = (*it)->starttime;
             }
-            else
-            {
-                (*cur)->endtime = (*cur)->starttime;
-                if ((*cur)->endtime < QDateTime(
-                        (*cur)->endtime.date(), QTime(6, 0), Qt::UTC))
-                {
-                    (*cur)->endtime = QDateTime(
-                        (*cur)->endtime.date(), QTime(6, 0), Qt::UTC);
-                }
-                else
-                {
-                    (*cur)->endtime = QDateTime(
-                        (*cur)->endtime.date().addDays(1),
-                        QTime(0, 0), Qt::UTC);
-                }
-
-                (*cur)->endts =
-                    MythDate::toString((*cur)->endtime, MythDate::kFilename);
-            }
+            /* if its the last programme in the file then leave its
+               endtime as 0000-00-00 00:00:00 so we can find it easily in
+               fix_end_times() */
         }
 
         if (it == fixlist.end())
@@ -1169,7 +1333,7 @@ int ProgramData::fix_end_times(void)
     MSqlQuery query1(MSqlQuery::InitCon()), query2(MSqlQuery::InitCon());
 
     querystr = "SELECT chanid, starttime, endtime FROM program "
-               "WHERE (DATE_FORMAT(endtime,'%H%i') = '0000') "
+               "WHERE endtime = '0000-00-00 00:00:00' "
                "ORDER BY chanid, starttime;";
 
     if (!query1.exec(querystr))
@@ -1186,11 +1350,10 @@ int ProgramData::fix_end_times(void)
         endtime = query1.value(2).toString();
 
         querystr = QString("SELECT chanid, starttime, endtime FROM program "
-                           "WHERE starttime BETWEEN '%1 00:00:00'"
-                           "AND '%2 23:59:59' AND chanid = '%3' "
+                           "WHERE starttime > '%1' "
+                           "AND chanid = '%2' "
                            "ORDER BY starttime LIMIT 1;")
-                           .arg(endtime.left(10))
-                           .arg(endtime.left(10))
+                           .arg(starttime)
                            .arg(chanid);
 
         if (!query2.exec(querystr))
@@ -1204,10 +1367,9 @@ int ProgramData::fix_end_times(void)
         {
             count++;
             endtime = query2.value(1).toString();
-            querystr = QString("UPDATE program SET starttime = '%1', "
+            querystr = QString("UPDATE program SET "
                                "endtime = '%2' WHERE (chanid = '%3' AND "
                                "starttime = '%4');")
-                               .arg(starttime)
                                .arg(endtime)
                                .arg(chanid)
                                .arg(starttime);
@@ -1252,7 +1414,8 @@ bool ProgramData::IsUnchanged(
         "      showtype        = :SHOWTYPE   AND "
         "      colorcode       = :COLORCODE  AND "
         "      syndicatedepisodenumber = :SYNDICATEDEPISODENUMBER AND "
-        "      programid       = :PROGRAMID");
+        "      programid       = :PROGRAMID  AND "
+        "      inetref         = :INETREF");
 
     QString cattype = myth_category_type_to_string(pi.categoryType);
 
@@ -1280,6 +1443,7 @@ bool ProgramData::IsUnchanged(
     query.bindValue(":SYNDICATEDEPISODENUMBER",
                     denullify(pi.syndicatedepisodenumber));
     query.bindValue(":PROGRAMID",  denullify(pi.programId));
+    query.bindValue(":INETREF",    pi.inetref);
 
     if (query.exec() && query.next())
         return query.value(0).toUInt() > 0;

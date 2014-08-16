@@ -217,7 +217,21 @@ bool CDRipperThread::isCancelled(void)
 void CDRipperThread::run(void)
 {
     RunProlog();
+
     if (!m_tracks->size() > 0)
+    {
+        RunEpilog();
+        return;
+    }
+
+    m_totalSectors = 0;
+    m_totalSectorsDone = 0;
+    for (int trackno = 0; trackno < m_tracks->size(); trackno++)
+    {
+        m_totalSectors += getSectorCount(m_CDdevice, trackno + 1);
+    }
+
+    if (!m_totalSectors)
     {
         RunEpilog();
         return;
@@ -249,13 +263,6 @@ void CDRipperThread::run(void)
     QString encodertype = gCoreContext->GetSetting("EncoderType");
     bool mp3usevbr = gCoreContext->GetNumSetting("Mp3UseVBR", 0);
 
-    m_totalSectors = 0;
-    m_totalSectorsDone = 0;
-    for (int trackno = 0; trackno < m_tracks->size(); trackno++)
-    {
-        m_totalSectors += getSectorCount(m_CDdevice, trackno + 1);
-    }
-
     QApplication::postEvent(m_parent,
         new RipStatusEvent(RipStatusEvent::kOverallStartEvent, m_totalSectors));
 
@@ -269,7 +276,7 @@ void CDRipperThread::run(void)
     }
 
     MusicMetadata *titleTrack = NULL;
-    QString saveDir = GetConfDir() + "/MythMusic/RipTemp/";
+    QString saveDir = GetConfDir() + "/tmp/RipTemp/";
     QString outfile;
 
     std::auto_ptr<Encoder> encoder;
@@ -571,10 +578,10 @@ Ripper::Ripper(MythScreenStack *parent, QString device) :
 
     // make sure the directory where we temporarily save the rips is present
     QDir dir;
-    dir.mkpath(GetConfDir() + "/MythMusic/RipTemp/");
+    dir.mkpath(GetConfDir() + "/tmp/RipTemp/");
 
     // remove any ripped tracks from the temp rip directory
-    QString command = "rm -f " + GetConfDir() + "/MythMusic/RipTemp/*";
+    QString command = "rm -f " + GetConfDir() + "/tmp/RipTemp/*";
     myth_system(command);
 
     // get last host and directory we ripped to
@@ -587,7 +594,7 @@ Ripper::Ripper(MythScreenStack *parent, QString device) :
 Ripper::~Ripper(void)
 {
     // remove any ripped tracks from the temp rip directory
-    QString command = "rm -f " + GetConfDir() + "/MythMusic/RipTemp/*";
+    QString command = "rm -f " + GetConfDir() + "/tmp/RipTemp/*";
     myth_system(command);
 
     if (m_decoder)

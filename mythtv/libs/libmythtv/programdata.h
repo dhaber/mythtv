@@ -89,6 +89,7 @@ class MTV_PUBLIC DBEvent
         categoryType(ProgramInfo::kCategoryNone),
         seriesId(),
         programId(),
+        inetref(),
         previouslyshown(false),
         listingsource(_listingsource),
         season(0),
@@ -121,6 +122,7 @@ class MTV_PUBLIC DBEvent
         categoryType(_category_type),
         seriesId(_seriesId),
         programId(_programId),
+        inetref(),
         previouslyshown(false),
         listingsource(_listingsource),
         season(_season),
@@ -175,6 +177,7 @@ class MTV_PUBLIC DBEvent
     ProgramInfo::CategoryType categoryType;
     QString       seriesId;
     QString       programId;
+    QString       inetref;
     bool          previouslyshown;
     uint32_t      listingsource;
     QList<EventRating> ratings;
@@ -240,7 +243,6 @@ class MTV_PUBLIC ProgInfo : public DBEvent
         channel(QString::null),
         startts(QString::null),
         endts(QString::null),
-        stars(QString::null),
         title_pronounce(QString::null),
         showtype(QString::null),
         colorcode(QString::null),
@@ -260,7 +262,6 @@ class MTV_PUBLIC ProgInfo : public DBEvent
     QString       channel;
     QString       startts;
     QString       endts;
-    QString       stars;
     QString       title_pronounce;
     QString       showtype;
     QString       colorcode;

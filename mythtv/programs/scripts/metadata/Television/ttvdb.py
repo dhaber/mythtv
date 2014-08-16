@@ -470,7 +470,14 @@ banner_type='Banner'
 screenshot_request = False
 
 # Cache directory name specific to the user. This avoids permission denied error with a common cache dirs
-cache_dir="/tmp/tvdb_api_%s/" % os.geteuid()
+confdir = os.environ.get('MYTHCONFDIR', '')
+if (not confdir) or (confdir == '/'):
+    confdir = os.environ.get('HOME', '')
+    if (not confdir) or (confdir == '/'):
+        print "Unable to find MythTV directory for metadata cache."
+        sys.exit(1)
+    confdir = os.path.join(confdir, '.mythtv')
+cache_dir=os.path.join(confdir, "cache/tvdb_api/")
 
 def parse_date(x):
 	return datetime.strptime(x, "%Y-%m-%d")
@@ -1440,7 +1447,7 @@ def main():
         print season_numbers[:-1]
         sys.exit(0) # Option (-n) is the only option honoured when used
 
-    # Dump information accessable for a Series and ONLY first season of episoded data
+    # Dump information accessible for a Series and ONLY first season of episoded data
     if opts.debug == True:
         print "#"*20
         print "# Starting Raw keys call"

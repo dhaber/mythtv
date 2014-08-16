@@ -202,7 +202,7 @@ bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
         fd2 = -1;
     }
 
-    bool is_local = 
+    bool is_local =
         (!filename.startsWith("/dev")) &&
         ((filename.startsWith("/")) || QFile::exists(filename));
 
@@ -242,6 +242,13 @@ bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
                     lasterror = 2;
                     close(fd2);
                     fd2 = -1;
+                    if (ret == 0 && openAttempts > 5 &&
+                        !gCoreContext->IsRegisteredFileForWrite(filename))
+                    {
+                        // file won't grow, abort early
+                        break;
+                    }
+
                     if (oldfile)
                         break; // if it's an old file it won't grow..
                     usleep(10 * 1000);
@@ -320,7 +327,7 @@ bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
             default:
                 break;
         }
-        LOG(VB_FILE, LOG_INFO, 
+        LOG(VB_FILE, LOG_INFO,
             LOC + QString("OpenFile() made %1 attempts in %2 ms")
                 .arg(openAttempts).arg(openTimer.elapsed()));
 
@@ -381,7 +388,6 @@ bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
     commserror = false;
     numfailures = 0;
 
-    rawbitrate = 800;
     CalcReadAheadThresh();
 
     bool ok = fd2 >= 0 || remotefile;
@@ -564,7 +570,7 @@ int FileRingBuffer::safe_read(RemoteFile *rf, void *data, uint sz)
     {
         LOG(VB_GENERAL, LOG_ERR, LOC +
             "safe_read(RemoteFile* ...): read failed");
-            
+
         poslock.lockForRead();
         rf->Seek(internalreadpos - readAdjust, SEEK_SET);
         poslock.unlock();
@@ -587,7 +593,7 @@ long long FileRingBuffer::GetReadPosition(void) const
     return ret;
 }
 
-long long FileRingBuffer::GetRealFileSize(void) const
+long long FileRingBuffer::GetRealFileSizeInternal(void) const
 {
     rwlock.lockForRead();
     long long ret = -1;
@@ -614,29 +620,18 @@ long long FileRingBuffer::GetRealFileSize(void) const
     return ret;
 }
 
-long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
+long long FileRingBuffer::SeekInternal(long long pos, int whence)
 {
-    LOG(VB_FILE, LOG_INFO, LOC + QString("Seek(%1,%2,%3)")
-            .arg(pos).arg((SEEK_SET==whence)?"SEEK_SET":
-                          ((SEEK_CUR==whence)?"SEEK_CUR":"SEEK_END"))
-            .arg(has_lock?"locked":"unlocked"));
-
     long long ret = -1;
 
+    // Ticket 12128
     StopReads();
-
-    // lockForWrite takes priority over lockForRead, so this will
-    // take priority over the lockForRead in the read ahead thread.
-    if (!has_lock)
-        rwlock.lockForWrite();
-
     StartReads();
 
     if (writemode)
     {
         ret = WriterSeek(pos, whence, true);
-        if (!has_lock)
-            rwlock.unlock();
+
         return ret;
     }
 
@@ -650,8 +645,6 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
         ret = readpos;
 
         poslock.unlock();
-        if (!has_lock)
-            rwlock.unlock();
 
         return ret;
     }
@@ -659,7 +652,6 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
     // only valid for SEEK_SET & SEEK_CUR
     long long new_pos = (SEEK_SET==whence) ? pos : readpos + pos;
 
-#if 1
     // Optimize short seeks where the data for
     // them is in our ringbuffer already.
     if (readaheadrunning &&
@@ -675,6 +667,7 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
         bool used_opt = false;
         if ((new_pos < readpos))
         {
+            // Seeking to earlier than current buffer's start, but still in buffer
             int min_safety = max(fill_min, readblocksize);
             int free = ((rbwpos >= rbrpos) ?
                         rbrpos + bufferSize : rbrpos) - rbwpos;
@@ -738,21 +731,21 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
             // end, so we need to recheck if reads are allowed.
             if (new_pos > readpos)
             {
-                ateof = false;
-                readsallowed = false;
+                ateof           = false;
+                readsallowed    = false;
+                readsdesired    = false;
+                recentseek      = true;
             }
             readpos = new_pos;
             poslock.unlock();
             generalWait.wakeAll();
-            if (!has_lock)
-                rwlock.unlock();
+
             return new_pos;
         }
     }
-#endif
 
 #if 1
-    // This optimizes the seek end-250000, read, seek 0, read portion 
+    // This optimizes the seek end-250000, read, seek 0, read portion
     // of the pattern ffmpeg performs at the start of playback to
     // determine the pts.
     // If the seek is a SEEK_END or is a seek where the position
@@ -849,16 +842,15 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
             }
             else
             {
-                ateof = false;
-                readsallowed = false;
+                ateof           = false;
+                readsallowed    = false;
+                readsdesired    = false;
+                recentseek      = true;
             }
 
             poslock.unlock();
 
             generalWait.wakeAll();
-
-            if (!has_lock)
-                rwlock.unlock();
 
             return ret;
         }
@@ -882,7 +874,7 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
     if (ret >= 0)
     {
         readpos = ret;
-        
+
         ignorereadpos = -1;
 
         if (readaheadrunning)
@@ -901,9 +893,6 @@ long long FileRingBuffer::Seek(long long pos, int whence, bool has_lock)
     poslock.unlock();
 
     generalWait.wakeAll();
-
-    if (!has_lock)
-        rwlock.unlock();
 
     return ret;
 }

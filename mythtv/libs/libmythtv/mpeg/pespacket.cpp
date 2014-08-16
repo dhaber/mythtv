@@ -176,8 +176,8 @@ const float SequenceHeader::mpeg1_aspect[16] =
 /// while the positive ones are pixel aspect ratios
 const float SequenceHeader::mpeg2_aspect[16] =
 {
-    0.0000f,       1.0000f,       -3.0/4.0,     -9.0/16.0,
-    -1.0/2.21,     0.0000f,       0.0000f,       0.0000f,
+    0.0000f,       1.0000f,       -3.0/4.0f,     -9.0/16.0f,
+    -1.0/2.21f,    0.0000f,       0.0000f,       0.0000f,
     0.0000f,       0.0000f,       0.0000f,       0.0000f,
     0.0000f,       0.0000f,       0.0000f,       0.0000f,
 };
@@ -212,6 +212,7 @@ float SequenceHeader::aspect(bool mpeg1) const
 // Memory allocator to avoid malloc global lock and waste less memory. //
 /////////////////////////////////////////////////////////////////////////
 
+#ifndef USING_VALGRIND
 static vector<unsigned char*> mem188;
 static vector<unsigned char*> free188;
 static map<unsigned char*, bool> alloc188;
@@ -322,6 +323,7 @@ static void return_4096_block(unsigned char* ptr)
 #endif
     }
 }
+#endif
 
 static QMutex pes_alloc_mutex;
 

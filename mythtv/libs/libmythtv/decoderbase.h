@@ -12,6 +12,7 @@ using namespace std;
 #include "mythdbcon.h"
 #include "programinfo.h"
 #include "mythcodecid.h"
+#include "mythavutil.h"
 
 class RingBuffer;
 class TeletextViewer;
@@ -124,6 +125,7 @@ class DecoderBase
 {
   public:
     DecoderBase(MythPlayer *parent, const ProgramInfo &pginfo);
+    DecoderBase(const DecoderBase& rhs);
     virtual ~DecoderBase();
 
     virtual void Reset(bool reset_video_data, bool seek_reset, bool reset_file);
@@ -173,9 +175,9 @@ class DecoderBase
                                   const frm_pos_map_t &map = frm_pos_map_t(),
                                   float fallback_ratio = 1.0);
     static uint64_t TranslatePosition(const frm_pos_map_t &map,
-                                      uint64_t key,
+                                      long long key,
                                       float fallback_ratio);
-    uint64_t TranslatePositionFrameToMs(uint64_t position,
+    uint64_t TranslatePositionFrameToMs(long long position,
                                         float fallback_framerate,
                                         const frm_dir_map_t &cutlist);
     uint64_t TranslatePositionMsToFrame(uint64_t dur_ms,
@@ -219,7 +221,7 @@ class DecoderBase
     virtual bool FindPosition(long long desired_value, bool search_adjusted,
                               int &lower_bound, int &upper_bound);
 
-    uint64_t SavePositionMapDelta(uint64_t first_frame, uint64_t last_frame);
+    uint64_t SavePositionMapDelta(long long first_frame, long long last_frame);
     virtual void SeekReset(long long newkey, uint skipFrames,
                            bool doFlush, bool discardFrames);
 
@@ -310,6 +312,7 @@ class DecoderBase
     long long lastKey;
     int keyframedist;
     long long indexOffset;
+    MythAVCopy copyFrame;
 
     // The totalDuration field is only valid when the video is played
     // from start to finish without any jumping.  trackTotalDuration

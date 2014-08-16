@@ -2,10 +2,9 @@
 #include "langsettings.h"
 
 // qt
-#include <QApplication>
+#include <QEventLoop>
 #include <QDir>
 #include <QFileInfo>
-#include <QApplication>
 
 // libmythbase
 #include "mythcorecontext.h"
@@ -24,14 +23,23 @@ LanguageSelection::LanguageSelection(MythScreenStack *parent, bool exitOnFinish)
                  :MythScreenType(parent, "LanguageSelection"),
                   m_languageList(NULL), m_countryList(NULL),
                   m_saveButton(NULL), m_cancelButton(NULL),
-                  m_exitOnFinish(exitOnFinish), m_loaded(false)
+                  m_exitOnFinish(exitOnFinish), m_loaded(false),
+                  m_loop(NULL)
 {
     m_language = gCoreContext->GetSetting("Language");
     m_country = gCoreContext->GetSetting("Country");
+    if (exitOnFinish)
+    {
+        m_loop = new QEventLoop();
+    }
 }
 
 LanguageSelection::~LanguageSelection()
 {
+    if (m_exitOnFinish)
+    {
+        delete m_loop;
+    }
 }
 
 bool LanguageSelection::Create(void)
@@ -47,7 +55,7 @@ bool LanguageSelection::Create(void)
 
     if (err)
     {
-        LOG(VB_GENERAL, LOG_ALERT, 
+        LOG(VB_GENERAL, LOG_ALERT,
                  "Cannot load screen 'languageselection'");
         return false;
     }
@@ -101,7 +109,7 @@ void LanguageSelection::Load(void)
     QString localeCode = locale->GetLocaleCode();
     QString countryCode = locale->GetCountryCode();
 
-    LOG(VB_GENERAL, LOG_INFO, 
+    LOG(VB_GENERAL, LOG_INFO,
              QString("System Locale (%1), Country (%2), Language (%3)")
                      .arg(localeCode).arg(countryCode).arg(langCode));
 
@@ -133,7 +141,7 @@ void LanguageSelection::Load(void)
     {
         LOG(VB_GUI, LOG_ERR, "ERROR - Failed to load translations, at least "
                              "one translation file MUST be installed.");
-        
+
         item = new MythUIButtonListItem(m_languageList,
                                         "English (United States)");
         item->SetText("English (United States)", "language");
@@ -186,7 +194,7 @@ bool LanguageSelection::prompt(bool force)
         if (langSettings->Create())
         {
             mainStack->AddScreen(langSettings, false);
-            qApp->exec();
+            langSettings->m_loop->exec();
             mainStack->PopScreen(langSettings, false);
         }
         else
@@ -201,12 +209,25 @@ void LanguageSelection::Save(void)
     MythUIButtonListItem *item = m_languageList->GetItemCurrent();
 
     if (!item)
+    {
         Close();
+        LOG(VB_GUI, LOG_ERR,
+                 "LanguageSelection::Save called without current languageList");
+        return;
+    }
 
     QString langCode = item->GetData().toString();
     gCoreContext->SaveSettingOnHost("Language", langCode, NULL);
 
     item = m_countryList->GetItemCurrent();
+
+    if (!item)
+    {
+        Close();
+        LOG(VB_GUI, LOG_ERR,
+                 "LanguageSelection::Save called without current countryList");
+        return;
+    }
 
     QString countryCode = item->GetData().toString();
     gCoreContext->SaveSettingOnHost("Country", countryCode, NULL);
@@ -220,7 +241,7 @@ void LanguageSelection::Save(void)
 void LanguageSelection::Close(void)
 {
     if (m_exitOnFinish)
-        qApp->quit();
+        m_loop->quit();
     else
         MythScreenType::Close();
 }

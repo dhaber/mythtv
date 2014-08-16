@@ -135,6 +135,8 @@ int av_samples_get_buffer_size(int *linesize, int nb_channels, int nb_samples,
 
     /* auto-select alignment if not specified */
     if (!align) {
+        if (nb_samples > INT_MAX - 31)
+            return AVERROR(EINVAL);
         align = 1;
         nb_samples = FFALIGN(nb_samples, 32);
     }
@@ -205,6 +207,21 @@ int av_samples_alloc(uint8_t **audio_data, int *linesize, int nb_channels,
 #else
     return size;
 #endif
+}
+
+int av_samples_alloc_array_and_samples(uint8_t ***audio_data, int *linesize, int nb_channels,
+                                       int nb_samples, enum AVSampleFormat sample_fmt, int align)
+{
+    int ret, nb_planes = av_sample_fmt_is_planar(sample_fmt) ? nb_channels : 1;
+
+    *audio_data = av_calloc(nb_planes, sizeof(**audio_data));
+    if (!*audio_data)
+        return AVERROR(ENOMEM);
+    ret = av_samples_alloc(*audio_data, linesize, nb_channels,
+                           nb_samples, sample_fmt, align);
+    if (ret < 0)
+        av_freep(audio_data);
+    return ret;
 }
 
 int av_samples_copy(uint8_t **dst, uint8_t * const *src, int dst_offset,

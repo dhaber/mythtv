@@ -61,6 +61,8 @@ class MUI_PUBLIC MythRenderVDPAU : public MythRender
     static bool gVDPAUSupportChecked;
     static uint gVDPAUBestScaling;
     static bool gVDPAUMPEG4Accel;
+    static bool gVDPAUNVIDIA;
+    static bool IsVDPAUAvailable(void);
     static bool IsMPEG4Available(void);
     static bool H264DecoderSizeSupported(uint width, uint height);
     bool        CreateDummy(void);
@@ -135,6 +137,8 @@ class MUI_PUBLIC MythRenderVDPAU : public MythRender
     void  ChangeVideoSurfaceOwner(uint id);
 
     void  Decode(uint id, struct vdpau_render_state *render);
+    void  Decode(uint id, struct vdpau_render_state *render,
+                 const VdpPictureInfo *info);
     void  SetVideoFlip(void) { m_flipFrames = true; }
 
   private:

@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "h264.h"
+
 #undef MCFUNC
 
 #if   CHROMA_IDC == 1
@@ -68,7 +70,7 @@ static void MCFUNC(hl_motion)(H264Context *h, uint8_t *dest_y,
                               h264_biweight_func *weight_avg)
 {
     const int mb_xy   = h->mb_xy;
-    const int mb_type = h->cur_pic.f.mb_type[mb_xy];
+    const int mb_type = h->cur_pic.mb_type[mb_xy];
 
     av_assert2(IS_INTER(mb_type));
 

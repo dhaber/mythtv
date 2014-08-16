@@ -44,7 +44,7 @@ RecordingRule::RecordingRule()
     m_prefInput(0),
     m_startOffset(0),
     m_endOffset(0),
-    m_dupMethod(kDupCheckSubDesc),
+    m_dupMethod(kDupCheckSubThenDesc),
     m_dupIn(kDupsInAll),
     m_filter(0),
     m_recProfile(tr("Default")),
@@ -186,7 +186,7 @@ bool RecordingRule::Load(bool asTemplate)
 
     m_isOverride = (m_type == kOverrideRecord || m_type == kDontRecord);
     m_isTemplate = (m_type == kTemplateRecord);
-    m_template = (asTemplate || m_isTemplate) ? 
+    m_template = (asTemplate || m_isTemplate) ?
         query.value(30).toString() : "";
 
     if (!asTemplate)
@@ -478,8 +478,12 @@ bool RecordingRule::Save(bool sendSig)
         query.bindValue(":RECORDID", m_recordID);
 
     if (!query.exec())
+    {
         MythDB::DBError("UPDATE/INSERT record", query);
-    else if (m_recordTable != "record" && m_tempID <= 0)
+        return false;
+    }
+
+    if (m_recordTable != "record" && m_tempID <= 0)
         m_tempID = query.lastInsertId().toInt();
     else if (m_recordID <= 0)
         m_recordID = query.lastInsertId().toInt();
@@ -788,7 +792,7 @@ unsigned RecordingRule::GetDefaultFilter(void)
 
     if (!query.next())
         return 0;
-    
+
     return query.value(0).toUInt();
 }
 

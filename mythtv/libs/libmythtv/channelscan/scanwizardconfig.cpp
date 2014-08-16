@@ -171,11 +171,17 @@ void ScanTypeSetting::SetInput(const QString &cardids_inputname)
                          QString::number(ExistingScanImport));
             break;
         case CardUtil::FREEBOX:
+            addSelection(tr("M3U Import with MPTS"),
+                         QString::number(IPTVImportMPTS), true);
             addSelection(tr("M3U Import"),
                          QString::number(IPTVImport), true);
             return;
         case CardUtil::ASI:
             addSelection(tr("ASI Scan"),
+                         QString::number(CurrentTransportScan), true);
+            return;
+        case CardUtil::EXTERNAL:
+            addSelection(tr("MPTS Scan"),
                          QString::number(CurrentTransportScan), true);
             return;
         case CardUtil::ERROR_PROBE:

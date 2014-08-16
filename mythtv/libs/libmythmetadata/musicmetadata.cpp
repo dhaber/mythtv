@@ -3,6 +3,7 @@
 #include <QRegExp>
 #include <QDateTime>
 #include <QDir>
+#include <QScopedPointer>
 
 // mythtv
 #include <mythcontext.h>
@@ -16,6 +17,7 @@
 #include <mythdate.h>
 #include <remotefile.h>
 #include <storagegroup.h>
+#include <mythsystem.h>
 
 // libmythmetadata
 #include "musicmetadata.h"
@@ -117,6 +119,7 @@ MusicMetadata& MusicMetadata::operator=(const MusicMetadata &rhs)
     m_compilation = rhs.m_compilation;
     m_id = rhs.m_id;
     m_filename = rhs.m_filename;
+    m_actualFilename = rhs.m_actualFilename;
     m_hostname = rhs.m_hostname;
     m_directoryid = rhs.m_directoryid;
     m_artistid = rhs.m_artistid;
@@ -988,6 +991,8 @@ void MusicMetadata::setEmbeddedAlbumArt(AlbumArtList &albumart)
 
     for (int x = 0; x < albumart.size(); x++)
     {
+        AlbumArtImage *image = albumart.at(x);
+        image->filename = QString("%1-%2").arg(m_id).arg(image->filename);
         m_albumArt->addImage(albumart.at(x));
     }
 
@@ -1084,18 +1089,41 @@ QString MusicMetadata::getAlbumArtFile(void)
         {
             // check for the image in the storage group
             QUrl url(res);
+
+            if (url.path().isEmpty() || url.host().isEmpty() || url.userName().isEmpty())
+            {
+                return QString("");
+            }
+
             QString sUrl = RemoteFile::FindFile(url.path(), url.host(), url.userName());
 
             if (sUrl.isEmpty())
             {
                 if (albumart_image->embedded)
                 {
-                    QStringList slist;
-                    slist << QString("MUSIC_TAG_GETIMAGE %1 %2 %3")
-                            .arg(Hostname())
-                            .arg(ID())
-                            .arg(albumart_image->imageType);
-                    gCoreContext->SendReceiveStringList(slist);
+                    if (gCoreContext->IsMasterBackend() &&
+                        url.host() == gCoreContext->GetMasterHostName())
+                    {
+                        QStringList paramList;
+                        paramList.append(QString("--songid='%1'").arg(ID()));
+                        paramList.append(QString("--imagetype='%1'").arg(albumart_image->imageType));
+
+                        QString command = "mythutil --extractimage " + paramList.join(" ");
+
+                        QScopedPointer<MythSystem> cmd(MythSystem::Create(command,
+                                                    kMSAutoCleanup | kMSRunBackground |
+                                                    kMSDontDisableDrawing | kMSProcessEvents |
+                                                    kMSDontBlockInputDevs));
+                    }
+                    else
+                    {
+                        QStringList slist;
+                        slist << "MUSIC_TAG_GETIMAGE"
+                            << Hostname()
+                            << QString::number(ID())
+                            << QString::number(albumart_image->imageType);
+                        gCoreContext->SendReceiveStringList(slist);
+                    }
                 }
             }
         }
@@ -1737,6 +1765,8 @@ void AlbumArtImages::findImages(void)
                         image->filename = gCoreContext->GenMythURL(url.host(), url.port(),
                                                                    QString("AlbumArt/") + query.value(1).toString(),
                                                                    "MusicArt");
+                    else
+                        image->filename = query.value(1).toString();
                 }
                 else
                 {
@@ -1744,6 +1774,8 @@ void AlbumArtImages::findImages(void)
                         image->filename =  gCoreContext->GenMythURL(url.host(), url.port(),
                                                                     query.value(1).toString(),
                                                                     "Music");
+                    else
+                        image->filename = query.value(1).toString();
                 }
 
                 image->imageType = (ImageType) query.value(3).toInt();
@@ -1785,9 +1817,11 @@ void AlbumArtImages::scanForImages()
         busy = NULL;
     }
 
-    QStringList strList(QString("MUSIC_FIND_ALBUMART %1 %2 1")
-                                .arg(m_parent->Hostname())
-                                .arg(m_parent->ID()));
+    QStringList strList;
+    strList << "MUSIC_FIND_ALBUMART"
+            << m_parent->Hostname()
+            << QString::number(m_parent->ID())
+            << "1";
 
     AlbumArtScannerThread *scanThread = new AlbumArtScannerThread(strList);
     scanThread->start();
@@ -1833,7 +1867,19 @@ void AlbumArtImages::scanForImages()
         }
 
         image->hostname = strList[x + 5];
+
+        LOG(VB_FILE, LOG_INFO, "AlbumArtImages::scanForImages found image");
+        LOG(VB_FILE, LOG_INFO, QString("ID: %1").arg(image->id));
+        LOG(VB_FILE, LOG_INFO, QString("ImageType: %1").arg(image->imageType));
+        LOG(VB_FILE, LOG_INFO, QString("Embedded: %1").arg(image->embedded));
+        LOG(VB_FILE, LOG_INFO, QString("Description: %1").arg(image->description));
+        LOG(VB_FILE, LOG_INFO, QString("Filename: %1").arg(image->filename));
+        LOG(VB_FILE, LOG_INFO, QString("Hostname: %1").arg(image->hostname));
+        LOG(VB_FILE, LOG_INFO, "-------------------------------");
+
         addImage(image);
+
+        delete image;
     }
 }
 

@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <cerrno>
+#include <stdlib.h>
 
 #include <iostream>
 using namespace std;
@@ -16,6 +17,9 @@ using namespace std;
 #include <QWidget>
 #include <QApplication>
 #include <QTimer>
+#ifdef Q_OS_MAC
+#include <QProcessEnvironment>
+#endif
 
 #include "previewgeneratorqueue.h"
 #include "referencecounter.h"
@@ -120,7 +124,7 @@ void handleSIGUSR2(void);
 static bool gLoaded = false;
 #endif
 
-static const QString _Location = qApp->translate("(Common)", 
+static const QString _Location = qApp->translate("(Common)",
                                                  "MythFrontend");
 
 namespace
@@ -313,7 +317,7 @@ static void startAppearWiz(void)
     bool reload = false;
 
     if (isWindowed)
-        ShowOkPopup(qApp->translate("(MythFrontendMain)", 
+        ShowOkPopup(qApp->translate("(MythFrontendMain)",
                     "The ScreenSetupWizard cannot be used while "
                     "mythfrontend is operating in windowed mode."));
     else
@@ -624,7 +628,7 @@ static void standbyScreen(void)
 
 static void RunVideoScreen(VideoDialog::DialogType type, bool fromJump = false)
 {
-    QString message = qApp->translate("(MythFrontendMain)", 
+    QString message = qApp->translate("(MythFrontendMain)",
                                       "Loading videos ...");
 
     MythScreenStack *popupStack =
@@ -783,7 +787,7 @@ static void handleDVDMedia(MythMediaDevice *dvd)
 
     if (!dvd->isUsable()) // This isn't infallible, on some drives both a mount and libudf fail
         return;
-    
+
     switch (gCoreContext->GetNumSetting("DVDOnInsertDVD", 1))
     {
         case 0 : // Do nothing
@@ -806,7 +810,7 @@ static void TVMenuCallback(void *data, QString &selection)
     (void)data;
     QString sel = selection.toLower();
 
-    if (sel.startsWith("settings "))
+    if (sel.startsWith("settings ") || sel == "video_settings_general")
     {
         GetMythUI()->AddCurrentLocation("Setup");
         gCoreContext->ActivateSettingsCache(false);
@@ -1026,6 +1030,10 @@ static void TVMenuCallback(void *data, QString &selection)
         handleExit(false);
     else if (sel == "standby_mode")
         standbyScreen();
+    else if (sel == "exiting_menu")
+    {
+        //ignore
+    }
     else
         LOG(VB_GENERAL, LOG_ERR, "Unknown menu action: " + selection);
 
@@ -1034,7 +1042,11 @@ static void TVMenuCallback(void *data, QString &selection)
         GetMythUI()->RemoveCurrentLocation();
 
         gCoreContext->ActivateSettingsCache(true);
+
+        // tell the backend the settings may have changed
         gCoreContext->SendMessage("CLEAR_SETTINGS_CACHE");
+        // tell the frontend the settings may have changed
+        gCoreContext->dispatch(MythEvent(QString("CLEAR_SETTINGS_CACHE")));
 
         if (sel == "settings general" ||
             sel == "settings generalrecpriorities")
@@ -1157,9 +1169,9 @@ static int internal_play_media(const QString &mrl, const QString &plot,
         }
         else
         {
-            ShowNotificationError(qApp->translate("(MythFrontendMain)", 
-                                                  "DVD Failure"), 
-                                                  _Location, 
+            ShowNotificationError(qApp->translate("(MythFrontendMain)",
+                                                  "DVD Failure"),
+                                                  _Location,
                                                   dvd->GetLastError());
             delete dvd;
             delete pginfo;
@@ -1204,7 +1216,7 @@ static void gotoMainMenu(void)
 
 // If the theme specified in the DB is somehow broken, try a standard one:
 //
-static bool resetTheme(QString themedir, const QString badtheme)
+static bool resetTheme(QString themedir, const QString &badtheme)
 {
     QString themename = DEFAULT_UI_THEME;
 
@@ -1374,8 +1386,6 @@ static void InitKeys(void)
          "Play selected item in alternate player"), "ALT+P");
      REG_KEY("Video","FILTER", QT_TRANSLATE_NOOP("MythControls",
          "Open video filter dialog"), "F");
-     REG_KEY("Video","BROWSE", QT_TRANSLATE_NOOP("MythControls",
-         "Change browsable in video manager"), "B");
      REG_KEY("Video","INCPARENT", QT_TRANSLATE_NOOP("MythControls",
          "Increase Parental Level"), "],},F11");
      REG_KEY("Video","DECPARENT", QT_TRANSLATE_NOOP("MythControls",
@@ -1386,10 +1396,6 @@ static void InitKeys(void)
          "Download metadata for current item"), "W");
      REG_KEY("Video","ITEMDETAIL", QT_TRANSLATE_NOOP("MythControls",
          "Display Item Detail Popup"), "");
-     REG_KEY("Video","HOME", QT_TRANSLATE_NOOP("MythControls",
-         "Go to the first video"), "Home");
-     REG_KEY("Video","END", QT_TRANSLATE_NOOP("MythControls",
-         "Go to the last video"), "End");
 
      // Gallery keybindings
      REG_KEY("Images", "PLAY", QT_TRANSLATE_NOOP("MythControls",
@@ -1398,10 +1404,6 @@ static void InitKeys(void)
          "Pause Slideshow"), "Ctrl+P");
      REG_KEY("Images", "STOP", QT_TRANSLATE_NOOP("MythControls",
          "Stop Slideshow"), "Alt+P");
-     REG_KEY("Images", "HOME", QT_TRANSLATE_NOOP("MythControls",
-         "Go to the first image in thumbnail view"), "Home");
-     REG_KEY("Images", "END", QT_TRANSLATE_NOOP("MythControls",
-         "Go to the last image in thumbnail view"), "End");
      REG_KEY("Images", "SLIDESHOW", QT_TRANSLATE_NOOP("MythControls",
          "Start Slideshow in thumbnail view"), "S");
      REG_KEY("Images", "RANDOMSHOW", QT_TRANSLATE_NOOP("MythControls",
@@ -1493,6 +1495,102 @@ static void CleanupMyOldInUsePrograms(void)
         MythDB::DBError("CleanupMyOldInUsePrograms", query);
 }
 
+static bool WasAutomaticStart(void)
+{
+    bool autoStart = false;
+
+    // Is backend running?
+    //
+    if( gCoreContext->BackendIsRunning() )
+    {
+        QDateTime startupTime = QDateTime();
+
+        if( gCoreContext->IsMasterHost() )
+        {
+            QString s = gCoreContext->GetSetting("MythShutdownWakeupTime", "");
+            if (s.length())
+                startupTime = MythDate::fromString(s);
+
+            // if we don't have a valid startup time assume we were started manually
+            if (startupTime.isValid())
+            {
+                int startupSecs = gCoreContext->GetNumSetting("StartupSecsBeforeRecording");
+                // If we started within 'StartupSecsBeforeRecording' OR 15 minutes
+                // of the saved wakeup time assume we either started automatically
+                // to record, to obtain guide data or or for a
+                // daily wakeup/shutdown period
+                if (abs(startupTime.secsTo(MythDate::current())) <
+                    max(startupSecs, 15 * 60))
+                {
+                    LOG(VB_GENERAL, LOG_INFO,
+                        "Close to auto-start time, AUTO-Startup assumed");
+
+                    QString str = gCoreContext->GetSetting("MythFillSuggestedRunTime");
+                    QDateTime guideRunTime = MythDate::fromString(str);
+                    if (guideRunTime.secsTo(MythDate::current()) <
+                        max(startupSecs, 15 * 60))
+                    {
+                        LOG(VB_GENERAL, LOG_INFO,
+                            "Close to MythFillDB suggested run time, AUTO-Startup to fetch guide data?");
+                    }
+                    autoStart = true;
+                }
+                else
+                    LOG(VB_GENERAL, LOG_DEBUG,
+                        "NOT close to auto-start time, USER-initiated startup assumed");
+            }
+        }
+        else
+        {
+            QString wakeupCmd = gCoreContext->GetSetting("WakeUpCommand");
+
+            // A slave backend that has no wakeup command cannot be woken
+            // automatically so can be ignored.
+            if (!wakeupCmd.isEmpty())
+            {
+                ProgramList progList;
+                bool        bConflicts;
+                QDateTime   nextRecordingStart;
+
+                if (LoadFromScheduler(progList, bConflicts))
+                {
+                    // Find the first recording to be recorded
+                    // on this machine
+                    QString hostname = gCoreContext->GetHostName();
+                    ProgramList::const_iterator it = progList.begin();
+                    for (; it != progList.end(); ++it)
+                    {
+                        if (((*it)->GetRecordingStatus() == rsWillRecord) &&
+                            ((*it)->GetHostname() == hostname) &&
+                            (nextRecordingStart.isNull() ||
+                             nextRecordingStart > (*it)->GetRecordingStartTime()))
+                        {
+                            nextRecordingStart = (*it)->GetRecordingStartTime();
+                        }
+                    }
+
+                    if (!nextRecordingStart.isNull() &&
+                        (abs(nextRecordingStart.secsTo(MythDate::current())) < (4 * 60)))
+                    {
+                        LOG(VB_GENERAL, LOG_INFO,
+                            "Close to start time, AUTO-Startup assumed");
+
+                        // If we started within 4 minutes of the next recording,
+                        // we almost certainly started automatically.
+                        autoStart = true;
+                    }
+                    else
+                        LOG(VB_GENERAL, LOG_DEBUG,
+                            "NOT close to auto-start time, USER-initiated startup assumed");
+
+                }
+            }
+        }
+    }
+
+    return autoStart;
+}
+
 int main(int argc, char **argv)
 {
     bool bPromptForBackend    = false;
@@ -1524,8 +1622,22 @@ int main(int argc, char **argv)
     // of the MythPushButton widgets, and they don't use the themed background.
     QApplication::setDesktopSettingsAware(false);
 #endif
+#ifdef Q_OS_LINUX
+    // This makes Xlib calls thread-safe which seems to be required for hardware
+    // accelerated Flash playback to work without causing mythfrontend to abort.
+    QApplication::setAttribute(Qt::AA_X11InitThreads);
+#endif
     new QApplication(argc, argv);
     QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHFRONTEND);
+
+#ifdef Q_OS_MAC
+    QString path = QCoreApplication::applicationDirPath();
+    setenv("PYTHONPATH",
+           QString("%1/../Resources/lib/python2.6/site-packages:%2")
+           .arg(path)
+           .arg(QProcessEnvironment::systemEnvironment().value("PYTHONPATH"))
+           .toUtf8().constData(), 1);
+#endif
 
 #ifndef _WIN32
     QList<int> signallist;
@@ -1586,7 +1698,7 @@ int main(int argc, char **argv)
     if (!cmdline.toBool("noupnp"))
     {
         g_pUPnp  = new MediaRenderer();
-        if (!g_pUPnp->initialized())
+        if (!g_pUPnp->isInitialized())
         {
             delete g_pUPnp;
             g_pUPnp = NULL;
@@ -1678,11 +1790,11 @@ int main(int argc, char **argv)
 #ifdef USING_AIRPLAY
     if (gCoreContext->GetNumSetting("AirPlayEnabled", true))
     {
+        MythRAOPDevice::Create();
         if (!gCoreContext->GetNumSetting("AirPlayAudioOnly", false))
         {
             MythAirplayServer::Create();
         }
-        MythRAOPDevice::Create();
     }
 #endif
 
@@ -1806,6 +1918,14 @@ int main(int argc, char **argv)
                     .arg(mmw->EnumerateDestinations().join(", ")));
             return GENERIC_EXIT_INVALID_CMDLINE;
         }
+    }
+
+    if (WasAutomaticStart())
+    {
+        // We appear to have been started automatically
+        // so enter standby so that the machine can
+        // shutdown again as soon as possible if necessary.
+        standbyScreen();
     }
 
     int ret = qApp->exec();

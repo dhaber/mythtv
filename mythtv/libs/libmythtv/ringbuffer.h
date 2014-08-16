@@ -67,6 +67,8 @@ class MTV_PUBLIC RingBuffer : protected MThread
     QString   GetFilename(void)      const;
     QString   GetSubtitleFilename(void) const;
     QString   GetLastError(void)     const;
+    bool      GetCommsError(void) const { return commserror; }
+    void      ResetCommsError(void) { commserror = 0; }
 
     /// Returns value of stopreads
     /// \sa StartReads(void), StopReads(void)
@@ -81,7 +83,7 @@ class MTV_PUBLIC RingBuffer : protected MThread
     long long GetWritePosition(void) const;
     /// \brief Returns the size of the file we are reading/writing,
     ///        or -1 if the query fails.
-    virtual long long GetRealFileSize(void)  const { return -1; }
+    long long GetRealFileSize(void) const;
     bool      IsNearEnd(double fps, uint vvf) const;
     /// \brief Returns true if open for either reading or writing.
     virtual bool IsOpen(void) const = 0;
@@ -91,6 +93,11 @@ class MTV_PUBLIC RingBuffer : protected MThread
     virtual int  BestBufferSize(void)   { return 32768; }
     static QString BitrateToString(uint64_t rate, bool hz = false);
     RingBufferType GetType() const { return type; }
+
+    // LiveTV used utilities
+    int GetReadBufAvail() const;
+    bool SetReadInternalMode(bool mode);
+    bool IsReadInternalMode(void) { return readInternalMode; }
 
     // DVD and bluray methods
     bool IsDisc(void) const { return IsDVD() || IsBD(); }
@@ -127,8 +134,7 @@ class MTV_PUBLIC RingBuffer : protected MThread
                bool resetInternal = false);
 
     /// \brief Seeks to a particular position in the file.
-    virtual long long Seek(
-        long long pos, int whence, bool has_lock = false) = 0;
+    long long Seek(long long pos, int whence, bool has_lock = false);
 
     // Pause commands
     void Pause(void);
@@ -175,7 +181,9 @@ class MTV_PUBLIC RingBuffer : protected MThread
     int ReadPriv(void *buf, int count, bool peek);
     int ReadDirect(void *buf, int count, bool peek);
     bool WaitForReadsAllowed(void);
-    bool WaitForAvail(int count);
+    int WaitForAvail(int count, int timeout);
+    virtual long long GetRealFileSizeInternal(void) const { return -1; }
+    virtual long long SeekInternal(long long pos, int whence) = 0;
 
     int ReadBufFree(void) const;
     int ReadBufAvail(void) const;
@@ -228,6 +236,8 @@ class MTV_PUBLIC RingBuffer : protected MThread
     bool      paused;             // protected by rwlock
     bool      ateof;              // protected by rwlock
     bool      readsallowed;       // protected by rwlock
+    bool      readsdesired;       // protected by rwlock
+    volatile bool recentseek;
     bool      setswitchtonext;    // protected by rwlock
     uint      rawbitrate;         // protected by rwlock
     float     playspeed;          // protected by rwlock
@@ -244,6 +254,10 @@ class MTV_PUBLIC RingBuffer : protected MThread
     bool ignoreliveeof;           // protected by rwlock
 
     long long readAdjust;         // protected by rwlock
+
+    // Internal RingBuffer Method
+    int       readOffset;         // protected by rwlock
+    bool      readInternalMode;   // protected by rwlock
 
     // bitrate monitors
     bool              bitrateMonitorEnabled;
@@ -268,6 +282,7 @@ class MTV_PUBLIC RingBuffer : protected MThread
 
   private:
     static bool gAVformat_net_initialised;
+    bool bitrateInitialized;
 };
 
 #endif // _RINGBUFFER_H_

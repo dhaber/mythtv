@@ -225,9 +225,9 @@ void EditMetadataCommon::saveAll()
     if (GetMythDB()->GetNumSetting("AllowTagWriting", 0))
     {
         QStringList strList;
-        strList << QString("MUSIC_TAG_UPDATE_METADATA %1 %2")
-                            .arg(m_metadata->Hostname())
-                            .arg(m_metadata->ID());
+        strList << "MUSIC_TAG_UPDATE_METADATA %1 %2"
+                << m_metadata->Hostname()
+                << QString::number(m_metadata->ID());
 
         SendStringListThread *thread = new SendStringListThread(strList);
         MThreadPool::globalInstance()->start(thread, "UpdateMetadata");
@@ -784,9 +784,11 @@ void EditMetadataDialog::customEvent(QEvent *event)
             }
             else if (resulttext == tr("Check Track Length"))
             {
-                QString command = QString("MUSIC_CALC_TRACK_LENGTH %1 %2")
-                                          .arg(m_metadata->Hostname()).arg(m_metadata->ID());
-                QStringList strList(command);
+                QStringList strList;
+                strList << "MUSIC_CALC_TRACK_LENGTH"
+                        << m_metadata->Hostname()
+                        << QString::number(m_metadata->ID());
+
                 SendStringListThread *thread = new SendStringListThread(strList);
                 MThreadPool::globalInstance()->start(thread, "Send MUSIC_CALC_TRACK_LENGTH");
 
@@ -1078,7 +1080,7 @@ void EditAlbumartDialog::showMenu(void )
 
     if (m_coverartList->GetItemCurrent())
     {
-        //menu->AddButton(tr("Change Image Type"), NULL, true);
+        menu->AddButton(tr("Change Image Type"), NULL, true);
 
         if (GetMythDB()->GetNumSetting("AllowTagWriting", 0))
         {
@@ -1143,63 +1145,13 @@ void EditAlbumartDialog::customEvent(QEvent *event)
                     AlbumArtImage *image = qVariantValue<AlbumArtImage*> (item->GetData());
                     if (image)
                     {
-                        AlbumArtImage oldImage = *image;
+                        QStringList strList("MUSIC_TAG_CHANGEIMAGE");
+                        strList << m_metadata->Hostname()
+                                << QString::number(m_metadata->ID())
+                                << QString::number(image->imageType)
+                                << QString::number(type);
 
-                        image->imageType = (ImageType) type;
-
-                        if (image->imageType == oldImage.imageType)
-                            return;
-
-                        // rename any cached image to match the new type
-                        if (image->embedded)
-                        {
-                            // update the new cached image filename
-                            image->filename = QString(GetConfDir() + "/MythMusic/AlbumArt/%1-%2.jpg")
-                                                .arg(m_metadata->ID())
-                                                .arg(AlbumArtImages::getTypeFilename(image->imageType));
-
-                            if (image->filename != oldImage.filename && QFile::exists(oldImage.filename))
-                            {
-                                // remove any old cached file with the same name as the new one
-                                QFile::remove(image->filename);
-                                // rename the old cached file to the new one
-                                QFile::rename(oldImage.filename, image->filename);
-
-                                // force the theme image cache to refresh the image
-                                GetMythUI()->RemoveFromCacheByFile(image->filename);
-                            }
-
-                            // change the image type in the tag if it supports it
-                            MetaIO *tagger = m_metadata->getTagger();
-
-                            if (tagger && tagger->supportsEmbeddedImages())
-                            {
-                                if (!tagger->changeImageType(m_metadata->Filename(), &oldImage, image->imageType))
-                                    LOG(VB_GENERAL, LOG_INFO, "EditAlbumartDialog: failed to change image type");
-                            }
-
-                            if (tagger)
-                                delete tagger;
-                        }
-                        else
-                        {
-                            QFileInfo fi(oldImage.filename);
-
-                            // get the new images filename
-                            image->filename = QString(fi.absolutePath() + "/%1.jpg")
-                                    .arg(AlbumArtImages::getTypeFilename(image->imageType));
-
-                            if (image->filename != oldImage.filename && QFile::exists(oldImage.filename))
-                            {
-                                // remove any old cached file with the same name as the new one
-                                QFile::remove(image->filename);
-                                // rename the old cached file to the new one
-                                QFile::rename(oldImage.filename, image->filename);
-
-                                // force the theme image cache to refresh the image
-                                GetMythUI()->RemoveFromCacheByFile(image->filename);
-                            }
-                        }
+                        gCoreContext->SendReceiveStringList(strList);
 
                         m_albumArtChanged = true;
 
@@ -1252,16 +1204,16 @@ void EditAlbumartDialog::customEvent(QEvent *event)
         {
             if (tokens[0] == "BROWSER_DOWNLOAD_FINISHED")
                 rescanForImages();
-            else if (tokens[0] == "MUSIC_METADATA_CHANGED")
+            else if (tokens[0] == "MUSIC_ALBUMART_CHANGED")
             {
                 if (tokens.size() >= 2)
                 {
-                    int songID = tokens[1].toInt();
+                    MusicMetadata::IdType songID = (MusicMetadata::IdType)tokens[1].toInt();
 
                     if (m_metadata->ID() == songID)
                     {
                         // force all the image to reload
-                        for (int x = 0; x < m_metadata->getAlbumArtImages()->getImageCount(); x++)
+                        for (uint x = 0; x < m_metadata->getAlbumArtImages()->getImageCount(); x++)
                             removeCachedImage(m_metadata->getAlbumArtImages()->getImageAt(x));
 
                         updateImageGrid();

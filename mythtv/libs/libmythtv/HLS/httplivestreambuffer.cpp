@@ -22,18 +22,30 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+
+
+// QT
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QtAlgorithms>
 #include <QUrl>
 
+// C++
+#include <algorithm> // for min/max
+using std::max;
+using std::min;
+
+// Posix
 #include <sys/time.h> // for gettimeofday
 
+// libmythbase
 #include "mthread.h"
-#include "httplivestreambuffer.h"
 #include "mythdownloadmanager.h"
 #include "mythlogging.h"
+
+// libmythtv
+#include "httplivestreambuffer.h"
 
 #ifdef USING_LIBCRYPTO
 // encryption related stuff
@@ -2028,7 +2040,7 @@ int HLSRingBuffer::ParseKey(HLSStream *hls, const QString &line)
 #endif
     else
     {
-#ifndef _MSC_VER  
+#ifndef _MSC_VER
         LOG(VB_PLAYBACK, LOG_ERR, LOC +
             "invalid encryption type, only NONE "
 #ifdef USING_LIBCRYPTO
@@ -2790,13 +2802,13 @@ int HLSRingBuffer::DurationForBytes(uint size)
     return (int)((size * 1000.0) / byterate);
 }
 
-long long HLSRingBuffer::GetRealFileSize(void) const
+long long HLSRingBuffer::GetRealFileSizeInternal(void) const
 {
     QReadLocker lock(&rwlock);
     return SizeMedia();
 }
 
-long long HLSRingBuffer::Seek(long long pos, int whence, bool has_lock)
+long long HLSRingBuffer::SeekInternal(long long pos, int whence)
 {
     if (m_error)
         return -1;

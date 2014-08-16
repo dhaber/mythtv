@@ -36,7 +36,7 @@ class EITCache
 
   private:
     event_map_t * LoadChannel(uint chanid);
-    void WriteChannelToDB(uint chanid);
+    void WriteChannelToDB(QStringList &value_clauses, uint chanid);
 
     // event key cache
     key_map_t   channelMap;
@@ -49,9 +49,11 @@ class EITCache
     uint        hitCnt;
     uint        tblChgCnt;
     uint        verChgCnt;
+    uint        endChgCnt;
     uint        entryCnt;
     uint        pruneCnt;
     uint        prunedHitCnt;
+    uint        futureHitCnt;
     uint        wrongChannelHitCnt;
 
     static const uint kVersionMax;

@@ -14,16 +14,20 @@ TARGET = test_mpegtables
 DEPENDPATH += . ../..
 INCLUDEPATH += . ../.. ../../mpeg ../../../libmythui ../../../libmyth ../../../libmythbase
 
+LIBS += ../../dvbdescriptors.o
+LIBS += ../../iso6937tables.o
+LIBS += ../../freesat_huffman.o
+
 LIBS += -L../../../libmythbase -lmythbase-$$LIBVERSION
 LIBS += -L../../../libmythui -lmythui-$$LIBVERSION
 LIBS += -L../../../libmythupnp -lmythupnp-$$LIBVERSION
 LIBS += -L../../../libmythservicecontracts -lmythservicecontracts-$$LIBVERSION
 LIBS += -L../../../libmyth -lmyth-$$LIBVERSION
+LIBS += -L../../../../external/FFmpeg/libswresample -lmythswresample
+LIBS += -L../../../../external/FFmpeg/libavutil -lmythavutil
 LIBS += -L../../../../external/FFmpeg/libavcodec -lmythavcodec
 LIBS += -L../../../../external/FFmpeg/libswscale -lmythswscale
 LIBS += -L../../../../external/FFmpeg/libavformat -lmythavformat
-LIBS += -L../../../../external/FFmpeg/libavutil -lmythavutil
-LIBS += -L../../../../external/FFmpeg/libswresample -lmythswresample
 LIBS += -L../../../../external/qjson/lib -lmythqjson
 using_mheg:LIBS += -L../../../libmythfreemheg -lmythfreemheg-$$LIBVERSION
 using_hdhomerun:LIBS += -L../../../../external/libhdhomerun -lmythhdhomerun-$$LIBVERSION
@@ -42,11 +46,11 @@ contains(CONFIG_MYTHLOGSERVER, "yes") {
 }
 
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/qjson/lib/
+QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libswresample
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libavutil
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libswscale
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libavformat
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libavcodec
-QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/FFmpeg/libswresample
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../../external/libhdhomerun
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../libmythbase
 QMAKE_LFLAGS += -Wl,$$_RPATH_$(PWD)/../../../libmyth

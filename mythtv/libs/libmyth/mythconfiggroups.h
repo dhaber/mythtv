@@ -4,17 +4,20 @@
 #define MYTH_CONFIG_GROUPS_H
 
 #include <QVBoxLayout>
-#include <QGroupBox>
 
 // MythTV headers
 #include "mythexp.h"
 #include "mythstorage.h"
+
+// C++ headers
+#include <vector>
 
 #define MYTHCONFIG
 #include "settings.h"
 #undef MYTHCONFIG
 
 class QStackedWidget;
+class MythGroupBox;
 
 class MPUBLIC ConfigurationGroup : public Setting, public Storage
 {
@@ -56,7 +59,7 @@ class MPUBLIC ConfigurationGroup : public Setting, public Storage
     virtual ~ConfigurationGroup();
 
   protected:
-    typedef vector<Configurable*> childList;
+    typedef std::vector<Configurable*> childList;
     childList children;
     bool uselabel;
     bool useframe;
@@ -92,8 +95,8 @@ class MPUBLIC VerticalConfigurationGroup : public ConfigurationGroup
     virtual ~VerticalConfigurationGroup() { }
 
   private:
-    vector<QWidget*>    childwidget;
-    QGroupBox          *widget;
+    std::vector<QWidget*>    childwidget;
+    QWidget            *widget;
     ConfigurationGroup *confgrp;
     QVBoxLayout        *layout;
 };
@@ -176,7 +179,7 @@ class MPUBLIC StackedConfigurationGroup : public ConfigurationGroup
     virtual ~StackedConfigurationGroup();
 
   protected:
-    vector<QWidget*>    childwidget;
+    std::vector<QWidget*>    childwidget;
     QStackedWidget     *widget;
     ConfigurationGroup *confgrp;
     uint                top;

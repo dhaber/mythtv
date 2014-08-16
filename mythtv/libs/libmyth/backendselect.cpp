@@ -1,6 +1,6 @@
 // -*- Mode: c++ -*-
 
-#include <QCoreApplication>
+#include <QEventLoop>
 
 #include "mythuistatetype.h"
 #include "mythmainwindow.h"
@@ -18,8 +18,12 @@ BackendSelection::BackendSelection(
     MythScreenType(parent, "BackEnd Selection"),
     m_DBparams(params), m_pConfig(conf), m_exitOnFinish(exitOnFinish),
     m_backendList(NULL), m_manualButton(NULL), m_saveButton(NULL),
-    m_cancelButton(NULL), m_backendDecision(kCancelConfigure)
+    m_cancelButton(NULL), m_backendDecision(kCancelConfigure), m_loop(NULL)
 {
+    if (exitOnFinish)
+    {
+        m_loop = new QEventLoop();
+    }
 }
 
 BackendSelection::~BackendSelection()
@@ -34,6 +38,11 @@ BackendSelection::~BackendSelection()
     }
 
     m_devices.clear();
+
+    if (m_exitOnFinish)
+    {
+        delete m_loop;
+    }
 }
 
 BackendSelection::Decision BackendSelection::Prompt(
@@ -50,7 +59,7 @@ BackendSelection::Decision BackendSelection::Prompt(
     if (backendSettings->Create())
     {
         mainStack->AddScreen(backendSettings, false);
-        qApp->exec();
+        backendSettings->m_loop->exec();
         ret = backendSettings->m_backendDecision;
         mainStack->PopScreen(backendSettings, false);
     }
@@ -197,7 +206,7 @@ bool BackendSelection::ConnectBackend(DeviceLocation *dev)
     switch (stat)
     {
         case UPnPResult_Success:
-            LOG(VB_UPNP, LOG_INFO, 
+            LOG(VB_UPNP, LOG_INFO,
                 QString("ConnectBackend() - success. New hostname: %1")
                 .arg(m_DBparams->dbHostName));
             return true;
@@ -212,14 +221,14 @@ bool BackendSelection::ConnectBackend(DeviceLocation *dev)
             break;
 
         case UPnPResult_ActionNotAuthorized:
-            LOG(VB_GENERAL, LOG_ERR, 
+            LOG(VB_GENERAL, LOG_ERR,
                 QString("Access denied for %1. Wrong PIN?")
                 .arg(backendName));
             PromptForPassword();
             break;
 
         default:
-            LOG(VB_GENERAL, LOG_ERR, 
+            LOG(VB_GENERAL, LOG_ERR,
                 QString("GetConnectionInfo() failed for %1 : %2")
                 .arg(backendName).arg(message));
             ShowOkPopup(message);
@@ -305,7 +314,7 @@ void BackendSelection::customEvent(QEvent *event)
         QString    URL     = me->ExtraData(2);
 
 
-        LOG(VB_UPNP, LOG_DEBUG, 
+        LOG(VB_UPNP, LOG_DEBUG,
                  QString("BackendSelection::customEvent(%1, %2, %3, %4)")
                 .arg(message).arg(URI).arg(URN).arg(URL));
 
@@ -373,7 +382,7 @@ void BackendSelection::CloseWithDecision(Decision d)
     m_backendDecision = d;
 
     if (m_exitOnFinish)
-        qApp->quit();
+        m_loop->quit();
     else
         MythScreenType::Close();
 }

@@ -30,7 +30,6 @@
 #include "libavutil/lfg.h"
 #include "avcodec.h"
 #include "get_bits.h"
-#include "dsputil.h"
 #include "internal.h"
 #include "mpegaudiodsp.h"
 
@@ -61,8 +60,7 @@ static av_cold int mpc7_decode_init(AVCodecContext * avctx)
 
     /* Musepack SV7 is always stereo */
     if (avctx->channels != 2) {
-        av_log_ask_for_sample(avctx, "Unsupported number of channels: %d\n",
-                              avctx->channels);
+        avpriv_request_sample(avctx, "%d channels", avctx->channels);
         return AVERROR_PATCHWELCOME;
     }
 
@@ -72,9 +70,9 @@ static av_cold int mpc7_decode_init(AVCodecContext * avctx)
     }
     memset(c->oldDSCF, 0, sizeof(c->oldDSCF));
     av_lfg_init(&c->rnd, 0xDEADBEEF);
-    ff_dsputil_init(&c->dsp, avctx);
+    ff_bswapdsp_init(&c->bdsp);
     ff_mpadsp_init(&c->mpadsp);
-    c->dsp.bswap_buf((uint32_t*)buf, (const uint32_t*)avctx->extradata, 4);
+    c->bdsp.bswap_buf((uint32_t *) buf, (const uint32_t *) avctx->extradata, 4);
     ff_mpc_init();
     init_get_bits(&gb, buf, 128);
 
@@ -225,15 +223,14 @@ static int mpc7_decode_frame(AVCodecContext * avctx, void *data,
 
     /* get output buffer */
     frame->nb_samples = MPC_FRAME_SIZE;
-    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
-        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
         return ret;
-    }
 
     av_fast_padded_malloc(&c->bits, &c->buf_size, buf_size);
     if (!c->bits)
         return AVERROR(ENOMEM);
-    c->dsp.bswap_buf((uint32_t *)c->bits, (const uint32_t *)buf, buf_size >> 2);
+    c->bdsp.bswap_buf((uint32_t *) c->bits, (const uint32_t *) buf,
+                      buf_size >> 2);
     init_get_bits(&gb, c->bits, buf_size * 8);
     skip_bits_long(&gb, skip);
 
@@ -332,6 +329,7 @@ static av_cold int mpc7_decode_close(AVCodecContext *avctx)
 
 AVCodec ff_mpc7_decoder = {
     .name           = "mpc7",
+    .long_name      = NULL_IF_CONFIG_SMALL("Musepack SV7"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_MUSEPACK7,
     .priv_data_size = sizeof(MPCContext),
@@ -340,7 +338,6 @@ AVCodec ff_mpc7_decoder = {
     .decode         = mpc7_decode_frame,
     .flush          = mpc7_decode_flush,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Musepack SV7"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_S16P,
                                                       AV_SAMPLE_FMT_NONE },
 };

@@ -12,7 +12,7 @@ using_frontend {
     SUBDIRS += mythwelcome mythshutdown mythutil
     SUBDIRS += mythpreviewgen mythmediaserver mythccextractor
     SUBDIRS += mythscreenwizard
-    !mingw:!win32-msvc*: SUBDIRS += mythtranscode/replex
+    !mingw:!win32-msvc*: SUBDIRS += mythtranscode/external/replex
 }
 
 using_backend {
@@ -20,6 +20,7 @@ using_backend {
     SUBDIRS += mythmetadatalookup
 
     !win32-msvc*:SUBDIRS += scripts
+    !mingw:!win32-msvc*: SUBDIRS += mythfilerecorder
 }
 
 using_mythtranscode: SUBDIRS += mythtranscode

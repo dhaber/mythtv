@@ -9,7 +9,7 @@
 // and for database values: hence when removing something from
 // these enums leave a gap, and when adding a new value give it
 // a explicit integer value.
-// 
+//
 //////////////////////////////////////////////////////////////////////
 
 // ANSI C
@@ -17,7 +17,6 @@
 
 // C++ headers
 #include <deque>
-using namespace std;
 
 // Qt headers
 #include <QString>
@@ -46,7 +45,7 @@ MPUBLIC extern const char *kAudioGeneratorInUseID;
 MPUBLIC extern const char *kCCExtractorInUseID;
 
 /// Frame # -> File offset map
-typedef QMap<uint64_t, uint64_t> frm_pos_map_t;
+typedef QMap<long long, long long> frm_pos_map_t;
 
 typedef enum {
     MARK_ALL           = -100,
@@ -116,7 +115,7 @@ typedef enum SkipTypes {
 } SkipType;
 
 MPUBLIC QString SkipTypeToString(int);
-MPUBLIC deque<int> GetPreferredSkipTypeCombinations(void);
+MPUBLIC std::deque<int> GetPreferredSkipTypeCombinations(void);
 
 typedef enum TranscodingStatuses {
     TRANSCODING_NOT_TRANSCODED = 0,
@@ -209,8 +208,9 @@ typedef enum SubtitleTypes {
 #define kSubtitlePropertyMask (0x0f<<kSubtitlePropertyOffset)
 
 typedef enum RecStatusTypes {
-    rsOtherRecording = -13,
-    rsOtherTuning = -12,
+    rsFailing = -14,
+    //rsOtherRecording = -13, (obsolete)
+    //rsOtherTuning = -12, (obsolete)
     rsMissedFuture = -11,
     rsTuning = -10,
     rsFailed = -9,
@@ -234,8 +234,8 @@ typedef enum RecStatusTypes {
     rsRepeat = 9,
     rsInactive = 10,
     rsNeverRecord = 11,
-    rsOffLine = 12,
-    rsOtherShowing = 13
+    rsOffLine = 12
+    //rsOtherShowing = 13 (obsolete)
 } RecStatusType; // note stored in int8_t in ProgramInfo
 MPUBLIC QString toUIState(RecStatusType);
 MPUBLIC QString toString(RecStatusType, uint id);

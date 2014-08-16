@@ -30,10 +30,13 @@
 #else
 #include <sys/soundcard.h>
 #endif
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <sys/ioctl.h>
 
+#include "libavutil/internal.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/time.h"
@@ -63,9 +66,9 @@ static int audio_open(AVFormatContext *s1, int is_output, const char *audio_devi
     char *flip = getenv("AUDIO_FLIP_LEFT");
 
     if (is_output)
-        audio_fd = open(audio_device, O_WRONLY);
+        audio_fd = avpriv_open(audio_device, O_WRONLY);
     else
-        audio_fd = open(audio_device, O_RDONLY);
+        audio_fd = avpriv_open(audio_device, O_RDONLY);
     if (audio_fd < 0) {
         av_log(s1, AV_LOG_ERROR, "%s: %s\n", audio_device, strerror(errno));
         return AVERROR(EIO);
@@ -295,6 +298,7 @@ static const AVClass oss_demuxer_class = {
     .item_name      = av_default_item_name,
     .option         = options,
     .version        = LIBAVUTIL_VERSION_INT,
+    .category       = AV_CLASS_CATEGORY_DEVICE_AUDIO_INPUT,
 };
 
 AVInputFormat ff_oss_demuxer = {
@@ -310,6 +314,13 @@ AVInputFormat ff_oss_demuxer = {
 #endif
 
 #if CONFIG_OSS_OUTDEV
+static const AVClass oss_muxer_class = {
+    .class_name     = "OSS muxer",
+    .item_name      = av_default_item_name,
+    .version        = LIBAVUTIL_VERSION_INT,
+    .category       = AV_CLASS_CATEGORY_DEVICE_AUDIO_OUTPUT,
+};
+
 AVOutputFormat ff_oss_muxer = {
     .name           = "oss",
     .long_name      = NULL_IF_CONFIG_SMALL("OSS (Open Sound System) playback"),
@@ -323,5 +334,6 @@ AVOutputFormat ff_oss_muxer = {
     .write_packet   = audio_write_packet,
     .write_trailer  = audio_write_trailer,
     .flags          = AVFMT_NOFILE,
+    .priv_class     = &oss_muxer_class,
 };
 #endif

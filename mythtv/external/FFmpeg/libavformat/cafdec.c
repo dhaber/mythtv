@@ -25,6 +25,8 @@
  * Core Audio Format demuxer
  */
 
+#include <inttypes.h>
+
 #include "avformat.h"
 #include "internal.h"
 #include "isom.h"
@@ -130,8 +132,7 @@ static int read_kuki_chunk(AVFormatContext *s, int64_t size)
         }
         avio_read(pb, preamble, ALAC_PREAMBLE);
 
-        st->codec->extradata = av_mallocz(ALAC_HEADER + FF_INPUT_BUFFER_PADDING_SIZE);
-        if (!st->codec->extradata)
+        if (ff_alloc_extradata(st->codec, ALAC_HEADER))
             return AVERROR(ENOMEM);
 
         /* For the old style cookie, we skip 12 bytes, then read 36 bytes.
@@ -154,13 +155,9 @@ static int read_kuki_chunk(AVFormatContext *s, int64_t size)
             avio_read(pb, &st->codec->extradata[24], ALAC_NEW_KUKI - 12);
             avio_skip(pb, size - ALAC_NEW_KUKI);
         }
-        st->codec->extradata_size = ALAC_HEADER;
     } else {
-        st->codec->extradata = av_mallocz(size + FF_INPUT_BUFFER_PADDING_SIZE);
-        if (!st->codec->extradata)
+        if (ff_get_extradata(st->codec, pb, size) < 0)
             return AVERROR(ENOMEM);
-        avio_read(pb, st->codec->extradata, size);
-        st->codec->extradata_size = size;
     }
 
     return 0;
@@ -290,7 +287,8 @@ static int read_header(AVFormatContext *s)
 
         default:
 #define _(x) ((x) >= ' ' ? (x) : ' ')
-            av_log(s, AV_LOG_WARNING, "skipping CAF chunk: %08X (%c%c%c%c), size %"PRId64"\n",
+            av_log(s, AV_LOG_WARNING,
+                   "skipping CAF chunk: %08"PRIX32" (%c%c%c%c), size %"PRId64"\n",
                 tag, _(tag>>24), _((tag>>16)&0xFF), _((tag>>8)&0xFF), _(tag&0xFF), size);
 #undef _
         case MKBETAG('f','r','e','e'):

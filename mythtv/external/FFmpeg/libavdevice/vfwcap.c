@@ -155,7 +155,7 @@ static void dump_bih(AVFormatContext *s, BITMAPINFOHEADER *bih)
 static int shall_we_drop(AVFormatContext *s)
 {
     struct vfw_ctx *ctx = s->priv_data;
-    const uint8_t dropscore[] = {62, 75, 87, 100};
+    static const uint8_t dropscore[] = {62, 75, 87, 100};
     const int ndropscores = FF_ARRAY_ELEMS(dropscore);
     unsigned int buffer_fullness = (ctx->curbufsize*100)/s->max_picture_buffer;
 
@@ -469,6 +469,7 @@ static const AVClass vfw_class = {
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
+    .category   = AV_CLASS_CATEGORY_DEVICE_VIDEO_INPUT
 };
 
 AVInputFormat ff_vfwcap_demuxer = {

@@ -67,6 +67,7 @@ VideoOutputVDPAU::VideoOutputVDPAU()
 {
     if (gCoreContext->GetNumSetting("UseVideoModes", 0))
         display_res = DisplayRes::GetDisplayRes(true);
+    memset(&m_context, 0, sizeof(AVVDPAUContext));
 }
 
 VideoOutputVDPAU::~VideoOutputVDPAU()
@@ -101,7 +102,7 @@ bool VideoOutputVDPAU::Init(const QSize &video_dim_buf,
     QMutexLocker locker(&m_lock);
     window.SetNeedRepaint(true);
     bool ok = VideoOutput::Init(video_dim_buf, video_dim_disp,
-                                aspect, winid, win_rect,codec_id);
+                                aspect, winid, win_rect, codec_id);
     if (db_vdisp_profile)
         db_vdisp_profile->SetVideoRenderer("vdpau");
 
@@ -130,9 +131,9 @@ bool VideoOutputVDPAU::InitRender(void)
     QMutexLocker locker(&m_lock);
 
     const QSize size = window.GetDisplayVisibleRect().size();
-    m_render = new MythRenderVDPAU();
 
-    if (m_render && m_render->Create(size, m_win))
+    m_render = new MythRenderVDPAU();
+    if (m_render->Create(size, m_win))
     {
         m_osd_painter = new MythVDPAUPainter(m_render);
         if (m_osd_painter)
@@ -410,7 +411,6 @@ void VideoOutputVDPAU::PrepareFrame(VideoFrame *frame, FrameScanType scan,
                                     OSD *osd)
 {
     QMutexLocker locker(&m_lock);
-    (void)osd;
     CHECK_ERROR("PrepareFrame");
 
     if (!m_render)
@@ -554,13 +554,8 @@ void VideoOutputVDPAU::ClaimVideoSurfaces(void)
     m_checked_surface_ownership = true;
 }
 
-void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int h)
+void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int /* x */, int /* y */, int /* w */, int /* h */)
 {
-    (void)x;
-    (void)y;
-    (void)w;
-    (void)h;
-
     CHECK_ERROR("DrawSlice");
 
     if (codec_is_std(video_codec_id) || !m_render)
@@ -569,13 +564,9 @@ void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int h)
     if (!m_checked_surface_ownership)
         ClaimVideoSurfaces();
 
-    struct vdpau_render_state *render = (struct vdpau_render_state *)frame->buf;
-    if (!render)
-    {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "No video surface to decode to.");
-        errorState = kError_Unknown;
-        return;
-    }
+    struct vdpau_render_state *render =
+        (struct vdpau_render_state *)frame->priv[0];
+    const VdpPictureInfo *info = (const VdpPictureInfo *)frame->priv[1];
 
     if (frame->pix_fmt != m_pix_fmt)
     {
@@ -587,9 +578,9 @@ void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int h)
         }
 
         uint max_refs = MIN_REFERENCE_FRAMES;
-        if (frame->pix_fmt == PIX_FMT_VDPAU_H264)
+        if (video_codec_id == kCodec_H264_VDPAU)
         {
-            max_refs = render->info.h264.num_ref_frames;
+            max_refs = ((VdpPictureInfoH264*)info)->num_ref_frames;
             if (max_refs < 1 || max_refs > MAX_REFERENCE_FRAMES)
             {
                 uint32_t round_width  = (frame->width + 15) & ~15;
@@ -633,29 +624,29 @@ void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int h)
         }
 
         VdpDecoderProfile vdp_decoder_profile;
-        switch (frame->pix_fmt)
+        switch (video_codec_id)
         {
-            case PIX_FMT_VDPAU_MPEG1:
+            case kCodec_MPEG1_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG1;
                 break;
-            case PIX_FMT_VDPAU_MPEG2:
+            case kCodec_MPEG2_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG2_MAIN;
                 break;
-            case PIX_FMT_VDPAU_MPEG4:
+            case kCodec_MPEG4_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG4_PART2_ASP;
                 break;
-            case PIX_FMT_VDPAU_H264:
+            case kCodec_H264_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_H264_HIGH;
                 break;
-            case PIX_FMT_VDPAU_WMV3:
+            case kCodec_WMV3_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_VC1_MAIN;
                 break;
-            case PIX_FMT_VDPAU_VC1:
+            case kCodec_VC1_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_VC1_ADVANCED;
                 break;
             default:
                 LOG(VB_GENERAL, LOG_ERR, LOC +
-                    "Picture format is not supported.");
+                    "Codec is not supported.");
                 errorState = kError_Unknown;
                 return;
         }
@@ -684,7 +675,7 @@ void VideoOutputVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int h)
         return;
     }
 
-    m_render->Decode(m_decoder, render);
+    m_render->Decode(m_decoder, render, info);
 }
 
 void VideoOutputVDPAU::Show(FrameScanType scan)
@@ -913,9 +904,8 @@ int VideoOutputVDPAU::SetPictureAttribute(PictureAttribute attribute,
 }
 
 QStringList VideoOutputVDPAU::GetAllowedRenderers(
-    MythCodecID myth_codec_id, const QSize &video_dim)
+    MythCodecID myth_codec_id, const QSize & /* video_dim */)
 {
-    (void) video_dim;
     QStringList list;
     if ((codec_is_std(myth_codec_id) || codec_is_vdpau_hw(myth_codec_id)) &&
          !getenv("NO_VDPAU"))
@@ -930,18 +920,30 @@ MythCodecID VideoOutputVDPAU::GetBestSupportedCodec(
     uint width, uint height, const QString &decoder,
     uint stream_type, bool no_acceleration)
 {
-    bool use_cpu = no_acceleration;
-
+    bool use_cpu = no_acceleration || (decoder != "vdpau") || getenv("NO_VDPAU");
     MythCodecID test_cid = (MythCodecID)(kCodec_MPEG1_VDPAU + (stream_type-1));
-    use_cpu |= !codec_is_vdpau_hw(test_cid);
-    if (test_cid == kCodec_MPEG4_VDPAU)
-        use_cpu |= !MythRenderVDPAU::IsMPEG4Available();
-    if (test_cid == kCodec_H264_VDPAU)
-        use_cpu |= !MythRenderVDPAU::H264DecoderSizeSupported(width, height);
-    if ((decoder != "vdpau") || getenv("NO_VDPAU") || use_cpu)
+
+    if (!use_cpu)
+    {
+        use_cpu |= !MythRenderVDPAU::IsVDPAUAvailable();
+        use_cpu |= !codec_is_vdpau_hw(test_cid);
+        if (!use_cpu && test_cid == kCodec_MPEG4_VDPAU)
+            use_cpu |= !MythRenderVDPAU::IsMPEG4Available();
+        if (!use_cpu && test_cid == kCodec_H264_VDPAU)
+            use_cpu |= !MythRenderVDPAU::H264DecoderSizeSupported(width, height);
+    }
+
+    if (use_cpu)
         return (MythCodecID)(kCodec_MPEG1 + (stream_type-1));
 
     return test_cid;
+}
+
+bool VideoOutputVDPAU::IsNVIDIA(void)
+{
+        // this forces the check of VDPAU capabilities
+    (void)MythRenderVDPAU::IsMPEG4Available();
+    return MythRenderVDPAU::gVDPAUNVIDIA;
 }
 
 void VideoOutputVDPAU::UpdateReferenceFrames(VideoFrame *frame)
@@ -1093,10 +1095,9 @@ void VideoOutputVDPAU::DeinitPIPLayer(void)
     m_pip_ready = false;
 }
 
-void VideoOutputVDPAU::ShowPIP(VideoFrame *frame, MythPlayer *pipplayer,
+void VideoOutputVDPAU::ShowPIP(VideoFrame * /* frame */, MythPlayer *pipplayer,
                                PIPLocation loc)
 {
-    (void) frame;
     if (!pipplayer || !m_render)
         return;
 
@@ -1326,4 +1327,9 @@ void VideoOutputVDPAU::SetVideoFlip(void)
         return;
     }
     m_render->SetVideoFlip();
+}
+
+void* VideoOutputVDPAU::GetDecoderContext(unsigned char* buf, uint8_t*& id)
+{
+    return &m_context;
 }

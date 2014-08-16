@@ -60,7 +60,7 @@ rnd_rv40_1d_tbl: times 4 dw  0
 cextern pw_3
 cextern pw_4
 cextern pw_8
-cextern pw_28
+pw_28: times 8 dw 28
 cextern pw_32
 cextern pw_64
 
@@ -103,8 +103,9 @@ SECTION .text
 %else
 %define extra_regs 0
 %endif ; rv40
-; put/avg_h264_chroma_mc8_*(uint8_t *dst /*align 8*/, uint8_t *src /*align 1*/,
-;                           int stride, int h, int mx, int my)
+; void ff_put/avg_h264_chroma_mc8_*(uint8_t *dst /* align 8 */,
+;                                   uint8_t *src /* align 1 */,
+;                                   int stride, int h, int mx, int my)
 cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
 %if ARCH_X86_64
     movsxd        r2, r2d

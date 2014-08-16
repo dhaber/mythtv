@@ -29,6 +29,7 @@ VideoOutputNullVDPAU::VideoOutputNullVDPAU()
     m_checked_surface_ownership(false), m_shadowBuffers(NULL),
     m_surfaceSize(QSize(0,0))
 {
+    memset(&m_context, 0, sizeof(AVVDPAUContext));
 }
 
 VideoOutputNullVDPAU::~VideoOutputNullVDPAU()
@@ -72,8 +73,9 @@ bool VideoOutputNullVDPAU::Init(const QSize &video_dim_buf,
 bool VideoOutputNullVDPAU::InitRender(void)
 {
     QMutexLocker locker(&m_lock);
+
     m_render = new MythRenderVDPAU();
-    if (m_render && m_render->CreateDecodeOnly())
+    if (m_render->CreateDecodeOnly())
         return true;
     LOG(VB_GENERAL, LOG_ERR, LOC + "Failed to initialise VDPAU");
     return false;
@@ -90,7 +92,7 @@ void VideoOutputNullVDPAU::DeleteRender(void)
     }
 
     m_decoder = 0;
-    m_render = NULL;
+    m_render  = NULL;
     m_pix_fmt = -1;
 }
 
@@ -251,13 +253,9 @@ void VideoOutputNullVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int
     if (!m_checked_surface_ownership)
         ClaimVideoSurfaces();
 
-    struct vdpau_render_state *render = (struct vdpau_render_state *)frame->buf;
-    if (!render)
-    {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "No video surface to decode to.");
-        errorState = kError_Unknown;
-        return;
-    }
+    struct vdpau_render_state *render =
+        (struct vdpau_render_state *)frame->priv[0];
+    const VdpPictureInfo *info = (const VdpPictureInfo *)frame->priv[1];
 
     if (frame->pix_fmt != m_pix_fmt)
     {
@@ -269,9 +267,9 @@ void VideoOutputNullVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int
         }
 
         uint max_refs = MIN_REFERENCE_FRAMES;
-        if (frame->pix_fmt == PIX_FMT_VDPAU_H264)
+        if (video_codec_id == kCodec_H264_VDPAU)
         {
-            max_refs = render->info.h264.num_ref_frames;
+            max_refs = ((VdpPictureInfoH264*)info)->num_ref_frames;
             if (max_refs < 1 || max_refs > MAX_REFERENCE_FRAMES)
             {
                 uint32_t round_width  = (frame->width + 15) & ~15;
@@ -301,11 +299,9 @@ void VideoOutputNullVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int
                                                FMT_VDPAU))
                         {
                             created++;
-                            int size = (m_surfaceSize.width() *
-                                        m_surfaceSize.height() * 3) / 2;
                             m_shadowBuffers->AddBuffer(m_surfaceSize.width(),
                                                        m_surfaceSize.height(),
-                                                       new unsigned char[size],
+                                                       NULL,
                                                        FMT_YV12);
                         }
                     }
@@ -321,29 +317,29 @@ void VideoOutputNullVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int
         }
 
         VdpDecoderProfile vdp_decoder_profile;
-        switch (frame->pix_fmt)
+        switch (video_codec_id)
         {
-            case PIX_FMT_VDPAU_MPEG1:
+            case kCodec_MPEG1_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG1;
                 break;
-            case PIX_FMT_VDPAU_MPEG2:
+            case kCodec_MPEG2_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG2_MAIN;
                 break;
-            case PIX_FMT_VDPAU_MPEG4:
+            case kCodec_MPEG4_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_MPEG4_PART2_ASP;
                 break;
-            case PIX_FMT_VDPAU_H264:
+            case kCodec_H264_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_H264_HIGH;
                 break;
-            case PIX_FMT_VDPAU_WMV3:
+            case kCodec_WMV3_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_VC1_MAIN;
                 break;
-            case PIX_FMT_VDPAU_VC1:
+            case kCodec_VC1_VDPAU:
                 vdp_decoder_profile = VDP_DECODER_PROFILE_VC1_ADVANCED;
                 break;
             default:
                 LOG(VB_GENERAL, LOG_ERR, LOC +
-                    "Picture format is not supported.");
+                    "Codec is not supported.");
                 errorState = kError_Unknown;
                 return;
         }
@@ -372,7 +368,7 @@ void VideoOutputNullVDPAU::DrawSlice(VideoFrame *frame, int x, int y, int w, int
         return;
     }
 
-    m_render->Decode(m_decoder, render);
+    m_render->Decode(m_decoder, render, info);
 }
 
 void VideoOutputNullVDPAU::ClearAfterSeek(void)
@@ -612,4 +608,9 @@ bool VideoOutputNullVDPAU::BufferSizeCheck(void)
         return false;
     }
     return true;
+}
+
+void* VideoOutputNullVDPAU::GetDecoderContext(unsigned char* buf, uint8_t*& id)
+{
+    return &m_context;
 }

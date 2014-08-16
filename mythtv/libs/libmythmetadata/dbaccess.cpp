@@ -5,6 +5,7 @@
 #include "mythdb.h"
 #include "cleanup.h"
 #include "dbaccess.h"
+#include "mythmiscutil.h"
 
 namespace
 {
@@ -47,8 +48,11 @@ class SingleValueImp
 
     virtual ~SingleValueImp() {}
 
+    mutable QMutex mutex;
+
     void load_data()
     {
+        QMutexLocker locker(&mutex);
         if (!m_ready)
         {
             fill_from_db();
@@ -147,7 +151,7 @@ class SingleValueImp
 
     virtual bool sort(const entry &lhs, const entry &rhs)
     {
-        return QString::localeAwareCompare(lhs.second, rhs.second) < 0;
+        return naturalCompare(lhs.second, rhs.second) < 0;
     }
 
     void cleanup()
@@ -271,8 +275,11 @@ class MultiValueImp
                 .arg(m_value_name).arg(m_table_name).arg(m_id_name);
     }
 
+    mutable QMutex mutex;
+
     void load_data()
     {
+        QMutexLocker locker(&mutex);
         if (!m_ready)
         {
             fill_from_db();
@@ -730,8 +737,11 @@ class FileAssociationsImp
         }
     }
 
+    mutable QMutex mutex;
+
     void load_data()
     {
+        QMutexLocker locker(&mutex);
         if (!m_ready)
         {
             fill_from_db();

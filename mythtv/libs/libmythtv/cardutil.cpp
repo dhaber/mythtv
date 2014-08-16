@@ -88,6 +88,12 @@ QString CardUtil::GetScanableCardTypes(void)
     cardTypes += "'CETON'";
 #endif // USING_CETON
 
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+    if (!cardTypes.isEmpty())
+        cardTypes += ",";
+    cardTypes += "'EXTERNAL'";
+#endif
+
     if (cardTypes.isEmpty())
         cardTypes = "'DUMMY'";
 
@@ -402,7 +408,7 @@ QString CardUtil::ProbeDVBType(const QString &device)
 #ifdef USING_DVB
     QString dvbdev = CardUtil::GetDeviceName(DVB_DEV_FRONTEND, device);
     QByteArray dev = dvbdev.toLatin1();
-    
+
     int fd_frontend = open(dev.constData(), O_RDWR | O_NONBLOCK);
     if (fd_frontend < 0)
     {
@@ -1233,14 +1239,14 @@ QList<InputInfo> CardUtil::GetAllInputInfo()
 
 uint CardUtil::GetCardID(uint inputid)
 {
-    InputInfo info(QString::null, 0, inputid, 0, 0, 0);
+    InputInfo info(QString::null, 0, inputid, 0, 0, 0, 0);
     GetInputInfo(info);
     return info.cardid;
 }
 
 QString CardUtil::GetInputName(uint inputid)
 {
-    InputInfo info(QString::null, 0, inputid, 0, 0, 0);
+    InputInfo info(QString::null, 0, inputid, 0, 0, 0, 0);
     GetInputInfo(info);
     return info.name;
 }

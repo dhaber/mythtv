@@ -140,7 +140,7 @@ class DataDirect_config: public VerticalConfigurationGroup
 {
     Q_OBJECT
   public:
-    DataDirect_config(const VideoSource& _parent, int _ddsource); 
+    DataDirect_config(const VideoSource& _parent, int _ddsource);
 
     virtual void Load(void);
 
@@ -160,7 +160,7 @@ class DataDirect_config: public VerticalConfigurationGroup
     int source;
 };
 
-class XMLTV_generic_config: public VerticalConfigurationGroup 
+class XMLTV_generic_config: public VerticalConfigurationGroup
 {
     Q_OBJECT
 
@@ -381,7 +381,7 @@ class HDHomeRunDevice
 };
 
 typedef QMap<QString, HDHomeRunDevice> HDHomeRunDeviceList;
- 
+
 class HDHomeRunDeviceIDList;
 class HDHomeRunDeviceID;
 class HDHomeRunIP;
@@ -415,6 +415,7 @@ class HDHomeRunConfigurationGroup : public VerticalConfigurationGroup
 
 class CetonDeviceID;
 class CetonSetting;
+class InstanceCount;
 class CetonConfigurationGroup : public VerticalConfigurationGroup
 {
     Q_OBJECT
@@ -428,6 +429,7 @@ class CetonConfigurationGroup : public VerticalConfigurationGroup
     CetonDeviceID       *deviceid;
     CetonSetting        *ip;
     CetonSetting        *tuner;
+    InstanceCount       *instances;
 };
 
 
@@ -538,6 +540,24 @@ class DemoConfigurationGroup: public VerticalConfigurationGroup
     TransLabelSetting *size;
 };
 
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+class ExternalConfigurationGroup: public VerticalConfigurationGroup
+{
+   Q_OBJECT
+
+  public:
+    ExternalConfigurationGroup(CaptureCard &parent);
+
+  public slots:
+    void probeApp(const QString & path);
+
+  private:
+    CaptureCard       &parent;
+    TransLabelSetting *info;
+    InstanceCount     *instances;
+};
+#endif
+
 class DVBCardNum;
 class DVBCardName;
 class DVBCardType;
@@ -557,7 +577,7 @@ class DVBConfigurationGroup : public VerticalConfigurationGroup
 
     virtual void Save(void);
     virtual void Save(QString /*destination*/) { Save(); }
-    
+
   public slots:
     void probeCard(const QString& cardNumber);
     void DiSEqCPanel(void);
@@ -725,7 +745,7 @@ class MTV_PUBLIC VideoSourceEditor : public QObject, public ConfigurationDialog
     virtual MythDialog* dialogWidget(MythMainWindow* parent,
                                      const char* widgetName=0);
 
-    bool cardTypesInclude(const int& SourceID, 
+    bool cardTypesInclude(const int& SourceID,
                           const QString& thecardtype);
 
     virtual DialogCode exec(void);

@@ -38,9 +38,7 @@ static const uint8_t ff_png_pass_xshift[NB_PASSES] = {
 
 void *ff_png_zalloc(void *opaque, unsigned int items, unsigned int size)
 {
-    if(items >= UINT_MAX / size)
-        return NULL;
-    return av_malloc(items * size);
+    return av_mallocz_array(items, size);
 }
 
 void ff_png_zfree(void *opaque, void *ptr)
@@ -68,7 +66,7 @@ int ff_png_pass_row_size(int pass, int bits_per_pixel, int width)
     xmin = ff_png_pass_xmin[pass];
     if (width <= xmin)
         return 0;
-    shift = ff_png_pass_xshift[pass];
+    shift      = ff_png_pass_xshift[pass];
     pass_width = (width - xmin + (1 << shift) - 1) >> shift;
     return (pass_width * bits_per_pixel + 7) >> 3;
 }

@@ -25,22 +25,18 @@
 class BDOverlay
 {
   public:
-    static void DeleteOverlay(BDOverlay *overlay)
-    {
-        if (!overlay)
-            return;
-        if (overlay->m_data)
-            av_free(overlay->m_data);
-        if (overlay->m_palette)
-            av_free(overlay->m_palette);
-        delete overlay;
-        overlay = NULL;
-    }
-
     BDOverlay(uint8_t *data, uint8_t *palette, QRect position, int plane,
               int64_t pts)
      : m_data(data), m_palette(palette), m_position(position),
        m_plane(plane), m_pts(pts) { }
+
+   ~BDOverlay()
+    {
+        if (m_data)
+            av_free(m_data);
+        if (m_palette)
+            av_free(m_palette);
+    }
 
     uint8_t *m_data;
     uint8_t *m_palette;
@@ -111,9 +107,10 @@ class MTV_PUBLIC BDRingBuffer : public RingBuffer
     bool SwitchPlaylist(uint32_t index);
     bool SwitchAngle(uint angle);
 
+  protected:
     virtual int safe_read(void *data, uint sz);
-    virtual long long Seek(long long pos, int whence, bool has_lock);
-    uint64_t Seek(uint64_t pos);
+    virtual long long SeekInternal(long long pos, int whence);
+    uint64_t SeekInternal(uint64_t pos);
 
   private:
 

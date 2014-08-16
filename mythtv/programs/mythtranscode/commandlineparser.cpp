@@ -30,6 +30,9 @@ void MythTranscodeCommandLineParser::LoadArguments(void)
         ->SetGroup("Encoding");
     add("--audiotrack", "audiotrack", 0, "Select specific audio track.", "")
         ->SetGroup("Encoding");
+    add("--allaudiotracks", "allaudio", 0,
+        "Keep all audio tracks including those marked with 0 channels.", "")
+        ->SetGroup("Encoding");
     add(QStringList( QStringList() << "-m" << "--mpeg2" ), "mpeg2", false,
             "Specifies that a lossless transcode should be used.", "")
         ->SetGroup("Encoding");
@@ -57,7 +60,8 @@ void MythTranscodeCommandLineParser::LoadArguments(void)
         ->SetRequires("fifodir");
 
     add(QStringList( QStringList() << "-l" << "--honorcutlist" ), "usecutlist",
-            "", "Specifies whether to use the cutlist.",
+            "", "Specifies whether to use the cutlist. "
+            "(Takes an optional cutlist as argument when used with -i)",
             "Specifies whether transcode should honor the cutlist and "
             "remove the marked off commercials. Optionally takes a "
             "a cutlist as an argument when used with --infile.")

@@ -51,6 +51,7 @@ typedef struct {
     ASS_Track    *track;
     char *filename;
     char *charenc;
+    int stream_index;
     uint8_t rgba_map[4];
     int     pix_step[4];       ///< steps per pixel for each plane of the main output
     int original_w, original_h;
@@ -85,17 +86,9 @@ static void ass_log(int ass_level, const char *fmt, va_list args, void *ctx)
     av_log(ctx, level, "\n");
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, const AVClass *class)
+static av_cold int init(AVFilterContext *ctx)
 {
     AssContext *ass = ctx->priv;
-    static const char *shorthand[] = { "filename", NULL };
-    int ret;
-
-    ass->class = class;
-    av_opt_set_defaults(ass);
-
-    if ((ret = av_opt_set_from_string(ass, args, shorthand, "=", ":")) < 0)
-        return ret;
 
     if (!ass->filename) {
         av_log(ctx, AV_LOG_ERROR, "No filename provided!\n");
@@ -115,7 +108,6 @@ static av_cold int init(AVFilterContext *ctx, const char *args, const AVClass *c
         return AVERROR(EINVAL);
     }
 
-    ass_set_fonts(ass->renderer, NULL, NULL, 1, NULL, 1);
     return 0;
 }
 
@@ -123,7 +115,6 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     AssContext *ass = ctx->priv;
 
-    av_opt_free(ass);
     if (ass->track)
         ass_free_track(ass->track);
     if (ass->renderer)
@@ -158,7 +149,7 @@ static int config_input(AVFilterLink *inlink)
 #define AB(c)  (((c)>>8) &0xFF)
 #define AA(c)  ((0xFF-c) &0xFF)
 
-static void overlay_ass_image(AssContext *ass, AVFilterBufferRef *picref,
+static void overlay_ass_image(AssContext *ass, AVFrame *picref,
                               const ASS_Image *image)
 {
     for (; image; image = image->next) {
@@ -167,13 +158,13 @@ static void overlay_ass_image(AssContext *ass, AVFilterBufferRef *picref,
         ff_draw_color(&ass->draw, &color, rgba_color);
         ff_blend_mask(&ass->draw, &color,
                       picref->data, picref->linesize,
-                      picref->video->w, picref->video->h,
+                      picref->width, picref->height,
                       image->bitmap, image->stride, image->w, image->h,
                       3, 0, image->dst_x, image->dst_y);
     }
 }
 
-static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
+static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
 {
     AVFilterContext *ctx = inlink->dst;
     AVFilterLink *outlink = ctx->outputs[0];
@@ -197,7 +188,7 @@ static const AVFilterPad ass_inputs[] = {
         .type             = AVMEDIA_TYPE_VIDEO,
         .filter_frame     = filter_frame,
         .config_props     = config_input,
-        .min_perms        = AV_PERM_READ | AV_PERM_WRITE,
+        .needs_writable   = 1,
     },
     { NULL }
 };
@@ -219,13 +210,16 @@ static const AVOption ass_options[] = {
 
 AVFILTER_DEFINE_CLASS(ass);
 
-static av_cold int init_ass(AVFilterContext *ctx, const char *args)
+static av_cold int init_ass(AVFilterContext *ctx)
 {
     AssContext *ass = ctx->priv;
-    int ret = init(ctx, args, &ass_class);
+    int ret = init(ctx);
 
     if (ret < 0)
         return ret;
+
+    /* Initialize fonts */
+    ass_set_fonts(ass->renderer, NULL, NULL, 1, NULL, 1);
 
     ass->track = ass_read_file(ass->library, ass->filename, NULL);
     if (!ass->track) {
@@ -237,7 +231,7 @@ static av_cold int init_ass(AVFilterContext *ctx, const char *args)
     return 0;
 }
 
-AVFilter avfilter_vf_ass = {
+AVFilter ff_vf_ass = {
     .name          = "ass",
     .description   = NULL_IF_CONFIG_SMALL("Render ASS subtitles onto input video using the libass library."),
     .priv_size     = sizeof(AssContext),
@@ -254,15 +248,41 @@ AVFilter avfilter_vf_ass = {
 
 static const AVOption subtitles_options[] = {
     COMMON_OPTIONS
-    {"charenc", "set input character encoding", OFFSET(charenc), AV_OPT_TYPE_STRING, {.str = NULL}, CHAR_MIN, CHAR_MAX, FLAGS},
+    {"charenc",      "set input character encoding", OFFSET(charenc),      AV_OPT_TYPE_STRING, {.str = NULL}, CHAR_MIN, CHAR_MAX, FLAGS},
+    {"stream_index", "set stream index",             OFFSET(stream_index), AV_OPT_TYPE_INT,    { .i64 = -1 }, -1,       INT_MAX,  FLAGS},
+    {"si",           "set stream index",             OFFSET(stream_index), AV_OPT_TYPE_INT,    { .i64 = -1 }, -1,       INT_MAX,  FLAGS},
     {NULL},
 };
 
+static const char *font_mimetypes[] = {
+    "application/x-truetype-font",
+    "application/vnd.ms-opentype",
+    "application/x-font-ttf",
+    NULL
+};
+
+static int attachment_is_font(AVStream * st)
+{
+    const AVDictionaryEntry *tag = NULL;
+    int n;
+
+    tag = av_dict_get(st->metadata, "mimetype", NULL, AV_DICT_MATCH_CASE);
+
+    if (tag) {
+        for (n = 0; font_mimetypes[n]; n++) {
+            if (av_strcasecmp(font_mimetypes[n], tag->value) == 0)
+                return 1;
+        }
+    }
+    return 0;
+}
+
 AVFILTER_DEFINE_CLASS(subtitles);
 
-static av_cold int init_subtitles(AVFilterContext *ctx, const char *args)
+static av_cold int init_subtitles(AVFilterContext *ctx)
 {
-    int ret, sid;
+    int j, ret, sid;
+    int k = 0;
     AVDictionary *codec_opts = NULL;
     AVFormatContext *fmt = NULL;
     AVCodecContext *dec_ctx = NULL;
@@ -273,7 +293,7 @@ static av_cold int init_subtitles(AVFilterContext *ctx, const char *args)
     AssContext *ass = ctx->priv;
 
     /* Init libass */
-    ret = init(ctx, args, &subtitles_class);
+    ret = init(ctx);
     if (ret < 0)
         return ret;
     ass->track = ass_new_track(ass->library);
@@ -293,7 +313,23 @@ static av_cold int init_subtitles(AVFilterContext *ctx, const char *args)
         goto end;
 
     /* Locate subtitles stream */
-    ret = av_find_best_stream(fmt, AVMEDIA_TYPE_SUBTITLE, -1, -1, NULL, 0);
+    if (ass->stream_index < 0)
+        ret = av_find_best_stream(fmt, AVMEDIA_TYPE_SUBTITLE, -1, -1, NULL, 0);
+    else {
+        ret = -1;
+        if (ass->stream_index < fmt->nb_streams) {
+            for (j = 0; j < fmt->nb_streams; j++) {
+                if (fmt->streams[j]->codec->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+                    if (ass->stream_index == k) {
+                        ret = j;
+                        break;
+                    }
+                    k++;
+                }
+            }
+        }
+    }
+
     if (ret < 0) {
         av_log(ctx, AV_LOG_ERROR, "Unable to locate subtitle stream in %s\n",
                ass->filename);
@@ -301,6 +337,31 @@ static av_cold int init_subtitles(AVFilterContext *ctx, const char *args)
     }
     sid = ret;
     st = fmt->streams[sid];
+
+    /* Load attached fonts */
+    for (j = 0; j < fmt->nb_streams; j++) {
+        AVStream *st = fmt->streams[j];
+        if (st->codec->codec_type == AVMEDIA_TYPE_ATTACHMENT &&
+            attachment_is_font(st)) {
+            const AVDictionaryEntry *tag = NULL;
+            tag = av_dict_get(st->metadata, "filename", NULL,
+                              AV_DICT_MATCH_CASE);
+
+            if (tag) {
+                av_log(ctx, AV_LOG_DEBUG, "Loading attached font: %s\n",
+                       tag->value);
+                ass_add_font(ass->library, tag->value,
+                             st->codec->extradata,
+                             st->codec->extradata_size);
+            } else {
+                av_log(ctx, AV_LOG_WARNING,
+                       "Font attachment has no filename, ignored.\n");
+            }
+        }
+    }
+
+    /* Initialize fonts */
+    ass_set_fonts(ass->renderer, NULL, NULL, 1, NULL, 1);
 
     /* Open decoder */
     dec_ctx = st->codec;
@@ -311,7 +372,7 @@ static av_cold int init_subtitles(AVFilterContext *ctx, const char *args)
         return AVERROR(EINVAL);
     }
     dec_desc = avcodec_descriptor_get(dec_ctx->codec_id);
-    if (dec_desc && (dec_desc->props & AV_CODEC_PROP_BITMAP_SUB)) {
+    if (dec_desc && !(dec_desc->props & AV_CODEC_PROP_TEXT_SUB)) {
         av_log(ctx, AV_LOG_ERROR,
                "Only text based subtitles are currently supported\n");
         return AVERROR_PATCHWELCOME;
@@ -361,7 +422,7 @@ end:
     return ret;
 }
 
-AVFilter avfilter_vf_subtitles = {
+AVFilter ff_vf_subtitles = {
     .name          = "subtitles",
     .description   = NULL_IF_CONFIG_SMALL("Render text subtitles onto input video using the libass library."),
     .priv_size     = sizeof(AssContext),

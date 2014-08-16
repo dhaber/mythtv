@@ -205,6 +205,8 @@ def buildVersion():
     etree.SubElement(version, "description").text = \
                                 'Search and metadata downloads for themoviedb.org'
     etree.SubElement(version, "version").text = __version__
+    etree.SubElement(version, "accepts").text = 'tmdb.py'
+    etree.SubElement(version, "accepts").text = 'tmdb.pl'
     sys.stdout.write(etree.tostring(version, encoding='UTF-8', pretty_print=True,
                                     xml_declaration=True))
     sys.exit(0)
@@ -279,10 +281,7 @@ def main():
                 print "Unable to find MythTV directory for metadata cache."
                 sys.exit(1)
             confdir = os.path.join(confdir, '.mythtv')
-        confpath = os.path.join(confdir, 'pytmdb3.cache')
-        if not os.access(confpath, os.F_OK|os.W_OK|os.R_OK):
-            print "Unable to access cache file: "+confpath
-            sys.exit(1)
+        confpath = os.path.join(confdir, 'cache', 'pytmdb3.cache')
         set_cache(engine='file', filename=confpath)
 
     if opts.language:

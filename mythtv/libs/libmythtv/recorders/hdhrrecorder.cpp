@@ -10,6 +10,7 @@
 #include "atscstreamdata.h"
 #include "hdhrrecorder.h"
 #include "hdhrchannel.h"
+#include "ringbuffer.h"
 #include "tv_rec.h"
 #include "mythlogging.h"
 
@@ -50,6 +51,9 @@ void HDHRRecorder::Close(void)
 
 void HDHRRecorder::StartNewFile(void)
 {
+    if (_record_mpts)
+        _stream_handler->AddNamedOutputFile(ringBuffer->GetFilename());
+
     // Make sure the first things in the file are a PAT & PMT
     HandleSingleProgramPAT(_stream_data->PATSingleProgram(), true);
     HandleSingleProgramPMT(_stream_data->PMTSingleProgram(), true);
@@ -78,7 +82,8 @@ void HDHRRecorder::run(void)
 
     _stream_data->AddAVListener(this);
     _stream_data->AddWritingListener(this);
-    _stream_handler->AddListener(_stream_data);
+    _stream_handler->AddListener(_stream_data, false, false,
+                         (_record_mpts) ? ringBuffer->GetFilename() : QString());
 
     while (IsRecordingRequested() && !IsErrored())
     {

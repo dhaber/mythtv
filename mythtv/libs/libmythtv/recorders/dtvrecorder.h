@@ -168,12 +168,14 @@ class DTVRecorder :
     bool                     _has_no_av;
 
     // TS recorder stuff
+    bool          _record_mpts;
     unsigned char _stream_id[0x1fff + 1];
     unsigned char _pid_status[0x1fff + 1];
     unsigned char _continuity_counter[0x1fff + 1];
     vector<TSPacket> _scratch;
 
     // Statistics
+    int           _minimum_recording_quality;
     bool          _use_pts; // vs use dts
     uint64_t      _ts_count[256];
     int64_t       _ts_last[256];

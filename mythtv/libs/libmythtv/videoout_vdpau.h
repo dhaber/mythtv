@@ -25,6 +25,7 @@ class VideoOutputVDPAU : public VideoOutput
               const QSize &video_dim_disp,
               float aspect,
               WId winid, const QRect &win_rect, MythCodecID codec_id);
+    virtual void* GetDecoderContext(unsigned char* buf, uint8_t*& id);
     bool SetDeinterlacingEnabled(bool interlaced);
     bool SetupDeinterlace(bool interlaced, const QString& ovrf="");
     bool ApproveDeintFilter(const QString& filtername) const;
@@ -57,6 +58,7 @@ class VideoOutputVDPAU : public VideoOutput
                                              const QString &decoder,
                                              uint stream_type,
                                              bool no_acceleration);
+    static bool IsNVIDIA(void);
     virtual bool IsPIPSupported(void) const { return true;  }
     virtual bool IsPBPSupported(void) const { return false; }
     virtual bool NeedExtraAudioDecode(void) const
@@ -105,6 +107,7 @@ class VideoOutputVDPAU : public VideoOutput
 
     Window               m_win;
     MythRenderVDPAU     *m_render;
+    AVVDPAUContext       m_context;
 
     uint                 m_decoder_buffer_size;
     uint                 m_process_buffer_size;
@@ -136,5 +139,3 @@ class VideoOutputVDPAU : public VideoOutput
 };
 
 #endif // VIDEOOUT_VDPAU_H
-
-

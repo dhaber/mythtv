@@ -93,6 +93,29 @@ static bool checkStorageGroup(void)
        return false;
     }
 
+    // get a list of hosts with a directory defined for the 'MusicArt' storage group
+    hostList.clear();
+    sql = "SELECT DISTINCT hostname "
+                  "FROM storagegroup "
+                  "WHERE groupname = 'MusicArt'";
+    if (!query.exec(sql) || !query.isActive())
+        MythDB::DBError("checkStorageGroup get host list", query);
+    else
+    {
+        while(query.next())
+        {
+            hostList.append(query.value(0).toString());
+        }
+    }
+
+    if (hostList.isEmpty())
+    {
+        ShowOkPopup(qApp->translate("(MythMusicMain)",
+                                    "No directories found in the 'MusicArt' storage group. "
+                                    "Please run mythtv-setup on the backend machine to add one."));
+       return false;
+    }
+
     return true;
 }
 
@@ -130,7 +153,7 @@ static void startPlayback(void)
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
-    PlaylistView *view = new PlaylistView(mainStack);
+    PlaylistView *view = new PlaylistView(mainStack, NULL);
 
     if (view->Create())
         mainStack->AddScreen(view);
@@ -144,7 +167,7 @@ static void startStreamPlayback(void)
 
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
-    StreamView *view = new StreamView(mainStack);
+    StreamView *view = new StreamView(mainStack, NULL);
 
     if (view->Create())
         mainStack->AddScreen(view);
@@ -162,7 +185,7 @@ static void startDatabaseTree(void)
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
 
     QString lastView = gCoreContext->GetSetting("MusicPlaylistEditorView", "tree");
-    PlaylistEditorView *view = new PlaylistEditorView(mainStack, lastView);
+    PlaylistEditorView *view = new PlaylistEditorView(mainStack, NULL, lastView);
 
     if (view->Create())
         mainStack->AddScreen(view);
@@ -230,6 +253,10 @@ static void startImport(void)
     else
         delete import;
 }
+
+// these point to the the mainmenu callback if found
+static void (*m_callback)(void *, QString &) = NULL;
+static void *m_callbackdata = NULL;
 
 static void MusicCallback(void *data, QString &selection)
 {
@@ -305,15 +332,43 @@ static void MusicCallback(void *data, QString &selection)
         else
             delete is;
     }
+    else
+    {
+        // if we have found the mainmenu callback
+        // pass the selection on to it
+        if (m_callback && m_callbackdata)
+            m_callback(m_callbackdata, selection);
+    }
 }
 
 static int runMenu(QString which_menu)
 {
     QString themedir = GetMythUI()->GetThemeDir();
 
+    // find the 'mainmenu' MythThemedMenu so we can use the callback from it
+    MythThemedMenu *mainMenu = NULL;
+    QObject *parentObject = GetMythMainWindow()->GetMainStack()->GetTopScreen();
+
+    while (parentObject)
+    {
+        MythThemedMenu *menu = dynamic_cast<MythThemedMenu *>(parentObject);
+
+        if (menu && menu->objectName() == "mainmenu")
+        {
+            mainMenu = menu;
+            break;
+        }
+
+        parentObject = parentObject->parent();
+    }
+
     MythThemedMenu *diag = new MythThemedMenu(
         themedir, which_menu, GetMythMainWindow()->GetMainStack(),
         "music menu");
+
+    // save the callback from the main menu
+    if (mainMenu)
+        mainMenu->getCallback(&m_callback, &m_callbackdata);
 
     diag->setCallback(MusicCallback, NULL);
     diag->setKillable();

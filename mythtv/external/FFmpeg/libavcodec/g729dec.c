@@ -25,7 +25,7 @@
 #include "avcodec.h"
 #include "libavutil/avutil.h"
 #include "get_bits.h"
-#include "dsputil.h"
+#include "audiodsp.h"
 #include "internal.h"
 
 
@@ -100,8 +100,7 @@ typedef struct {
 } G729FormatDescription;
 
 typedef struct {
-    DSPContext dsp;
-    AVFrame frame;
+    AudioDSPContext adsp;
 
     /// past excitation signal buffer
     int16_t exc_base[2*SUBFRAME_SIZE+PITCH_DELAY_MAX+INTERPOL_LEN];
@@ -382,11 +381,8 @@ static av_cold int decoder_init(AVCodecContext * avctx)
     for(i=0; i<4; i++)
         ctx->quant_energy[i] = -14336; // -14 in (5.10)
 
-    ff_dsputil_init(&ctx->dsp, avctx);
-    ctx->dsp.scalarproduct_int16 = scalarproduct_int16_c;
-
-    avcodec_get_frame_defaults(&ctx->frame);
-    avctx->coded_frame = &ctx->frame;
+    ff_audiodsp_init(&ctx->adsp);
+    ctx->adsp.scalarproduct_int16 = scalarproduct_int16_c;
 
     return 0;
 }
@@ -418,13 +414,12 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame_ptr,
     int j, ret;
     int gain_before, gain_after;
     int is_periodic = 0;         // whether one of the subframes is declared as periodic or not
+    AVFrame *frame = data;
 
-    ctx->frame.nb_samples = SUBFRAME_SIZE<<1;
-    if ((ret = ff_get_buffer(avctx, &ctx->frame)) < 0) {
-        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+    frame->nb_samples = SUBFRAME_SIZE<<1;
+    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
         return ret;
-    }
-    out_frame = (int16_t*) ctx->frame.data[0];
+    out_frame = (int16_t*) frame->data[0];
 
     if (buf_size == 10) {
         packet_type = FORMAT_G729_8K;
@@ -583,7 +578,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame_ptr,
             }
 
             /* Decode the fixed-codebook gain. */
-            ctx->past_gain_code[0] = ff_acelp_decode_gain_code(&ctx->dsp, gain_corr_factor,
+            ctx->past_gain_code[0] = ff_acelp_decode_gain_code(&ctx->adsp, gain_corr_factor,
                                                                fc, MR_ENERGY,
                                                                ctx->quant_energy,
                                                                ma_prediction_coeff,
@@ -673,7 +668,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame_ptr,
 
         /* Call postfilter and also update voicing decision for use in next frame. */
         ff_g729_postfilter(
-                &ctx->dsp,
+                &ctx->adsp,
                 &ctx->ht_prev_data,
                 &is_periodic,
                 &lp[i][0],
@@ -716,17 +711,16 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame_ptr,
     memmove(ctx->exc_base, ctx->exc_base + 2 * SUBFRAME_SIZE, (PITCH_DELAY_MAX+INTERPOL_LEN)*sizeof(int16_t));
 
     *got_frame_ptr = 1;
-    *(AVFrame*)data = ctx->frame;
     return buf_size;
 }
 
 AVCodec ff_g729_decoder = {
     .name           = "g729",
+    .long_name      = NULL_IF_CONFIG_SMALL("G.729"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_G729,
     .priv_data_size = sizeof(G729Context),
     .init           = decoder_init,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("G.729"),
 };

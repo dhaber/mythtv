@@ -21,7 +21,8 @@
  */
 #include "libavcodec/simple_idct.h"
 #include "libavutil/mem.h"
-#include "dsputil_mmx.h"
+#include "libavutil/x86/asm.h"
+#include "idctdsp.h"
 
 #if HAVE_INLINE_ASM
 
@@ -80,7 +81,7 @@ DECLARE_ALIGNED(8, static const int16_t, coeffs)[]= {
 
 static inline void idct(int16_t *block)
 {
-        DECLARE_ALIGNED(8, int64_t, align_tmp)[16];
+        LOCAL_ALIGNED_8(int64_t, align_tmp, [16]);
         int16_t * const temp= (int16_t*)align_tmp;
 
         __asm__ volatile(
@@ -1142,6 +1143,7 @@ Temp
 
 "9: \n\t"
                 :: "r" (block), "r" (temp), "r" (coeffs)
+                   NAMED_CONSTRAINTS_ADD(wm1010,d40000)
                 : "%eax"
         );
 }

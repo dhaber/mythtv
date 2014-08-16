@@ -37,6 +37,7 @@ using namespace std;
 #include <QTimer>
 #include <QNetworkInterface>
 #include <QNetworkProxy>
+#include <QHostAddress>
 
 #include "previewgeneratorqueue.h"
 #include "mythmiscutil.h"
@@ -73,6 +74,9 @@ using namespace std;
 #include "filesysteminfo.h"
 #include "metaio.h"
 #include "musicmetadata.h"
+
+// mythbackend headers
+#include "backendcontext.h"
 
 /** Milliseconds to wait for an existing thread from
  *  process request thread pool.
@@ -254,10 +258,16 @@ MainServer::MainServer(bool master, int port,
 
     // test to make sure listen addresses are available
     // no reason to run the backend if the mainserver is not active
-    QHostAddress config_v4(gCoreContext->GetSetting("BackendServerIP"));
+    QHostAddress config_v4(gCoreContext->resolveSettingAddress(
+                                           "BackendServerIP",
+                                           QString(),
+                                           gCoreContext->ResolveIPv4, true));
     bool v4IsSet = config_v4.isNull() ? false : true;
 #if !defined(QT_NO_IPV6)
-    QHostAddress config_v6(gCoreContext->GetSetting("BackendServerIP6"));
+    QHostAddress config_v6(gCoreContext->resolveSettingAddress(
+                                           "BackendServerIP6",
+                                           QString(),
+                                           gCoreContext->ResolveIPv6, true));
     bool v6IsSet = config_v6.isNull() ? false : true;
 #endif
     QList<QHostAddress> listenAddrs = mythserver->DefaultListen();
@@ -271,7 +281,7 @@ MainServer::MainServer(bool master, int port,
     if (v4IsSet && !listenAddrs.contains(config_v4))
         LOG(VB_GENERAL, LOG_WARNING, LOC +
             "Unable to find IPv4 address to bind");
-    
+
     if ((v4IsSet && !listenAddrs.contains(config_v4))
 #if !defined(QT_NO_IPV6)
         && (v6IsSet && !listenAddrs.contains(config_v6))
@@ -330,7 +340,7 @@ MainServer::MainServer(bool master, int port,
     masterFreeSpaceList << "0";
     masterFreeSpaceList << "0";
     masterFreeSpaceList << "0";
-    
+
     masterFreeSpaceListUpdater = (master ? new FreeSpaceUpdater(*this) : NULL);
     if (masterFreeSpaceListUpdater)
     {
@@ -449,8 +459,24 @@ void MainServer::ProcessRequest(MythSocket *sock)
 
 void MainServer::ProcessRequestWork(MythSocket *sock)
 {
+    sockListLock.lockForRead();
+    PlaybackSock *pbs = GetPlaybackBySock(sock);
+    if (pbs)
+        pbs->IncrRef();
+    sockListLock.unlock();
+
     QStringList listline;
-    if (!sock->ReadStringList(listline) || listline.empty())
+    if (pbs)
+    {
+        if (!pbs->ReadStringList(listline) || listline.empty())
+        {
+            pbs->DecrRef();
+            LOG(VB_GENERAL, LOG_INFO, "No data in ProcessRequestWork()");
+            return;
+        }
+        pbs->DecrRef();
+    }
+    else if (!sock->ReadStringList(listline) || listline.empty())
     {
         LOG(VB_GENERAL, LOG_INFO, LOC + "No data in ProcessRequestWork()");
         return;
@@ -464,7 +490,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     if (command == "MYTH_PROTO_VERSION")
     {
         if (tokens.size() < 2)
-            LOG(VB_GENERAL, LOG_CRIT, LOC + "Bad MYTH_PROTO_VERSION command");
+            SendErrorResponse(sock, "Bad MYTH_PROTO_VERSION command");
         else
             HandleVersion(sock, tokens);
         return;
@@ -481,7 +507,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     }
 
     sockListLock.lockForRead();
-    PlaybackSock *pbs = GetPlaybackBySock(sock);
+    pbs = GetPlaybackBySock(sock);
     if (!pbs)
     {
         sockListLock.unlock();
@@ -494,14 +520,14 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     if (command == "QUERY_FILETRANSFER")
     {
         if (tokens.size() != 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_FILETRANSFER");
+            SendErrorResponse(pbs, "Bad QUERY_FILETRANSFER");
         else
             HandleFileTransferQuery(listline, tokens, pbs);
     }
     else if (command == "QUERY_RECORDINGS")
     {
         if (tokens.size() != 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_RECORDINGS query");
+            SendErrorResponse(pbs, "Bad QUERY_RECORDINGS query");
         else
             HandleQueryRecordings(tokens[1], pbs);
     }
@@ -552,14 +578,21 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "QUERY_FILE_EXISTS")
     {
         if (listline.size() < 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_FILE_EXISTS command");
+            SendErrorResponse(pbs, "Bad QUERY_FILE_EXISTS command");
         else
             HandleQueryFileExists(listline, pbs);
+    }
+    else if (command == "QUERY_FINDFILE")
+    {
+        if (listline.size() < 4)
+            SendErrorResponse(pbs, "Bad QUERY_FINDFILE command");
+        else
+            HandleQueryFindFile(listline, pbs);
     }
     else if (command == "QUERY_FILE_HASH")
     {
         if (listline.size() < 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_FILE_HASH command");
+            SendErrorResponse(pbs, "Bad QUERY_FILE_HASH command");
         else
             HandleQueryFileHash(listline, pbs);
     }
@@ -570,7 +603,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "DELETE_FILE")
     {
         if (listline.size() < 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad DELETE_FILE command");
+            SendErrorResponse(pbs, "Bad DELETE_FILE command");
         else
             HandleDeleteFile(listline, pbs);
     }
@@ -658,7 +691,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "QUERY_RECORDER")
     {
         if (tokens.size() != 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_RECORDER");
+            SendErrorResponse(pbs, "Bad QUERY_RECORDER");
         else
             HandleRecorderQuery(listline, tokens, pbs);
     }
@@ -673,7 +706,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "SET_NEXT_LIVETV_DIR")
     {
         if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad SET_NEXT_LIVETV_DIR");
+            SendErrorResponse(pbs, "Bad SET_NEXT_LIVETV_DIR");
         else
             HandleSetNextLiveTVDir(tokens, pbs);
     }
@@ -684,7 +717,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "QUERY_REMOTEENCODER")
     {
         if (tokens.size() != 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_REMOTEENCODER");
+            SendErrorResponse(pbs, "Bad QUERY_REMOTEENCODER");
         else
             HandleRemoteEncoder(listline, tokens, pbs);
     }
@@ -733,12 +766,12 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
         else if (tokens.size() == 2)
             HandleLockTuner(pbs, tokens[1].toInt());
         else
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad LOCK_TUNER query");
+            SendErrorResponse(pbs, "Bad LOCK_TUNER query");
     }
     else if (command == "FREE_TUNER")
     {
         if (tokens.size() != 2)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad FREE_TUNER query");
+            SendErrorResponse(pbs, "Bad FREE_TUNER query");
         else
             HandleFreeTuner(tokens[1].toInt(), pbs);
     }
@@ -749,49 +782,49 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "QUERY_IS_ACTIVE_BACKEND")
     {
         if (tokens.size() != 1)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_IS_ACTIVE_BACKEND");
+            SendErrorResponse(pbs, "Bad QUERY_IS_ACTIVE_BACKEND");
         else
             HandleIsActiveBackendQuery(listline, pbs);
     }
     else if (command == "QUERY_COMMBREAK")
     {
         if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_COMMBREAK");
+            SendErrorResponse(pbs, "Bad QUERY_COMMBREAK");
         else
             HandleCommBreakQuery(tokens[1], tokens[2], pbs);
     }
     else if (command == "QUERY_CUTLIST")
     {
         if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_CUTLIST");
+            SendErrorResponse(pbs, "Bad QUERY_CUTLIST");
         else
             HandleCutlistQuery(tokens[1], tokens[2], pbs);
     }
     else if (command == "QUERY_BOOKMARK")
     {
         if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_BOOKMARK");
+            SendErrorResponse(pbs, "Bad QUERY_BOOKMARK");
         else
             HandleBookmarkQuery(tokens[1], tokens[2], pbs);
     }
     else if (command == "SET_BOOKMARK")
     {
         if (tokens.size() != 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad SET_BOOKMARK");
+            SendErrorResponse(pbs, "Bad SET_BOOKMARK");
         else
             HandleSetBookmark(tokens, pbs);
     }
     else if (command == "QUERY_SETTING")
     {
         if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad QUERY_SETTING");
+            SendErrorResponse(pbs, "Bad QUERY_SETTING");
         else
             HandleSettingQuery(tokens, pbs);
     }
     else if (command == "SET_SETTING")
     {
         if (tokens.size() != 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad SET_SETTING");
+            SendErrorResponse(pbs, "Bad SET_SETTING");
         else
             HandleSetSetting(tokens, pbs);
     }
@@ -805,71 +838,78 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     }
     else if (command == "MUSIC_TAG_UPDATE_VOLATILE")
     {
-        if (tokens.size() != 6)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_TAG_UPDATE_VOLATILE");
+        if (listline.size() != 6)
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_UPDATE_VOLATILE");
         else
-            HandleMusicTagUpdateVolatile(tokens, pbs);
+            HandleMusicTagUpdateVolatile(listline, pbs);
     }
     else if (command == "MUSIC_CALC_TRACK_LENGTH")
     {
-        if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_CALC_TRACK_LENGTH");
+        if (listline.size() != 3)
+            SendErrorResponse(pbs, "Bad MUSIC_CALC_TRACK_LENGTH");
         else
-            HandleMusicCalcTrackLen(tokens, pbs);
+            HandleMusicCalcTrackLen(listline, pbs);
     }
     else if (command == "MUSIC_TAG_UPDATE_METADATA")
     {
-        if (tokens.size() != 3)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_TAG_UPDATE_METADATA");
+        if (listline.size() != 3)
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_UPDATE_METADATA");
         else
-            HandleMusicTagUpdateMetadata(tokens, pbs);
+            HandleMusicTagUpdateMetadata(listline, pbs);
     }
     else if (command == "MUSIC_FIND_ALBUMART")
     {
-        if (tokens.size() != 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_FIND_ALBUMART");
+        if (listline.size() != 4)
+            SendErrorResponse(pbs, "Bad MUSIC_FIND_ALBUMART");
         else
-            HandleMusicFindAlbumArt(tokens, pbs);
+            HandleMusicFindAlbumArt(listline, pbs);
     }
     else if (command == "MUSIC_TAG_GETIMAGE")
     {
-        if (tokens.size() < 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_TAG_GETIMAGE");
+        if (listline.size() < 4)
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_GETIMAGE");
         else
-            HandleMusicTagGetImage(tokens, pbs);
+            HandleMusicTagGetImage(listline, pbs);
     }
     else if (command == "MUSIC_TAG_ADDIMAGE")
     {
         if (listline.size() < 5)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_TAG_ADDIMAGE");
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_ADDIMAGE");
         else
             HandleMusicTagAddImage(listline, pbs);
     }
     else if (command == "MUSIC_TAG_REMOVEIMAGE")
     {
         if (listline.size() < 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad MUSIC_TAG_REMOVEIMAGE");
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_REMOVEIMAGE");
         else
             HandleMusicTagRemoveImage(listline, pbs);
+    }
+    else if (command == "MUSIC_TAG_CHANGEIMAGE")
+    {
+        if (listline.size() < 5)
+            SendErrorResponse(pbs, "Bad MUSIC_TAG_CHANGEIMAGE");
+        else
+            HandleMusicTagChangeImage(listline, pbs);
     }
     else if (command == "ALLOW_SHUTDOWN")
     {
         if (tokens.size() != 1)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad ALLOW_SHUTDOWN");
+            SendErrorResponse(pbs, "Bad ALLOW_SHUTDOWN");
         else
             HandleBlockShutdown(false, pbs);
     }
     else if (command == "BLOCK_SHUTDOWN")
     {
         if (tokens.size() != 1)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad BLOCK_SHUTDOWN");
+            SendErrorResponse(pbs, "Bad BLOCK_SHUTDOWN");
         else
             HandleBlockShutdown(true, pbs);
     }
     else if (command == "SHUTDOWN_NOW")
     {
         if (tokens.size() != 1)
-            LOG(VB_GENERAL, LOG_ERR, LOC + "Bad SHUTDOWN_NOW query");
+            SendErrorResponse(pbs, "Bad SHUTDOWN_NOW query");
         else if (!ismaster)
         {
             QString halt_cmd;
@@ -883,8 +923,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
                 myth_system(halt_cmd);
             }
             else
-                LOG(VB_GENERAL, LOG_WARNING, LOC +
-                    "Received an empty SHUTDOWN_NOW query!");
+                SendErrorResponse(pbs, "Received an empty SHUTDOWN_NOW query!");
         }
     }
     else if (command == "BACKEND_MESSAGE")
@@ -900,8 +939,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
              (command == "DOWNLOAD_FILE_NOW"))
     {
         if (listline.size() != 4)
-            LOG(VB_GENERAL, LOG_ERR, LOC +
-                QString("Bad %1 command").arg(command));
+            SendErrorResponse(pbs, QString("Bad %1 command").arg(command));
         else
             HandleDownloadFile(listline, pbs);
     }
@@ -1515,9 +1553,9 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
 
         PlaybackSockEventsMode eventsMode =
             (PlaybackSockEventsMode)commands[3].toInt();
-        LOG(VB_GENERAL, LOG_INFO, LOC + QString("MainServer::ANN %1")
+        LOG(VB_NETWORK, LOG_INFO, LOC + QString("MainServer::ANN %1")
                                             .arg(commands[1]));
-        LOG(VB_GENERAL, LOG_INFO, LOC +
+        LOG(VB_NETWORK, LOG_INFO, LOC +
             QString("adding: %1 as a client (events: %2)")
                 .arg(commands[2]).arg(eventsMode));
         PlaybackSock *pbs = new PlaybackSock(this, socket, commands[2],
@@ -1529,9 +1567,20 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
         playbackList.push_back(pbs);
         sockListLock.unlock();
 
-        if (eventsMode != kPBSEvents_None && commands[2] != "tzcheck")
-            gCoreContext->SendSystemEvent(
-                QString("CLIENT_CONNECTED HOSTNAME %1").arg(commands[2]));
+        Frontend *frontend = new Frontend();
+        frontend->name = commands[2];
+        // On a combined mbe/fe the frontend will connect using the localhost
+        // address, we need the external IP which happily will be the same as
+        // the backend's external IP
+        if (frontend->name == gCoreContext->GetMasterHostName())
+            frontend->ip = QHostAddress(gCoreContext->GetBackendServerIP());
+        else
+            frontend->ip = socket->GetPeerAddress();
+        if (gBackendContext)
+            gBackendContext->SetFrontendConnected(frontend);
+        else
+            delete frontend;
+
     }
     else if (commands[1] == "MediaServer")
     {
@@ -1715,7 +1764,7 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
             socket->WriteStringList(errlist);
             return;
         }
-            
+
 
         QFileInfo finfo(filename);
         if (finfo.isDir())
@@ -1752,8 +1801,17 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
             ft = new FileTransfer(filename, socket, usereadahead, timeout_ms);
         }
 
+        if (!ft->isOpen())
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("Can't open %1").arg(filename));
+            errlist << "filetransfer_unable_to_open_file";
+            socket->WriteStringList(errlist);
+            socket->IncrRef(); // FileTransfer took ownership of the socket, take it back
+            ft->DecrRef();
+            return;
+        }
         ft->IncrRef();
-
         sockListLock.lockForWrite();
         controlSocketList.remove(socket);
         fileTransferList.push_back(ft);
@@ -1791,6 +1849,21 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
 void MainServer::HandleDone(MythSocket *socket)
 {
     socket->DisconnectFromHost();
+}
+
+void MainServer::SendErrorResponse(PlaybackSock *pbs, const QString &error)
+{
+    SendErrorResponse(pbs->getSocket(), error);
+}
+
+void MainServer::SendErrorResponse(MythSocket* sock, const QString& error)
+{
+    LOG(VB_GENERAL, LOG_ERR, LOC + error);
+
+    QStringList strList("ERROR");
+    strList << error;
+
+    SendResponse(sock, strList);
 }
 
 void MainServer::SendResponse(MythSocket *socket, QStringList &commands)
@@ -1865,7 +1938,7 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
     QMap<QString, QString> backendIpMap;
     QMap<QString, QString> backendPortMap;
     QString ip   = gCoreContext->GetBackendServerIP();
-    QString port = gCoreContext->GetSetting("BackendServerPort");
+    int port = gCoreContext->GetBackendServerPort();
 
     ProgramList::iterator it = destination.begin();
     for (it = destination.begin(); it != destination.end(); ++it)
@@ -1934,17 +2007,17 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
             }
             else
             {
-                ProgramInfo *p = proginfo;
-                if (!backendIpMap.contains(p->GetHostname()))
-                    backendIpMap[p->GetHostname()] =
-                        gCoreContext->GetSettingOnHost("BackendServerIp",
-                                                   p->GetHostname());
-                if (!backendPortMap.contains(p->GetHostname()))
-                    backendPortMap[p->GetHostname()] =
-                        gCoreContext->GetSettingOnHost("BackendServerPort",
-                                                   p->GetHostname());
-                p->SetPathname(gCoreContext->GenMythURL(backendIpMap[p->GetHostname()],
-                                                        backendPortMap[p->GetHostname()],
+                ProgramInfo *p      = proginfo;
+                QString hostname    = p->GetHostname();
+
+                if (!backendIpMap.contains(hostname))
+                    backendIpMap[hostname] =
+                        gCoreContext->GetBackendServerIP(hostname);
+                if (!backendPortMap.contains(hostname))
+                    backendPortMap[hostname] =
+                        gCoreContext->GetBackendServerPort(hostname);
+                p->SetPathname(gCoreContext->GenMythURL(backendIpMap[hostname],
+                                                        backendPortMap[hostname],
                                                         p->GetBasename()));
             }
         }
@@ -2021,7 +2094,7 @@ void MainServer::HandleFillProgramInfo(QStringList &slist, PlaybackSock *pbs)
     {
         QString lpath = GetPlaybackURL(&pginfo);
         QString ip    = gCoreContext->GetBackendServerIP();
-        QString port  = gCoreContext->GetSetting("BackendServerPort");
+        int port  = gCoreContext->GetBackendServerPort();
 
         if (playbackhost == gCoreContext->GetHostName())
             pginfo.SetPathname(lpath);
@@ -2150,15 +2223,24 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
         return;
     }
 
-    /* Delete all preview thumbnails. */
+    /* Delete all preview thumbnails and srt subtitles. */
 
     QFileInfo fInfo( ds->m_filename );
     QString nameFilter = fInfo.fileName() + "*.png";
+
     // QDir's nameFilter uses spaces or semicolons to separate globs,
     // so replace them with the "match any character" wildcard
     // since mythrename.pl may have included them in filenames
     nameFilter.replace(QRegExp("( |;)"), "?");
-    QDir      dir  ( fInfo.path(), nameFilter );
+
+    QStringList nameFilters(nameFilter);
+
+    nameFilter = fInfo.fileName();
+    nameFilter.replace(QRegExp("\\.mpg$"), ".srt");
+    nameFilters.append(nameFilter);
+
+    QDir      dir  ( fInfo.path() );
+    dir.setNameFilters(nameFilters);
 
     for (uint nIdx = 0; nIdx < dir.count(); nIdx++)
     {
@@ -2222,7 +2304,7 @@ void MainServer::DeleteRecordedFiles(DeleteStruct *ds)
 
             QString url = gCoreContext->GenMythURL(
                                   gCoreContext->GetBackendServerIP(hostname),
-                                  gCoreContext->GetSettingOnHost("BackendServerPort", hostname),
+                                  gCoreContext->GetBackendServerPort(hostname),
                                   basename,
                                   storagegroup);
 
@@ -2542,7 +2624,8 @@ void MainServer::HandleStopRecording(QStringList &slist, PlaybackSock *pbs)
             {
                 ProgramInfo *pInfo = schedList[n];
                 if ((pInfo->GetRecordingStatus() == rsTuning ||
-                    pInfo->GetRecordingStatus() == rsRecording)
+                     pInfo->GetRecordingStatus() == rsFailing ||
+                     pInfo->GetRecordingStatus() == rsRecording)
                     && recinfo.IsSameProgram(*pInfo))
                     recinfo.SetChanID(pInfo->GetChanID());
             }
@@ -2731,7 +2814,7 @@ void MainServer::DoHandleDeleteRecording(
 
             if (forgetHistory)
                 recinfo.ForgetHistory();
-            else if (m_sched && 
+            else if (m_sched &&
                      recinfo.GetRecordingGroup() != "Deleted" &&
                      recinfo.GetRecordingGroup() != "LiveTV")
                 m_sched->RescheduleCheck(recinfo, "DoHandleDelete2");
@@ -2765,9 +2848,9 @@ void MainServer::DoHandleDeleteRecording(
     {
         recinfo.SaveDeletePendingFlag(true);
 
-        DeleteThread *deleteThread = new DeleteThread(this, filename, 
-            recinfo.GetTitle(), recinfo.GetChanID(), 
-            recinfo.GetRecordingStartTime(), recinfo.GetRecordingEndTime(), 
+        DeleteThread *deleteThread = new DeleteThread(this, filename,
+            recinfo.GetTitle(), recinfo.GetChanID(),
+            recinfo.GetRecordingStartTime(), recinfo.GetRecordingEndTime(),
             forceMetadataDelete);
         deleteThread->start();
     }
@@ -2791,7 +2874,7 @@ void MainServer::DoHandleDeleteRecording(
 
     if (forgetHistory)
         recinfo.ForgetHistory();
-    else if (m_sched && 
+    else if (m_sched &&
              recinfo.GetRecordingGroup() != "Deleted" &&
              recinfo.GetRecordingGroup() != "LiveTV")
         m_sched->RescheduleCheck(recinfo, "DoHandleDelete3");
@@ -2853,7 +2936,7 @@ void MainServer::DoHandleUndeleteRecording(
     SendResponse(pbssock, outputlist);
 }
 
-void MainServer::HandleRescheduleRecordings(const QStringList &request, 
+void MainServer::HandleRescheduleRecordings(const QStringList &request,
                                             PlaybackSock *pbs)
 {
     QStringList result;
@@ -3190,7 +3273,7 @@ void MainServer::HandleQueryFileHash(QStringList &slist, PlaybackSock *pbs)
 
     QString hash = "";
 
-    if (hostname == gCoreContext->GetHostName())
+    if (gCoreContext->IsThisHost(hostname))
     {
         StorageGroup sgroup(storageGroup, gCoreContext->GetHostName());
         QString fullname = sgroup.FindFile(filename);
@@ -3440,6 +3523,7 @@ void MainServer::HandleSGGetFileList(QStringList &sList,
 
     QString host = gCoreContext->GetHostName();
     QString wantHost = sList.at(1);
+    QHostAddress wantHostaddr(wantHost);
     QString groupname = sList.at(2);
     QString path = sList.at(3);
     bool fileNamesOnly = false;
@@ -3454,9 +3538,12 @@ void MainServer::HandleSGGetFileList(QStringList &sList,
                 " path = %3 wanthost = %4")
             .arg(groupname).arg(host).arg(path).arg(wantHost));
 
+    QString addr4 = gCoreContext->GetBackendServerIP4();
+    QString addr6 = gCoreContext->GetBackendServerIP6();
+
     if ((host.toLower() == wantHost.toLower()) ||
-        (gCoreContext->GetSetting("BackendServerIP") == wantHost) ||
-        (gCoreContext->GetSetting("BackendServerIP6") == wantHost))
+        (!addr4.isEmpty() && addr4 == wantHostaddr.toString()) ||
+        (!addr6.isEmpty() && addr6 == wantHostaddr.toString()))
     {
         StorageGroup sg(groupname, host);
         LOG(VB_FILE, LOG_INFO, LOC + "HandleSGGetFileList: Getting local info");
@@ -3496,13 +3583,215 @@ void MainServer::HandleSGGetFileList(QStringList &sList,
     SendResponse(pbssock, strList);
 }
 
+void MainServer::HandleQueryFindFile(QStringList &slist, PlaybackSock *pbs)
+{
+//format: QUERY_FINDFILE <host> <storagegroup> <filename> <useregex (optional)> <allowfallback (optional)>
+
+    QString hostname = slist[1];
+    QString storageGroup = slist[2];
+    QString filename = slist[3];
+    bool allowFallback = true;
+    bool useRegex = false;
+    QStringList fileList;
+
+    if (hostname.isEmpty())
+        hostname = gCoreContext->GetHostName();
+
+    if (storageGroup.isEmpty())
+        storageGroup = "Default";
+
+    if (filename.isEmpty() || filename.contains("/../") ||
+        filename.startsWith("../"))
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("ERROR QueryFindFile, filename '%1' "
+                    "fails sanity checks").arg(filename));
+        fileList << "ERROR: Bad/Missing Filename";
+        SendResponse(pbs->getSocket(), fileList);
+        return;
+    }
+
+    if (slist.size() >= 5)
+        useRegex = (slist[4].toInt() > 0);
+
+    if (slist.size() >= 6)
+        allowFallback = (slist[5].toInt() > 0);
+
+    LOG(VB_FILE, LOG_INFO, LOC +
+        QString("Looking for file '%1' on host '%2' in group '%3' (useregex: %4, allowfallback: %5")
+        .arg(filename).arg(hostname).arg(storageGroup).arg(useRegex).arg(allowFallback));
+
+    // first check the given host
+    if (gCoreContext->IsThisHost(hostname))
+    {
+        LOG(VB_FILE, LOG_INFO, LOC + QString("Checking local host '%1' for file").arg(hostname));
+
+        // check the local storage group
+        StorageGroup sgroup(storageGroup, gCoreContext->GetHostName(), false);
+
+        if (useRegex)
+        {
+            QFileInfo fi(filename);
+            QStringList files = sgroup.GetFileList('/' + fi.path());
+
+            LOG(VB_FILE, LOG_INFO, LOC + QString("Looking in dir '%1' for '%2'").arg(fi.path()).arg(fi.fileName()));
+
+            for (int x = 0; x < files.size(); x++)
+            {
+                LOG(VB_FILE, LOG_INFO, LOC + QString("Found '%1 - %2'").arg(x).arg(files[x]));
+            }
+
+            QStringList filteredFiles = files.filter(QRegExp(fi.fileName()));
+            for (int x = 0; x < filteredFiles.size(); x++)
+            {
+                fileList << gCoreContext->GenMythURL(gCoreContext->GetBackendServerIP(),
+                                                     gCoreContext->GetBackendServerPort(),
+                                                     fi.path() + '/' + filteredFiles[x],
+                                                     storageGroup);
+            }
+        }
+        else
+        {
+            if (!sgroup.FindFile(filename).isEmpty())
+            {
+                fileList << gCoreContext->GenMythURL(gCoreContext->GetBackendServerIP(),
+                                                     gCoreContext->GetBackendServerPort(),
+                                                     filename, storageGroup);
+            }
+        }
+    }
+    else
+    {
+        LOG(VB_FILE, LOG_INFO, LOC + QString("Checking remote host '%1' for file").arg(hostname));
+
+        // check the given slave hostname
+        PlaybackSock *slave = GetMediaServerByHostname(hostname);
+        if (slave)
+        {
+            QStringList slaveFiles = slave->GetFindFile(hostname, filename, storageGroup, useRegex);
+
+            if (!slaveFiles.isEmpty() && slaveFiles[0] != "NOT FOUND" && !slaveFiles[0].startsWith("ERROR: "))
+                fileList += slaveFiles;
+
+            slave->DecrRef();
+        }
+        else
+        {
+            LOG(VB_FILE, LOG_INFO, LOC + QString("Slave '%1' was unreachable").arg(hostname));
+            fileList << QString("ERROR: SLAVE UNREACHABLE: %1").arg(hostname);
+            SendResponse(pbs->getSocket(), fileList);
+            return;
+        }
+    }
+
+    // if we still haven't found it and this is the master and fallback is enabled
+    // check all other slaves that have a directory in the storagegroup
+    if (ismaster && fileList.isEmpty() && allowFallback)
+    {
+        // get a list of hosts
+        MSqlQuery query(MSqlQuery::InitCon());
+
+        QString sql = "SELECT DISTINCT hostname "
+                        "FROM storagegroup "
+                        "WHERE groupname = :GROUP "
+                        "AND hostname != :HOSTNAME";
+        query.prepare(sql);
+        query.bindValue(":GROUP", storageGroup);
+        query.bindValue(":HOSTNAME", hostname);
+
+        if (!query.exec() || !query.isActive())
+        {
+            MythDB::DBError(LOC + "FindFile() get host list", query);
+            fileList << "ERROR: failed to get host list";
+            SendResponse(pbs->getSocket(), fileList);
+            return;
+        }
+
+        while(query.next())
+        {
+            hostname = query.value(0).toString();
+
+            if (hostname == gCoreContext->GetMasterHostName())
+            {
+                StorageGroup sgroup(storageGroup, hostname);
+
+                if (useRegex)
+                {
+                    QFileInfo fi(filename);
+                    QStringList files = sgroup.GetFileList('/' + fi.path());
+
+                    LOG(VB_FILE, LOG_INFO, LOC + QString("Looking in dir '%1' for '%2'").arg(fi.path()).arg(fi.fileName()));
+
+                    for (int x = 0; x < files.size(); x++)
+                    {
+                        LOG(VB_FILE, LOG_INFO, LOC + QString("Found '%1 - %2'").arg(x).arg(files[x]));
+                    }
+
+                    QStringList filteredFiles = files.filter(QRegExp(fi.fileName()));
+
+                    for (int x = 0; x < filteredFiles.size(); x++)
+                    {
+                        fileList << gCoreContext->GenMythURL(gCoreContext->GetBackendServerIP(),
+                                                                gCoreContext->GetBackendServerPort(),
+                                                                fi.path() + '/' + filteredFiles[x],
+                                                                storageGroup);
+                    }
+                }
+                else
+                {
+                    QString fname = sgroup.FindFile(filename);
+                    if (!fname.isEmpty())
+                    {
+                        fileList << gCoreContext->GenMythURL(gCoreContext->GetMasterServerIP(),
+                                                        gCoreContext->GetMasterServerPort(),
+                                                        filename, storageGroup);
+                    }
+                }
+            }
+            else
+            {
+                // check the slave host
+                PlaybackSock *slave = GetMediaServerByHostname(hostname);
+                if (slave)
+                {
+                    QStringList slaveFiles = slave->GetFindFile(hostname, filename, storageGroup, useRegex);
+                    if (!slaveFiles.isEmpty() && slaveFiles[0] != "NOT FOUND" && !slaveFiles[0].startsWith("ERROR: "))
+                        fileList += slaveFiles;
+
+                    slave->DecrRef();
+                }
+            }
+
+            if (!fileList.isEmpty())
+                break;
+        }
+    }
+
+    if (fileList.isEmpty())
+    {
+        fileList << "NOT FOUND";
+        LOG(VB_FILE, LOG_INFO, LOC + QString("File was not found"));
+    }
+    else
+    {
+        for (int x = 0; x < fileList.size(); x++)
+        {
+            LOG(VB_FILE, LOG_INFO, LOC + QString("File %1 was found at: '%2'").arg(x).arg(fileList[0]));
+        }
+    }
+
+    SendResponse(pbs->getSocket(), fileList);
+}
+
 void MainServer::HandleSGFileQuery(QStringList &sList,
                                      PlaybackSock *pbs)
 {
+//format: QUERY_SG_FILEQUERY <host> <storagegroup> <filename> <allowfallback (optional)>
+
     MythSocket *pbssock = pbs->getSocket();
     QStringList strList;
 
-    if (sList.size() != 4)
+    if (sList.size() < 4)
     {
         LOG(VB_GENERAL, LOG_ERR, LOC +
             QString("HandleSGFileQuery: Invalid Request. %1")
@@ -3512,21 +3801,31 @@ void MainServer::HandleSGFileQuery(QStringList &sList,
         return;
     }
 
+    QString host = gCoreContext->GetHostName();
     QString wantHost = sList.at(1);
+    QHostAddress wantHostaddr(wantHost);
     QString groupname = sList.at(2);
     QString filename = sList.at(3);
+
+    bool allowFallback = true;
+    if (sList.size() >= 5)
+        allowFallback = (sList.at(4).toInt() > 0);
+    LOG(VB_FILE, LOG_ERR, QString("HandleSGFileQuery - allowFallback: %1").arg(allowFallback));
 
     bool slaveUnreachable = false;
 
     LOG(VB_FILE, LOG_INFO, LOC + QString("HandleSGFileQuery: %1")
             .arg(gCoreContext->GenMythURL(wantHost, 0, filename, groupname)));
 
-    if ((wantHost.toLower() == gCoreContext->GetHostName().toLower()) ||
-        (wantHost == gCoreContext->GetSetting("BackendServerIP")) ||
-        (wantHost == gCoreContext->GetSetting("BackendServerIP6")))
+    QString addr4 = gCoreContext->GetBackendServerIP4();
+    QString addr6 = gCoreContext->GetBackendServerIP6();
+
+    if ((host.toLower() == wantHost.toLower()) ||
+        (!addr4.isEmpty() && addr4 == wantHostaddr.toString()) ||
+        (!addr6.isEmpty() && addr6 == wantHostaddr.toString()))
     {
         LOG(VB_FILE, LOG_INFO, LOC + "HandleSGFileQuery: Getting local info");
-        StorageGroup sg(groupname, gCoreContext->GetHostName());
+        StorageGroup sg(groupname, gCoreContext->GetHostName(), allowFallback);
         strList = sg.GetFileInfo(filename);
     }
     else
@@ -3727,13 +4026,12 @@ void MainServer::HandleGetFreeRecorder(PlaybackSock *pbs)
         if (encoder->IsLocal())
         {
             strlist << gCoreContext->GetBackendServerIP();
-            strlist << gCoreContext->GetSetting("BackendServerPort");
+            strlist << QString::number(gCoreContext->GetBackendServerPort());
         }
         else
         {
             strlist << gCoreContext->GetBackendServerIP(encoder->GetHostName());
-            strlist << gCoreContext->GetSettingOnHost("BackendServerPort",
-                                                  encoder->GetHostName(), "-1");
+            strlist << QString::number(gCoreContext->GetBackendServerPort(encoder->GetHostName()));
         }
     }
     else
@@ -3879,13 +4177,12 @@ void MainServer::HandleGetNextFreeRecorder(QStringList &slist,
         if (encoder->IsLocal())
         {
             strlist << gCoreContext->GetBackendServerIP();
-            strlist << gCoreContext->GetSetting("BackendServerPort");
+            strlist << QString::number(gCoreContext->GetBackendServerPort());
         }
         else
         {
             strlist << gCoreContext->GetBackendServerIP(encoder->GetHostName());
-            strlist << gCoreContext->GetSettingOnHost("BackendServerPort",
-                                                  encoder->GetHostName(), "-1");
+            strlist << QString::number(gCoreContext->GetBackendServerPort(encoder->GetHostName()));
         }
     }
     else
@@ -4389,7 +4686,7 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
     else if (command == "IS_BUSY")
     {
         int time_buffer = (slist.size() >= 3) ? slist[2].toInt() : 5;
-        TunedInputInfo busy_input;
+        InputInfo busy_input;
         retlist << QString::number((int)enc->IsBusy(&busy_input, time_buffer));
         busy_input.ToStringList(retlist);
     }
@@ -4408,6 +4705,8 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
         ProgramInfo pginfo(it, slist.end());
 
         retlist << QString::number(enc->StartRecording(&pginfo));
+        retlist << QString::number(pginfo.GetRecordingID());
+        retlist << QString::number(pginfo.GetRecordingStartTime().toTime_t());
     }
     else if (command == "GET_RECORDING_STATUS")
     {
@@ -4743,7 +5042,7 @@ void MainServer::BackendQueryDiskSpace(QStringList &strlist, bool consolidated,
             if (diffUsed < 0)
                 diffUsed = 0 - diffUsed;
 
-            if (it2->getFSysID() == -1 && (diffSize <= bSize) && 
+            if (it2->getFSysID() == -1 && (diffSize <= bSize) &&
                 (diffUsed <= maxWriteFiveSec))
             {
                 if (!it1->getHostname().contains(it2->getHostname()))
@@ -4816,7 +5115,7 @@ void MainServer::GetFilesystemInfos(QList<FileSystemInfo> &fsInfos)
         "Determining unique filesystems");
     size_t maxWriteFiveSec = GetCurrentMaxBitrate()/12  /*5 seconds*/;
     // safety for NFS mounted dirs
-    maxWriteFiveSec = max((size_t)2048, maxWriteFiveSec); 
+    maxWriteFiveSec = max((size_t)2048, maxWriteFiveSec);
 
     FileSystemInfo::Consolidate(fsInfos, false, maxWriteFiveSec);
 
@@ -4867,7 +5166,7 @@ void TruncateThread::run(void)
 
 void MainServer::DoTruncateThread(DeleteStruct *ds)
 {
-    if (gCoreContext->GetNumSetting("TruncateDeletesSlowly", 0)) 
+    if (gCoreContext->GetNumSetting("TruncateDeletesSlowly", 0))
     {
         TruncateAndClose(NULL, ds->m_fd, ds->m_filename, ds->m_size);
     }
@@ -4951,7 +5250,7 @@ bool MainServer::HandleDeleteFile(QString filename, QString storagegroup,
     if (fd >= 0)
     {
         // Thread off the actual file truncate
-        TruncateThread *truncateThread = 
+        TruncateThread *truncateThread =
             new TruncateThread(this, fullfile, fd, size);
         truncateThread->run();
     }
@@ -5266,7 +5565,7 @@ void MainServer::HandleScanMusic(const QStringList &slist, PlaybackSock *pbs)
                     // this is the master BE with a music storage group directory defined so run the file scanner
                     LOG(VB_GENERAL, LOG_INFO, LOC +
                         QString("HandleScanMusic: running filescanner on master BE '%1'").arg(hostname));
-                    QScopedPointer<MythSystem> cmd(MythSystem::Create("mythutil --scanmusic",
+                    QScopedPointer<MythSystem> cmd(MythSystem::Create(GetAppBinDir() + "mythutil --scanmusic",
                                                                       kMSAutoCleanup | kMSRunBackground |
                                                                       kMSDontDisableDrawing | kMSProcessEvents |
                                                                       kMSDontBlockInputDevs));
@@ -5297,7 +5596,7 @@ void MainServer::HandleScanMusic(const QStringList &slist, PlaybackSock *pbs)
         LOG(VB_GENERAL, LOG_INFO,  LOC +
             QString("HandleScanMusic: running filescanner on slave BE '%1'")
                 .arg(gCoreContext->GetHostName()));
-        QScopedPointer<MythSystem> cmd(MythSystem::Create("mythutil --scanmusic",
+        QScopedPointer<MythSystem> cmd(MythSystem::Create(GetAppBinDir() + "mythutil --scanmusic",
                                                           kMSAutoCleanup | kMSRunBackground |
                                                           kMSDontDisableDrawing | kMSProcessEvents |
                                                           kMSDontBlockInputDevs));
@@ -5319,7 +5618,7 @@ void MainServer::HandleMusicTagUpdateVolatile(const QStringList &slist, Playback
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -5327,8 +5626,7 @@ void MainServer::HandleMusicTagUpdateVolatile(const QStringList &slist, Playback
         {
             LOG(VB_GENERAL, LOG_INFO, LOC +
                 QString("HandleMusicTagUpdateVolatile: asking slave '%1' to update the metadata").arg(hostname));
-            strlist << slist.join(" ");
-            strlist = slave->ForwardRequest(strlist);
+            strlist = slave->ForwardRequest(slist);
             slave->DecrRef();
 
             if (pbssock)
@@ -5358,7 +5656,7 @@ void MainServer::HandleMusicTagUpdateVolatile(const QStringList &slist, Playback
         paramList.append(QString("--playcount='%1'").arg(slist[4]));
         paramList.append(QString("--lastplayed='%1'").arg(slist[5]));
 
-        QString command = "mythutil --updatemeta " + paramList.join(" ");
+        QString command = GetAppBinDir() + "mythutil --updatemeta " + paramList.join(" ");
 
         LOG(VB_GENERAL, LOG_INFO, LOC +
             QString("HandleMusicTagUpdateVolatile: running %1'").arg(command));
@@ -5384,7 +5682,7 @@ void MainServer::HandleMusicCalcTrackLen(const QStringList &slist, PlaybackSock 
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -5392,8 +5690,7 @@ void MainServer::HandleMusicCalcTrackLen(const QStringList &slist, PlaybackSock 
         {
             LOG(VB_GENERAL, LOG_INFO, LOC +
                 QString("HandleMusicCalcTrackLen: asking slave '%1' to update the track length").arg(hostname));
-            strlist << slist.join(" ");
-            strlist = slave->ForwardRequest(strlist);
+            strlist = slave->ForwardRequest(slist);
             slave->DecrRef();
 
             if (pbssock)
@@ -5420,7 +5717,7 @@ void MainServer::HandleMusicCalcTrackLen(const QStringList &slist, PlaybackSock 
         QStringList paramList;
         paramList.append(QString("--songid='%1'").arg(slist[2]));
 
-        QString command = "mythutil --calctracklen " + paramList.join(" ");
+        QString command = GetAppBinDir() + "mythutil --calctracklen " + paramList.join(" ");
 
         LOG(VB_GENERAL, LOG_INFO, LOC +
             QString("HandleMusicCalcTrackLen: running %1'").arg(command));
@@ -5447,7 +5744,7 @@ void MainServer::HandleMusicTagUpdateMetadata(const QStringList &slist, Playback
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -5456,8 +5753,7 @@ void MainServer::HandleMusicTagUpdateMetadata(const QStringList &slist, Playback
             LOG(VB_GENERAL, LOG_INFO, LOC +
                 QString("HandleMusicTagUpdateMetadata: asking slave '%1' "
                         "to update the metadata").arg(hostname));
-            strlist << slist.join(" ");
-            strlist = slave->ForwardRequest(strlist);
+            strlist = slave->ForwardRequest(slist);
             slave->DecrRef();
 
             if (pbssock)
@@ -5538,7 +5834,7 @@ void MainServer::HandleMusicFindAlbumArt(const QStringList &slist, PlaybackSock 
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -5547,8 +5843,7 @@ void MainServer::HandleMusicFindAlbumArt(const QStringList &slist, PlaybackSock 
             LOG(VB_GENERAL, LOG_INFO, LOC +
                 QString("HandleMusicFindAlbumArt: asking slave '%1' "
                         "to update the albumart").arg(hostname));
-            strlist << slist.join(" ");
-            strlist = slave->ForwardRequest(strlist);
+            strlist = slave->ForwardRequest(slist);
             slave->DecrRef();
 
             if (pbssock)
@@ -5605,11 +5900,14 @@ void MainServer::HandleMusicFindAlbumArt(const QStringList &slist, PlaybackSock 
         // create an empty image list
         AlbumArtImages *images = new AlbumArtImages(mdata, false);
 
+        fi.setFile(mdata->Filename(false));
+        QString startDir = fi.path();
+
         for (int x = 0; x < files.size(); x++)
         {
             fi.setFile(files.at(x));
             AlbumArtImage *image = new AlbumArtImage();
-            image->filename = fi.fileName();
+            image->filename = startDir + '/' + fi.fileName();
             image->hostname = gCoreContext->GetHostName();
             image->embedded = false;
             image->imageType = AlbumArtImages::guessImageType(image->filename);
@@ -5618,7 +5916,7 @@ void MainServer::HandleMusicFindAlbumArt(const QStringList &slist, PlaybackSock 
             delete image;
         }
 
-        // find any embedded albumart in the the tracks tag
+        // find any embedded albumart in the tracks tag
         MetaIO *tagger = mdata->getTagger();
         if (tagger)
         {
@@ -5667,13 +5965,15 @@ void MainServer::HandleMusicFindAlbumArt(const QStringList &slist, PlaybackSock 
                 paramList.append(QString("--songid='%1'").arg(mdata->ID()));
                 paramList.append(QString("--imagetype='%1'").arg(image->imageType));
 
-                QString command = "mythutil --extractimage " + paramList.join(" ");
+                QString command = GetAppBinDir() + "mythutil --extractimage " + paramList.join(" ");
                 QScopedPointer<MythSystem> cmd(MythSystem::Create(command,
                                                     kMSAutoCleanup | kMSRunBackground |
                                                     kMSDontDisableDrawing | kMSProcessEvents |
                                                     kMSDontBlockInputDevs));
             }
         }
+
+        delete images;
     }
 
     if (pbssock)
@@ -5692,58 +5992,215 @@ void MainServer::HandleMusicTagGetImage(const QStringList &slist, PlaybackSock *
     QString songid = slist[2];
     QString imagetype = slist[3];
 
-    QStringList paramList;
-    paramList.append(QString("--songid='%1'").arg(songid));
-    paramList.append(QString("--imagetype='%1'").arg(imagetype));
-
-    QString command = "mythutil --extractimage " + paramList.join(" ");
-
-    if (ismaster)
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
-
-        if (hostname == gCoreContext->GetHostName())
+        // forward the request to the slave BE
+        PlaybackSock *slave = GetMediaServerByHostname(hostname);
+        if (slave)
         {
-            // this is the master BE
             LOG(VB_GENERAL, LOG_INFO, LOC +
-                QString("HandleMusicTagGetImage: running %1 on master BE '%2'")
-                    .arg(command).arg(hostname));
+                QString("HandleMusicTagGetImage: asking slave '%1' to "
+                        "extract the image").arg(hostname));
+            strlist = slave->ForwardRequest(slist);
+            slave->DecrRef();
 
-            QScopedPointer<MythSystem> cmd(MythSystem::Create(command,
-                                                              kMSAutoCleanup | kMSRunBackground |
-                                                              kMSDontDisableDrawing | kMSProcessEvents |
-                                                              kMSDontBlockInputDevs));
+            if (pbssock)
+                SendResponse(pbssock, strlist);
+
+            return;
         }
         else
         {
-            // forward the request to the slave BE
-            PlaybackSock *slave = GetMediaServerByHostname(hostname);
-            if (slave)
-            {
-                LOG(VB_GENERAL, LOG_INFO, LOC +
-                    QString("HandleMusicTagGetImage: asking slave '%1' to "
-                            "extract the image").arg(hostname));
-                strlist << slist.join(" ");
-                slave->ForwardRequest(strlist);
-                slave->DecrRef();
-            }
-            else
-            {
-                LOG(VB_GENERAL, LOG_INFO, LOC +
-                    QString("HandleMusicTagGetImage: Failed to grab slave "
-                            "socket on '%1'").arg(hostname));
-            }
+            LOG(VB_GENERAL, LOG_INFO, LOC +
+                QString("HandleMusicTagGetImage: Failed to grab slave "
+                        "socket on '%1'").arg(hostname));
         }
     }
     else
     {
-        // must be a slave run mythutil to extract the image
-        LOG(VB_GENERAL, LOG_INFO, LOC +
-            QString("HandleMusicTagGetImage: running %1 on slave BE '%2'")
-                .arg(command).arg(gCoreContext->GetHostName()));
+        QStringList paramList;
+        paramList.append(QString("--songid='%1'").arg(songid));
+        paramList.append(QString("--imagetype='%1'").arg(imagetype));
+
+        QString command = GetAppBinDir() + "mythutil --extractimage " + paramList.join(" ");
+
         QScopedPointer<MythSystem> cmd(MythSystem::Create(command,
-                                                          kMSAutoCleanup | kMSRunBackground |
-                                                          kMSDontDisableDrawing | kMSProcessEvents |
-                                                          kMSDontBlockInputDevs));
+                                       kMSAutoCleanup | kMSRunBackground |
+                                       kMSDontDisableDrawing | kMSProcessEvents |
+                                       kMSDontBlockInputDevs));
+    }
+
+    strlist << "OK";
+
+    if (pbssock)
+        SendResponse(pbssock, strlist);
+}
+
+void MainServer::HandleMusicTagChangeImage(const QStringList &slist, PlaybackSock *pbs)
+{
+// format: MUSIC_TAG_CHANGEIMAGE <hostname> <songid> <oldtype> <newtype>
+
+    QStringList strlist;
+
+    MythSocket *pbssock = pbs->getSocket();
+
+    QString hostname = slist[1];
+
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
+    {
+        // forward the request to the slave BE
+        PlaybackSock *slave = GetMediaServerByHostname(hostname);
+        if (slave)
+        {
+            LOG(VB_GENERAL, LOG_INFO, LOC +
+                QString("HandleMusicTagChangeImage: asking slave '%1' "
+                        "to update the metadata").arg(hostname));
+            strlist = slave->ForwardRequest(slist);
+            slave->DecrRef();
+
+            if (pbssock)
+                SendResponse(pbssock, strlist);
+
+            return;
+        }
+        else
+        {
+            LOG(VB_GENERAL, LOG_INFO, LOC +
+                QString("HandleMusicTagChangeImage: Failed to grab "
+                        "slave socket on '%1'").arg(hostname));
+
+            strlist << "ERROR: slave not found";
+
+            if (pbssock)
+                SendResponse(pbssock, strlist);
+
+            return;
+        }
+    }
+    else
+    {
+        int songID = slist[2].toInt();
+        ImageType oldType = (ImageType)slist[3].toInt();
+        ImageType newType = (ImageType)slist[4].toInt();
+
+        // load the metadata from the database
+        MusicMetadata *mdata = MusicMetadata::createFromID(songID);
+
+        if (!mdata)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("HandleMusicTagChangeImage: "
+                        "Cannot find metadata for trackid: %1")
+                    .arg(songID));
+
+            strlist << "ERROR: track not found";
+
+            if (pbssock)
+                SendResponse(pbssock, strlist);
+
+            return;
+        }
+
+        mdata->setFilename(mdata->getLocalFilename());
+
+        AlbumArtImages *albumArt = mdata->getAlbumArtImages();
+        AlbumArtImage *image = albumArt->getImage(oldType);
+        if (image)
+        {
+            AlbumArtImage oldImage = *image;
+
+            image->imageType = (ImageType) newType;
+
+            if (image->imageType == oldImage.imageType)
+            {
+                // nothing to change
+                strlist << "OK";
+
+                if (pbssock)
+                    SendResponse(pbssock, strlist);
+
+                delete mdata;
+
+                return;
+            }
+
+            // rename any cached image to match the new type
+            if (image->embedded)
+            {
+                // change the image type in the tag if it supports it
+                MetaIO *tagger = mdata->getTagger();
+
+                if (tagger && tagger->supportsEmbeddedImages())
+                {
+                    if (!tagger->changeImageType(mdata->getLocalFilename(), &oldImage, image->imageType))
+                    {
+                        LOG(VB_GENERAL, LOG_ERR, "HandleMusicTagChangeImage: failed to change image type");
+
+                        strlist << "ERROR: failed to change image type";
+
+                        if (pbssock)
+                            SendResponse(pbssock, strlist);
+
+                        delete mdata;
+                        delete tagger;
+
+                        return;
+                    }
+                }
+
+                if (tagger)
+                    delete tagger;
+
+                // update the new cached image filename
+                StorageGroup artGroup("MusicArt", gCoreContext->GetHostName(), false);
+                oldImage.filename = artGroup.FindFile("AlbumArt/" + image->filename);
+
+                QFileInfo fi(oldImage.filename);
+                image->filename = QString(fi.path() + "/%1-%2.jpg")
+                                          .arg(mdata->ID())
+                                          .arg(AlbumArtImages::getTypeFilename(image->imageType));
+
+                // remove any old cached file with the same name as the new one
+                if (QFile::exists(image->filename))
+                    QFile::remove(image->filename);
+
+                // rename the old cached file to the new one
+                if (image->filename != oldImage.filename && QFile::exists(oldImage.filename))
+                    QFile::rename(oldImage.filename, image->filename);
+                else
+                {
+                    // extract the image from the tag and cache it
+                    QStringList paramList;
+                    paramList.append(QString("--songid='%1'").arg(mdata->ID()));
+                    paramList.append(QString("--imagetype='%1'").arg(image->imageType));
+
+                    QString command = GetAppBinDir() + "mythutil --extractimage " + paramList.join(" ");
+
+                    QScopedPointer<MythSystem> cmd(MythSystem::Create(command,
+                                                   kMSAutoCleanup | kMSRunBackground |
+                                                   kMSDontDisableDrawing | kMSProcessEvents |
+                                                   kMSDontBlockInputDevs));
+                }
+            }
+            else
+            {
+                QFileInfo fi(oldImage.filename);
+
+                // get the new images filename
+                image->filename = QString(fi.absolutePath() + "/%1.jpg")
+                        .arg(AlbumArtImages::getTypeFilename(image->imageType));
+
+                if (image->filename != oldImage.filename && QFile::exists(oldImage.filename))
+                {
+                    // remove any old cached file with the same name as the new one
+                    QFile::remove(image->filename);
+                    // rename the old cached file to the new one
+                    QFile::rename(oldImage.filename, image->filename);
+                }
+            }
+        }
+
+        delete mdata;
     }
 
     strlist << "OK";
@@ -5762,7 +6219,7 @@ void MainServer::HandleMusicTagAddImage(const QStringList& slist, PlaybackSock* 
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -5921,7 +6378,7 @@ void MainServer::HandleMusicTagRemoveImage(const QStringList& slist, PlaybackSoc
 
     QString hostname = slist[1];
 
-    if (ismaster && hostname != gCoreContext->GetHostName())
+    if (ismaster && !gCoreContext->IsThisHost(hostname))
     {
         // forward the request to the slave BE
         PlaybackSock *slave = GetMediaServerByHostname(hostname);
@@ -6077,7 +6534,7 @@ void MainServer::HandleFileTransferQuery(QStringList &slist,
 
     ft->IncrRef();
     sockListLock.unlock();
-    
+
     if (command == "REQUEST_BLOCK")
     {
         int size = slist[2].toInt();
@@ -6168,13 +6625,12 @@ void MainServer::HandleGetRecorderNum(QStringList &slist, PlaybackSock *pbs)
         if (encoder->IsLocal())
         {
             strlist << gCoreContext->GetBackendServerIP();
-            strlist << gCoreContext->GetSetting("BackendServerPort");
+            strlist << QString::number(gCoreContext->GetBackendServerPort());
         }
         else
         {
             strlist << gCoreContext->GetBackendServerIP(encoder->GetHostName());
-            strlist << gCoreContext->GetSettingOnHost("BackendServerPort",
-                                                  encoder->GetHostName(), "-1");
+            strlist << QString::number(gCoreContext->GetBackendServerPort(encoder->GetHostName()));
         }
     }
     else
@@ -6205,13 +6661,12 @@ void MainServer::HandleGetRecorderFromNum(QStringList &slist,
         if (encoder->IsLocal())
         {
             strlist << gCoreContext->GetBackendServerIP();
-            strlist << gCoreContext->GetSetting("BackendServerPort");
+            strlist << QString::number(gCoreContext->GetBackendServerPort());
         }
         else
         {
             strlist << gCoreContext->GetBackendServerIP(encoder->GetHostName());
-            strlist << gCoreContext->GetSettingOnHost("BackendServerPort",
-                                                  encoder->GetHostName(), "-1");
+            strlist << QString::number(gCoreContext->GetBackendServerPort(encoder->GetHostName()));
         }
     }
     else
@@ -6786,11 +7241,10 @@ void MainServer::connectionClosed(MythSocket *socket)
                     QString("SLAVE_DISCONNECTED HOSTNAME %1")
                             .arg(pbs->getHostname()));
             }
-            else if (ismaster && pbs->getHostname() != "tzcheck")
+            else if (ismaster)
             {
-                gCoreContext->SendSystemEvent(
-                    QString("CLIENT_DISCONNECTED HOSTNAME %1")
-                            .arg(pbs->getHostname()));
+                if (gBackendContext)
+                    gBackendContext->SetFrontendDisconnected(pbs->getHostname());
             }
 
             LiveTVChain *chain;
@@ -6880,8 +7334,7 @@ PlaybackSock *MainServer::GetSlaveByHostname(const QString &hostname)
     {
         PlaybackSock *pbs = *iter;
         if (pbs->isSlaveBackend() &&
-            ((pbs->getHostname().toLower() == hostname.toLower()) ||
-             (gCoreContext->IsThisHost(hostname, pbs->getHostname()))))
+            gCoreContext->IsThisHost(hostname, pbs->getHostname()))
         {
             sockListLock.unlock();
             pbs->IncrRef();
@@ -6906,8 +7359,7 @@ PlaybackSock *MainServer::GetMediaServerByHostname(const QString &hostname)
     {
         PlaybackSock *pbs = *iter;
         if (pbs->isMediaServer() &&
-            ((pbs->getHostname().toLower() == hostname.toLower()) ||
-             (gCoreContext->IsThisHost(hostname, pbs->getHostname()))))
+            gCoreContext->IsThisHost(hostname, pbs->getHostname()))
         {
             pbs->IncrRef();
             return pbs;
@@ -7149,8 +7601,8 @@ void MainServer::reconnectTimeout(void)
 {
     MythSocket *masterServerSock = new MythSocket(-1, this);
 
-    QString server = gCoreContext->GetSetting("MasterServerIP", "127.0.0.1");
-    int port = gCoreContext->GetNumSetting("MasterServerPort", 6543);
+    QString server = gCoreContext->GetMasterServerIP();
+    int port = gCoreContext->GetMasterServerPort();
 
     LOG(VB_GENERAL, LOG_NOTICE, LOC +
         QString("Connecting to master server: %1:%2")

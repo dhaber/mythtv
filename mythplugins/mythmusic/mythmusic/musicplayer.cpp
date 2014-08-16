@@ -164,7 +164,7 @@ MusicPlayer::~MusicPlayer()
         gCoreContext->SaveSetting("RepeatMode", "none");
 
     gCoreContext->SaveSetting("MusicAutoShowPlayer",
-                          (m_autoShowPlayer ? "1" : "1"));
+                          (m_autoShowPlayer ? "1" : "0"));
 }
 
 void MusicPlayer::addListener(QObject *listener)
@@ -268,9 +268,16 @@ void MusicPlayer::stop(bool stopAll)
 
     if (m_output)
     {
+        saveVolume();
         if (m_output->IsPaused())
             pause();
         m_output->Reset();
+    }
+
+    if (m_oneshotMetadata)
+    {
+        delete m_oneshotMetadata;
+        m_oneshotMetadata = NULL;
     }
 
     m_isPlaying = false;
@@ -553,9 +560,6 @@ void MusicPlayer::StartPlayback(void)
     if (!gCoreContext->InWantingPlayback() && m_wasPlaying)
     {
         play();
-        seek(gCoreContext->GetNumSetting("MusicBookmarkPosition", 0));
-        gCoreContext->SaveSetting("MusicBookmark", "");
-        gCoreContext->SaveSetting("MusicBookmarkPosition", 0);
 
         m_wasPlaying = false;
     }
@@ -563,7 +567,7 @@ void MusicPlayer::StartPlayback(void)
 
 void MusicPlayer::StopPlayback(void)
 {
-    if (m_isPlaying)
+    if (m_output)
     {
         m_wasPlaying = m_isPlaying;
 
@@ -1297,12 +1301,12 @@ void MusicPlayer::updateVolatileMetadata(void)
             if (GetMythDB()->GetNumSetting("AllowTagWriting", 0) == 1)
             {
                 QStringList strList;
-                strList << QString("MUSIC_TAG_UPDATE_VOLATILE %1 %2 %3 %4 %5")
-                                   .arg(getCurrentMetadata()->Hostname())
-                                   .arg(getCurrentMetadata()->ID())
-                                   .arg(getCurrentMetadata()->Rating())
-                                   .arg(getCurrentMetadata()->Playcount())
-                                   .arg(getCurrentMetadata()->LastPlay().toString(Qt::ISODate));
+                strList << QString("MUSIC_TAG_UPDATE_VOLATILE")
+                        << getCurrentMetadata()->Hostname()
+                        << QString::number(getCurrentMetadata()->ID())
+                        << QString::number(getCurrentMetadata()->Rating())
+                        << QString::number(getCurrentMetadata()->Playcount())
+                        << getCurrentMetadata()->LastPlay().toString(Qt::ISODate);
                 SendStringListThread *thread = new SendStringListThread(strList);
                 MThreadPool::globalInstance()->start(thread, "UpdateVolatile");
             }
@@ -1401,6 +1405,12 @@ uint MusicPlayer::getVolume(void) const
     if (m_output)
         return m_output->GetCurrentVolume();
     return 0;
+}
+
+void MusicPlayer::saveVolume(void)
+{
+    if (m_output)
+        m_output->SaveCurrentVolume();
 }
 
 void MusicPlayer::toggleMute(void)
@@ -1639,7 +1649,8 @@ int MusicPlayer::getNotificationID (const QString& hostname)
 void MusicPlayer::sendNotification(int notificationID, const QString &title, const QString &author, const QString &desc)
 {
     QString image = "musicscanner.png";
-    GetMythUI()->FindThemeFile(image);
+    if (!GetMythUI()->FindThemeFile(image))
+        LOG(VB_GENERAL, LOG_ERR, "MusicPlayer: sendNotification failed to find the 'musicscanner.png' image");
 
     DMAP map;
     map["asar"] = title;

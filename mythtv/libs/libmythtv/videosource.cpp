@@ -909,6 +909,17 @@ class VBIDevice : public PathSetting, public CaptureCardDBStorage
     }
 };
 
+class ArgumentString : public LineEditSetting, public CaptureCardDBStorage
+{
+  public:
+    ArgumentString(const CaptureCard &parent) :
+        LineEditSetting(this, true),
+        CaptureCardDBStorage(this, parent, "audiodevice") // change to arguments
+    {
+        setLabel(QObject::tr("Arguments"));
+    }
+};
+
 class FileDevice : public PathSetting, public CaptureCardDBStorage
 {
   public:
@@ -967,8 +978,8 @@ class ChannelTimeout : public SpinBoxSetting, public CaptureCardDBStorage
         setValue(value);
         setHelpText(QObject::tr(
                         "Maximum time (in milliseconds) MythTV waits for "
-                        "a channel lock.  For recordings, this value will "
-                        "be doubled."));
+                        "a channel lock.  For recordings, if this time is "
+                        "exceeded, the recording will be marked as failed."));
     };
 };
 
@@ -1583,19 +1594,25 @@ class IPTVHost : public LineEditSetting, public CaptureCardDBStorage
 class IPTVConfigurationGroup : public VerticalConfigurationGroup
 {
   public:
-    IPTVConfigurationGroup(CaptureCard& a_parent):
+    IPTVConfigurationGroup(CaptureCard& a_parent) :
        VerticalConfigurationGroup(false, true, false, false),
-       parent(a_parent)
+       parent(a_parent),
+       instances(new InstanceCount(parent))
     {
         setUseLabel(false);
         addChild(new IPTVHost(parent));
         addChild(new ChannelTimeout(parent, 30000, 1750));
         addChild(new EmptyAudioDevice(parent));
         addChild(new EmptyVBIDevice(parent));
+        addChild(instances);
+
+        connect(instances, SIGNAL(valueChanged(int)),
+                &parent,   SLOT(  SetInstanceCount(int)));
     };
 
   private:
-    CaptureCard &parent;
+    CaptureCard   &parent;
+    InstanceCount *instances;
 };
 
 class ASIDevice : public ComboBoxSetting, public CaptureCardDBStorage
@@ -2048,7 +2065,7 @@ void CetonDeviceID::UpdateValues(void)
 
 CetonConfigurationGroup::CetonConfigurationGroup(CaptureCard& a_parent) :
     VerticalConfigurationGroup(false, true, false, false),
-    parent(a_parent)
+    parent(a_parent), instances(new InstanceCount(parent))
 {
     setUseLabel(false);
 
@@ -2066,6 +2083,7 @@ CetonConfigurationGroup::CetonConfigurationGroup(CaptureCard& a_parent) :
     addChild(tuner);
     addChild(deviceid);
     addChild(desc);
+    addChild(instances);
 
     connect(ip,       SIGNAL(NewValue(const QString&)),
             deviceid, SLOT(  SetIP(const QString&)));
@@ -2076,6 +2094,8 @@ CetonConfigurationGroup::CetonConfigurationGroup(CaptureCard& a_parent) :
             ip,       SLOT(  LoadValue(const QString&)));
     connect(deviceid, SIGNAL(LoadedTuner(const QString&)),
             tuner,    SLOT(  LoadValue(const QString&)));
+    connect(instances, SIGNAL(valueChanged(int)),
+            &parent,   SLOT(  SetInstanceCount(int)));
 
 };
 
@@ -2226,6 +2246,56 @@ void DemoConfigurationGroup::probeCard(const QString &device)
     size->setValue(cs);
 }
 
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+ExternalConfigurationGroup::ExternalConfigurationGroup(CaptureCard &a_parent) :
+    VerticalConfigurationGroup(false, true, false, false),
+    parent(a_parent),
+    info(new TransLabelSetting()),
+    instances(new InstanceCount(parent))
+{
+    FileDevice *device = new FileDevice(parent);
+    device->setHelpText(tr("A 'black box' application controlled via "
+                           "stdin, status on stderr and TransportStream "
+                           "read from stdout"));
+    addChild(device);
+
+    info->setLabel(tr("File info"));
+    addChild(info);
+    addChild(instances);
+
+    connect(device, SIGNAL(valueChanged(const QString&)),
+            this,   SLOT(  probeApp(   const QString&)));
+    connect(instances, SIGNAL(valueChanged(int)),
+            &parent,   SLOT(  SetInstanceCount(int)));
+
+    probeApp(device->getValue());
+}
+
+void ExternalConfigurationGroup::probeApp(const QString & path)
+{
+    int idx1 = path.toLower().startsWith("file:") ? 5 : 0;
+    int idx2 = path.indexOf(' ', idx1);
+
+    QString   ci, cs;
+    QFileInfo fileInfo(path.mid(idx1, idx2 - idx1));
+
+    if (fileInfo.exists())
+    {
+        if (!fileInfo.isReadable() || !fileInfo.isFile())
+            ci = tr("File not readable: ");
+        if (!fileInfo.isExecutable())
+            ci = tr("File is not exacutable: ");
+    }
+    else
+    {
+        ci = tr("File does not exist: ");
+    }
+    ci += QString("'%1'").arg(fileInfo.absoluteFilePath());
+
+    info->setValue(ci);
+}
+#endif // !defined( USING_MINGW ) && !defined( _MSC_VER )
+
 HDPVRConfigurationGroup::HDPVRConfigurationGroup(CaptureCard &a_parent) :
     VerticalConfigurationGroup(false, true, false, false),
     parent(a_parent), cardinfo(new TransLabelSetting()),
@@ -2318,6 +2388,9 @@ CaptureCardGroup::CaptureCardGroup(CaptureCard &parent) :
     // for testing without any actual tuner hardware:
     addTarget("IMPORT",    new ImportConfigurationGroup(parent));
     addTarget("DEMO",      new DemoConfigurationGroup(parent));
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+    addTarget("EXTERNAL",  new ExternalConfigurationGroup(parent));
+#endif
 }
 
 void CaptureCardGroup::triggerChanged(const QString& value)
@@ -2530,6 +2603,10 @@ void CardType::fillSelections(SelectSetting* setting)
 
     setting->addSelection(QObject::tr("Import test recorder"), "IMPORT");
     setting->addSelection(QObject::tr("Demo test recorder"),   "DEMO");
+#if !defined( USING_MINGW ) && !defined( _MSC_VER )
+    setting->addSelection(QObject::tr("External (black box) recorder"),
+                          "EXTERNAL");
+#endif
 }
 
 class CardID : public SelectLabelSetting, public CardInputDBStorage
