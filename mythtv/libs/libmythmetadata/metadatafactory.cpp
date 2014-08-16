@@ -130,7 +130,6 @@ void MetadataFactory::Lookup(ProgramInfo *pginfo, bool automatic,
     lookup->SetSeason(pginfo->GetSeason());
     lookup->SetEpisode(pginfo->GetEpisode());
     lookup->SetInetref(pginfo->GetInetRef());
-    lookup->SetReleaseDate(pginfo->GetOriginalAirDate());
 
     if (m_lookupthread->isRunning())
         m_lookupthread->prependLookup(lookup);

@@ -249,7 +249,6 @@ class META_PUBLIC MetadataLookup : public QObject, public ReferenceCounter
     void SetDownloads(ArtworkMap map) { m_downloads = map; };
 
     // General Sets
-    void SetReleaseDate(QDate releasedate) { m_releasedate = releasedate; };
     void SetTitle(const QString &title) { m_title = title; };
     void SetFilename(const QString &filename) { m_filename = filename; };
 
@@ -423,7 +422,7 @@ class META_PUBLIC MetadataLookup : public QObject, public ReferenceCounter
 
     // Times
     uint m_year;
-    QDate m_releasedate;
+    const QDate m_releasedate;
     const QDateTime m_lastupdated;
     uint m_runtime;
     uint m_runtimesecs;
