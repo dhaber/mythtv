@@ -455,8 +455,10 @@ MetadataLookupList MetaGrabberScript::RunGrabber(const QStringList &args,
         .arg(m_fullcommand).arg(args.join(" ")));
 
     grabber.Run();
-    if (grabber.Wait() != GENERIC_EXIT_OK)
+    if (grabber.Wait() != GENERIC_EXIT_OK) {
+    	LOG(VB_GENERAL, LOG_INFO, QString("Running Grabber: ran fail"));
         return list;
+    }
 
     QByteArray result = grabber.ReadAll();
     if (!result.isEmpty())
