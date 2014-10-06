@@ -127,8 +127,8 @@ bool AudioPropsGenerator::UpdateAudioProps(void)
         LOG(VB_GENERAL, LOG_DEBUG, QString("NOT Saving audio props for %1").arg(programInfo.GetTitle()));
     else
     {
-        LOG(VB_GENERAL, LOG_DEBUG, QString("Saving audio props (%1) for %2").arg(audioprops).arg(programInfo.GetTitle()));
-        programInfo.SaveAudioProps(audioprops);
+        LOG(VB_GENERAL, LOG_DEBUG, QString("PSYCHE Saving audio props (%1) for %2").arg(audioprops).arg(programInfo.GetTitle()));
+        //programInfo.SaveAudioProps(audioprops);
     }
 
     return updated;
