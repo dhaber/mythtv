@@ -143,7 +143,7 @@ import "/tv/js/constants.js"
     <div class="button delSchedMenu" onClick="deleteRecRule(gChanID, gStartTime)">
         <%=qsTr("Delete Recording Rule")%>
     </div>
-    <div class="button normalMenu" onClick="loadScheduler(gChanID, gStartTime)">
+    <div class="button normalMenu" onClick="loadScheduler('upcoming', gChanID, gStartTime)">
         <%=qsTr("Edit recording rule")%>
     </div>
 </div>
@@ -374,7 +374,7 @@ if (chanGroups.length)
 </div> <!-- End guideGrid -->
 </div> <!-- End guideGrid-container -->
 
-<script type="text/javascript">
+<!-- <script type="text/javascript">
 
     window.onresize = function(event)
     {
@@ -383,26 +383,7 @@ if (chanGroups.length)
 
     fixGuideHeight();
 
-</script>
-
-<!--
-<script type="text/javascript" src="/3rdParty/jquery/slick/slick.js"></script>
-
-<script type="text/javascript">
-    $(document).ready(function(){
-        $('.channels').slick({
-            vertical: true,
-            slidesToShow:5,
-            slidesToScroll:5,
-            arrows:true,
-            dots:false,
-            speed:100,
-            touchMove:false,
-            centerMode:false
-        });
-    });
-</script>
--->
+</script> -->
 
 </body>
 </html>

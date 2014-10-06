@@ -138,6 +138,7 @@ HEADERS += ringbuffer.h             fileringbuffer.h
 HEADERS += streamingringbuffer.h    metadataimagehelper.h
 HEADERS += icringbuffer.h
 HEADERS += mythavutil.h
+HEADERS += recordingfile.h
 
 SOURCES += recordinginfo.cpp
 SOURCES += dbcheck.cpp
@@ -167,6 +168,7 @@ SOURCES += ringbuffer.cpp           fileringBuffer.cpp
 SOURCES += streamingringbuffer.cpp  metadataimagehelper.cpp
 SOURCES += icringbuffer.cpp
 SOURCES += mythframe.cpp            mythavutil.cpp
+SOURCES += recordingfile.cpp
 
 # DiSEqC
 HEADERS += diseqc.h                 diseqcsettings.h

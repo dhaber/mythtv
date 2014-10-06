@@ -114,6 +114,7 @@ var selectedElement;
 // something better
 var gChanID = 0;
 var gStartTime = "";
+var gRecordedId = 0;
 function showMenu(parent, typeStr)
 {
     hideDetail(parent);
@@ -132,11 +133,16 @@ function showMenu(parent, typeStr)
     // the LOC or HTML
     // Old Way
     gChanID = parent.getAttribute("data-chanid");
+    if (isValidVar(parent.getAttribute("data-recordedid")))
+        gRecordedId = parent.getAttribute("data-recordedid");
+
     if (isValidVar(parent.getAttribute("data-recstarttime")))
         gStartTime = parent.getAttribute("data-recstarttime");
     else
         gStartTime = parent.getAttribute("data-starttime");
-    console.log("gChanId " + gChanID + " StartTime " + gStartTime);
+
+    // DEBUGGING
+    console.log("RecordedId " + gRecordedId + " ChanId " + gChanID + " StartTime " + gStartTime);
 
     // New Way
 //     $('#optMenu').data('chanID', parent.getAttribute("data-chanid"));
@@ -226,12 +232,20 @@ function showDetail(parentID, type)
     // recording ids. We need to rethink how this is done without increasing
     // the LOC or HTML
     // Old Way
-    chanId = parent.getAttribute("data-chanid");
-    if (isValidVar(parent.getAttribute("data-recstarttime")))
-        startTime = parent.getAttribute("data-recstarttime");
+    var recordedId;
+    var chanId;
+    var startTime;
+    if (isValidVar(parent.getAttribute("data-recordedId")))
+    {
+        recordedId = parent.getAttribute("data-recordedId");
+        console.log("Recorded ID " + recordedId);
+    }
     else
+    {
+        chanId = parent.getAttribute("data-chanid");
         startTime = parent.getAttribute("data-starttime");
-    console.log("Chan ID " + chanId + " StartTime " + startTime);
+        console.log("Chan ID " + chanId + " StartTime " + startTime);
+    }
 
     // New Way
 //     $('#optMenu').data('chanID', parent.getAttribute("data-chanid"));
@@ -240,11 +254,10 @@ function showDetail(parentID, type)
     // FIXME: We should be able to get a Program object back from
     // from the Services API that contains all the information available
     // whether it's a recording or not
-    var method = "getProgramDetailHTML";
+    var url = "/tv/ajax_backends/program_util.qsp?_action=getProgramDetailHTML&chanID=" + chanId + "&startTime=" + startTime;
     if (type == "recording")
-        method = "getRecordingDetailHTML";
+        url = "/tv/ajax_backends/program_util.qsp?_action=getRecordingDetailHTML&recordedID=" + recordedId;
 
-    var url = "/tv/ajax_backends/program_util.qsp?_action=" + method + "&chanID=" + chanId + "&startTime=" + startTime;
     var ajaxRequest = $.ajax( url )
                             .done(function()
                         {
@@ -279,7 +292,7 @@ function hideDetail(parent)
     toggleVisibility(layer, false);
 }
 
-function loadScheduler(chanID, startTime)
+function loadScheduler(type, chanID, startTime)
 {
     hideMenu("optMenu");
     var layer = document.getElementById(chanID + "_" + startTime);
@@ -288,12 +301,40 @@ function loadScheduler(chanID, startTime)
         setErrorMessage("loadScheduler() called with invalid program ID: (" + chanID + "_" + startTime + ")");
         return;
     }
-    var recRuleID = layer.getAttribute("data-recordid");
-    if (isValidVar(layer.getAttribute("data-chanid")))
-        chanID = layer.getAttribute("data-chanid");
+
+    // The order of preference for GetRecordSchedule is as follows:
+    //     "recordid" will load the rule associated with this id, metadata
+    //     associated with the first program against which the rule was created
+    //
+    //     "recordedid" will load metadata associated with the specific
+    //     selected recording which we want
+    //
+    //     "chanid & starttime" will load metadata associated with the relevant
+    //     program and the rule which currently matches this program in the scheduler
+    //     if there are multiple which apply, otherwise a new rule will be created?
+
+    // Ensure we use the program starttime, even if recording starttime
+    // was passed in
     if (isValidVar(layer.getAttribute("data-starttime")))
         startTime = layer.getAttribute("data-starttime");
-    loadContent('/tv/schedule.qsp?chanId=' + chanID + '&amp;startTime=' + startTime + '&amp;recRuleId=' + recRuleID);
+
+    if (type == "recording" &&
+        isValidVar(layer.getAttribute("data-recordedid")) &&
+        layer.getAttribute("data-recordedid") > 0)
+    {
+        var recordedID = layer.getAttribute("data-recordedid");
+        loadContent('/tv/schedule.qsp?RecordedId=' + recordedID + '&amp;ChanId=' + chanID + '&amp;StartTime=' + startTime);
+    }
+    else if (type == "upcoming")
+    {
+        var recRuleID = layer.getAttribute("data-recordid");
+        loadContent('/tv/schedule.qsp?ChanId=' + chanID + '&amp;StartTime=' + startTime);
+    }
+    else // type == "rule"
+    {
+        var recRuleID = layer.getAttribute("data-recordid");
+        loadContent('/tv/schedule.qsp?RecRuleId=' + recRuleID + '&amp;ChanId=' + chanID + '&amp;StartTime=' + startTime);
+    }
 }
 
 function checkRecordingStatus(chanID, startTime)
@@ -420,9 +461,6 @@ function loadTVContent(url, targetDivID, transition, args)
         setErrorMessage("loadTVContent() target DIV doesn't exist: (" + targetDivID + ")");
         return;
     }
-    var newDiv = document.createElement('div');
-    newDiv.style = "left: 100%";
-    targetDiv.parentNode.insertBefore(newDiv, null);
 
     for (var key in args)
     {
@@ -445,12 +483,15 @@ function loadTVContent(url, targetDivID, transition, args)
         async: false
      }).responseText;
 
-    newDiv.innerHTML = html;
+    var newDiv = document.createElement('div');
+    newDiv.style = "left: 100%";
     newDiv.className = targetDiv.className;
+    newDiv.innerHTML = html;
+    targetDiv.parentNode.insertBefore(newDiv, null);
 
     // Need to assign the id to the new div
-    newDiv.id = targetDivID;
     targetDiv.id = "old" + targetDivID;
+    newDiv.id = targetDivID;
     switch (transition)
     {
         case 'left':
@@ -548,44 +589,78 @@ function postLoad()
     //loadJScroll();
 }
 
+// CSS (Native) transitions are faster than jQuery and preferred generally
 function leftSlideTransition(oldDivID, newDivID)
 {
     // Transition works much better with a fixed width, so temporarily set
     // the width based on the parent,
     $("#" + newDivID).css("width", $("#" + oldDivID).width());
+    // We want the new div to start off-screen to the right
     $("#" + newDivID).css("left", "100%");
-    $("#" + oldDivID).css("z-index", "-20");
-    $("#" + newDivID).css("z-index", "-10");
-    var oldLeft = $("#" + oldDivID).position().left;
-    $("#" + oldDivID).animate({opacity: "0.3"}, 800, function() {
-                   $("#" + oldDivID).remove(); postLoad(); });
-    $("#" + newDivID).animate({left: oldLeft}, 800, function() {
-                   $("#" + newDivID).css("width", '');
-                   $("#" + newDivID).css("z-index", "0"); });
+    $("#" + oldDivID).bind("transitionend", function() {
+        $("#" + oldDivID).remove();
+        postLoad();
+
+    });
+    $("#" + newDivID).bind("transitionend", function() {
+        $("#" + newDivID).removeClass("leftSlideInTransition");
+        $("#" + newDivID).css("left", 'auto');
+        $("#" + newDivID).css("width", null);
+    });
+    $("#" + newDivID).addClass("leftSlideInTransition");
+    $("#" + oldDivID).addClass("leftSlideOutTransition");
 }
 
+// CSS (Native) transitions are faster than jQuery and preferred generally
 function rightSlideTransition(oldDivID, newDivID)
 {
+    // HACK Transition works much better with a fixed width, so temporarily set
+    // the width based on the parent,
     $("#" + newDivID).css("width", $("#" + oldDivID).width());
-    $("#" + newDivID).css("left", "-100%");
-    $("#" + oldDivID).css("z-index", "-20");
-    $("#" + newDivID).css("z-index", "-10");
-    var oldLeft = $("#" + oldDivID).position().left;
-    $("#" + oldDivID).animate({opacity: "0.3"}, 800, function() {
-                   $("#" + oldDivID).remove(); postLoad(); });
-    $("#" + newDivID).animate({left: oldLeft}, 800, function() {
-                   $("#" + newDivID).css("width", '');
-                   $("#" + newDivID).css("z-index", "0"); });
+    // We want the new div to start off-screen to the left
+    //$("#" + newDivID).css("left", "-100%");
+    $("#" + newDivID).addClass("rightSlideInTransitionStart");
+    $("#" + oldDivID).bind("transitionend", function() {
+        $("#" + oldDivID).remove();
+        postLoad();
+
+    });
+    $("#" + newDivID).bind("transitionend", function() {
+        $("#" + newDivID).removeClass("rightSlideInTransitionStart");
+        $("#" + newDivID).removeClass("rightSlideInTransition");
+        //$("#" + newDivID).css("left", 'auto');
+        $("#" + newDivID).css("width", null);
+    });
+    $("#" + newDivID).addClass("rightSlideInTransition");
+    $("#" + oldDivID).addClass("rightSlideOutTransition");
 }
 
+// CSS (Native) transitions are faster than jQuery and preferred generally
 function dissolveTransition(oldDivID, newDivID)
 {
-    $("#" + newDivID).css("opacity", "0.0");
-    var oldLeft = $("#" + oldDivID).position().left;
-    $("#" + newDivID).css("left", oldLeft);
-    $("#" + oldDivID).animate({opacity: "0.0"}, 800, function() {
-                   $("#" + oldDivID).remove(); postLoad(); });
-    $("#" + newDivID).animate({opacity: "1.0"}, 800);
+    $("#" + newDivID).addClass("dissolveInTransitionStart");
+    $("#" + oldDivID).bind("animationend", function() {
+        $("#" + oldDivID).remove();
+        postLoad();
+    });
+    $("#" + newDivID).bind("animationend", function() {
+        $("#" + newDivID).removeClass("dissolveInTransitionStart");
+        $("#" + newDivID).removeClass("dissolveInTransition");
+    });
+
+    // Browser prefixes suck
+    $("#" + oldDivID).bind("webkitAnimationEnd", function() {
+        $("#" + oldDivID).remove();
+        postLoad();
+    });
+    $("#" + newDivID).bind("webkitAnimationEnd", function() {
+        $("#" + newDivID).removeClass("dissolveInTransitionStart");
+        $("#" + newDivID).removeClass("dissolveInTransition");
+    });
+    // End prefixed code
+
+    $("#" + newDivID).addClass("dissolveInTransition");
+    $("#" + oldDivID).addClass("dissolveOutTransition");
 }
 
 function handleKeyboardShortcutsTV(key) {

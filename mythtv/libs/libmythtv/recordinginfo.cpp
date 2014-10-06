@@ -25,6 +25,7 @@ using namespace std;
 #include "mythcorecontext.h"
 #include "dialogbox.h"
 #include "remoteutil.h"
+#include <programinfoupdater.h>
 #include "tvremoteutil.h"
 #include "jobqueue.h"
 #include "mythdb.h"
@@ -120,7 +121,8 @@ RecordingInfo::RecordingInfo(
     mplexid(_mplexid),
     desiredrecstartts(_startts),
     desiredrecendts(_endts),
-    record(NULL)
+    record(NULL),
+    m_recordingFile(NULL)
 {
     hostname = _hostname;
     storagegroup = _storagegroup;
@@ -168,6 +170,8 @@ RecordingInfo::RecordingInfo(
         recstartts = startts;
         recendts   = endts;
     }
+
+    LoadRecordingFile();
 }
 
 RecordingInfo::RecordingInfo(
@@ -220,7 +224,8 @@ RecordingInfo::RecordingInfo(
     mplexid(0),
     desiredrecstartts(_startts),
     desiredrecendts(_endts),
-    record(NULL)
+    record(NULL),
+    m_recordingFile(NULL)
 {
     recpriority = _recpriority;
 
@@ -235,6 +240,8 @@ RecordingInfo::RecordingInfo(
 
     programflags &= ~FL_CHANCOMMFREE;
     programflags |= _commfree ? FL_CHANCOMMFREE : 0;
+
+    LoadRecordingFile();
 }
 
 /** \brief Fills RecordingInfo for the program that airs at
@@ -255,7 +262,8 @@ RecordingInfo::RecordingInfo(
     mplexid(0),
     desiredrecstartts(),
     desiredrecendts(),
-    record(NULL)
+    record(NULL),
+    m_recordingFile(NULL)
 {
     ProgramList schedList;
     ProgramList progList;
@@ -378,6 +386,8 @@ RecordingInfo::RecordingInfo(
 
     desiredrecstartts = startts;
     desiredrecendts = endts;
+
+    LoadRecordingFile();
 }
 
 /// \brief Copies important fields from other RecordingInfo.
@@ -408,6 +418,10 @@ void RecordingInfo::clone(const RecordingInfo &other,
         desiredrecstartts = other.desiredrecstartts;
         desiredrecendts = other.desiredrecendts;
     }
+
+    delete m_recordingFile;
+    m_recordingFile = NULL;
+    LoadRecordingFile();
 }
 
 /// \brief Copies important fields from ProgramInfo
@@ -435,6 +449,10 @@ void RecordingInfo::clone(const ProgramInfo &other,
     mplexid        = 0;
     desiredrecstartts = QDateTime();
     desiredrecendts = QDateTime();
+
+    delete m_recordingFile;
+    m_recordingFile = NULL;
+    LoadRecordingFile();
 }
 
 void RecordingInfo::clear(void)
@@ -451,6 +469,9 @@ void RecordingInfo::clear(void)
     mplexid = 0;
     desiredrecstartts = QDateTime();
     desiredrecendts = QDateTime();
+
+    delete m_recordingFile;
+    m_recordingFile = NULL;
 }
 
 
@@ -461,6 +482,9 @@ RecordingInfo::~RecordingInfo()
 {
     delete record;
     record = NULL;
+
+    delete m_recordingFile;
+    m_recordingFile = NULL;
 }
 
 /** \fn RecordingInfo::GetProgramRecordingStatus()
@@ -971,6 +995,15 @@ void RecordingInfo::StartedRecording(QString ext)
     if (!query.exec() || !query.isActive())
         MythDB::DBError("Copy program ratings on record", query);
 
+    // File
+    if (!GetRecordingFile())
+        LoadRecordingFile();
+    RecordingFile *recFile = GetRecordingFile();
+    recFile->m_fileName = GetBasename();
+    recFile->m_storageDeviceID = GetHostname();
+    recFile->m_storageGroup = GetStorageGroup();
+    recFile->Save();
+
     SendAddedEvent();
 }
 
@@ -1079,7 +1112,9 @@ bool RecordingInfo::InsertProgram(RecordingInfo *pg,
 
     bool ok = query.exec() && (query.numRowsAffected() > 0);
     if (ok)
-        pg->recordedid = query.lastInsertId().toUInt();
+    {
+        pg->SetRecordingID(query.lastInsertId().toUInt());
+    }
     bool active = query.isActive();
 
     if (!query.exec("UNLOCK TABLES"))
@@ -1564,5 +1599,49 @@ QString RecordingInfo::GetRecgroupString(uint recGroupID)
     }
     return query.value(0).toString();
 }
+
+void RecordingInfo::LoadRecordingFile()
+{
+    if (!m_recordingFile)
+    {
+        m_recordingFile = new RecordingFile();
+        if (recordedid > 0)
+        {
+            m_recordingFile->m_recordingId = recordedid;
+            m_recordingFile->Load();
+        }
+    }
+}
+
+void RecordingInfo::SaveFilesize(uint64_t fsize)
+{
+    if (!GetRecordingFile())
+        LoadRecordingFile();
+    GetRecordingFile()->m_fileSize = fsize;
+    GetRecordingFile()->Save(); // Ideally this would be called just the once when all metadata is gathered
+
+    updater->insert(chanid, recstartts, kPIUpdateFileSize, fsize);
+
+    ProgramInfo::SaveFilesize(fsize); // Temporary
+}
+
+void RecordingInfo::SetFilesize(uint64_t fsize)
+{
+    if (!GetRecordingFile())
+        LoadRecordingFile();
+    GetRecordingFile()->m_fileSize = fsize;
+    updater->insert(chanid, recstartts, kPIUpdateFileSize, fsize);
+    //ProgramInfo::SetFilesize(fsize);
+}
+
+uint64_t RecordingInfo::GetFilesize(void) const
+{
+    if (GetRecordingFile() && GetRecordingFile()->m_fileSize > 0)
+        return GetRecordingFile()->m_fileSize;
+
+    // Temporary fallback to reading from old storage location
+    return ProgramInfo::GetFilesize();
+}
+
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

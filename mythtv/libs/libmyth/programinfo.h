@@ -414,7 +414,7 @@ class MPUBLIC ProgramInfo
     {
         return MythDate::toString(lastmodified, fmt);
     }
-    uint64_t GetFilesize(void)            const { return filesize;     }
+    virtual uint64_t GetFilesize(void)    const; // TODO Remove
     QString GetSeriesID(void)             const { return seriesid;     }
     QString GetProgramID(void)            const { return programid;    }
     QString GetInetRef(void)              const { return inetref;      }
@@ -501,7 +501,7 @@ class MPUBLIC ProgramInfo
     void SetPlaybackGroup( const QString &group)    { playgroup    = group; }
     void SetHostname(      const QString &host)     { hostname     = host;  }
     void SetStorageGroup(  const QString &group)    { storagegroup = group; }
-    void SetFilesize(      uint64_t       sz)       { filesize     = sz;    }
+    virtual void SetFilesize( uint64_t       sz); /// TODO Move to RecordingInfo
     void SetSeriesID(      const QString &id)       { seriesid     = id;    }
     void SetProgramID(     const QString &id)       { programid    = id;    }
     void SetCategory(      const QString &cat)      { category     = cat;   }
@@ -534,7 +534,7 @@ class MPUBLIC ProgramInfo
         programflags &= ~FL_IGNOREBOOKMARK;
         programflags |= (ignore) ? FL_IGNOREBOOKMARK : 0;
     }
-    void SetRecordingID(uint _recordedid) { recordedid = _recordedid; }
+    virtual void SetRecordingID(uint _recordedid) { recordedid = _recordedid; }
     void SetRecordingStatus(RecStatusType status) { recstatus = status; }
     void SetRecordingRuleType(RecordingType type) { rectype   = type;   }
     void SetPositionMapDBReplacement(PMapDBReplacement *pmap)
@@ -542,7 +542,7 @@ class MPUBLIC ProgramInfo
 
     // Slow DB gets
     QString     QueryBasename(void) const;
-    uint64_t    QueryFilesize(void) const;
+//  uint64_t    QueryFilesize(void) const; // TODO Remove
     uint        QueryMplexID(void) const;
     QDateTime   QueryBookmarkTimeStamp(void) const;
     uint64_t    QueryBookmark(void) const;
@@ -560,7 +560,7 @@ class MPUBLIC ProgramInfo
     uint        QueryAverageHeight(void) const;
     uint        QueryAverageFrameRate(void) const;
     MarkTypes   QueryAverageAspectRatio(void) const;
-    int64_t     QueryTotalDuration(void) const;
+    uint32_t    QueryTotalDuration(void) const;
     int64_t     QueryTotalFrames(void) const;
     QString     QueryRecordingGroup(void) const;
     bool        QueryMarkupFlag(MarkTypes type) const;
@@ -569,8 +569,7 @@ class MPUBLIC ProgramInfo
     bool        Reload(void);
 
     // Slow DB sets
-    void SaveAudioProps(int props);
-    void SaveFilesize(uint64_t fsize);
+    virtual void SaveFilesize(uint64_t fsize); /// TODO Move to RecordingInfo
     void SaveBookmark(uint64_t frame);
     void SaveDVDBookmark(const QStringList &fields) const;
     void SaveEditing(bool edit);
@@ -813,7 +812,6 @@ bool LoadFromScheduler(
     int                 recordid = -1)
 {
     destination.clear();
-    QList<TYPE> tmpList;
     hasConflicts = false;
 
     QStringList slist = ProgramInfo::LoadFromScheduler(altTable, recordid);
@@ -823,10 +821,10 @@ bool LoadFromScheduler(
     hasConflicts = slist[0].toInt();
 
     QStringList::const_iterator sit = slist.begin()+2;
-    uint programCount = 0;
     while (sit != slist.end())
     {
         TYPE *p = new TYPE(sit, slist.end());
+        destination.push_back(p);
 
         if (!p->HasPathname() && !p->GetChanID())
         {
@@ -834,41 +832,9 @@ bool LoadFromScheduler(
             destination.clear();
             return false;
         }
-
-        tmpList.push_back(*p);
-        programCount++;
-
-        if (recordid > 0 && p->GetRecordingRuleID() != static_cast<uint>(recordid))
-        {
-            delete p;
-            continue;
-        }
-
-        destination.push_back(p);
     }
 
-    typename AutoDeleteDeque<TYPE*>::const_iterator dit = destination.begin();
-    for (; dit != destination.end(); ++dit)
-    {
-        typename QList<TYPE>::const_iterator it = tmpList.begin();
-        for (; it != tmpList.end(); ++it)
-        {
-            const ProgramInfo &other = *it;
-            if (!(*dit)->IsSameProgramAndStartTime(other))
-                continue;
-
-            if ((*dit)->GetChannelSchedulingID() != other.GetChannelSchedulingID())
-            {
-                if (other.GetRecordingStatus() == rsWillRecord ||
-                    other.GetRecordingStatus() == rsRecording ||
-                    other.GetRecordingStatus() == rsTuning ||
-                    other.GetRecordingStatus() == rsFailing)
-                (*dit)->SetRecordingStatus(other.GetRecordingStatus());
-            }
-        }
-    }
-
-    if (programCount != slist[1].toUInt())
+    if (destination.size() != slist[1].toUInt())
     {
         destination.clear();
         return false;

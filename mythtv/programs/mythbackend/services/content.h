@@ -57,7 +57,8 @@ class Content : public ContentServices
                                                   int Height);
 
         DTC::ArtworkInfoList*
-                            GetRecordingArtworkList( int              ChanId,
+                            GetRecordingArtworkList( int              RecordedId,
+                                                     int              ChanId,
                                                      const QDateTime &StartTime  );
 
         DTC::ArtworkInfoList*
@@ -69,14 +70,16 @@ class Content : public ContentServices
 
         QFileInfo           GetAlbumArt         ( int Id, int Width, int Height );
 
-        QFileInfo           GetPreviewImage     ( int              ChanId,
+        QFileInfo           GetPreviewImage     ( int              RecordedId,
+                                                  int              ChanId,
                                                   const QDateTime &StartTime,
                                                   int              Width,
                                                   int              Height,
                                                   int              SecsIn,
                                                   const QString   &Format);
 
-        QFileInfo           GetRecording        ( int              ChanId,
+        QFileInfo           GetRecording        ( int              RecordedId,
+                                                  int              ChanId,
                                                   const QDateTime &StartTime );
 
         QFileInfo           GetMusic            ( int Id );
@@ -106,7 +109,8 @@ class Content : public ContentServices
                                                           int              AudioBitrate,
                                                           int              SampleRate );
 
-        DTC::LiveStreamInfo     *AddRecordingLiveStream ( int              ChanId,
+        DTC::LiveStreamInfo     *AddRecordingLiveStream ( int              RecordedId,
+                                                          int              ChanId,
                                                           const QDateTime &StartTime,
                                                           int              MaxSegments,
                                                           int              Width,
@@ -152,28 +156,38 @@ class ScriptableContent : public QObject
     private:
 
         Content  m_obj;
+        QScriptEngine *m_pEngine;
 
     public:
 
-        Q_INVOKABLE ScriptableContent( QObject *parent = 0 ) : QObject( parent ) {}
+        Q_INVOKABLE ScriptableContent( QScriptEngine *pEngine, QObject *parent = 0 ) : QObject( parent )
+        {
+            m_pEngine = pEngine;
+        }
 
     public slots:
-        QObject* GetRecordingArtworkList(       int        ChanId,
-                                          const QDateTime &StartTime  )
+
+        QObject* GetRecordingArtworkList( int RecordedId )
         {
-            return m_obj.GetRecordingArtworkList( ChanId, StartTime );
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.GetRecordingArtworkList( RecordedId, 0, QDateTime() );
+            )
         }
 
         QObject* GetProgramArtworkList( const QString &Inetref,
                                               int      Season  )
         {
-            return m_obj.GetProgramArtworkList( Inetref, Season );
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.GetProgramArtworkList( Inetref, Season );
+            )
         }
 
         QString GetHash ( const QString   &StorageGroup,
                           const QString   &FileName )
         {
-            return m_obj.GetHash( StorageGroup, FileName );
+            SCRIPT_CATCH_EXCEPTION( QString(),
+                return m_obj.GetHash( StorageGroup, FileName );
+            )
         }
 
         // HTTP Live Streaming
@@ -187,13 +201,14 @@ class ScriptableContent : public QObject
                                  int              AudioBitrate,
                                  int              SampleRate )
         {
-            return m_obj.AddLiveStream(StorageGroup, FileName, HostName,
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.AddLiveStream(StorageGroup, FileName, HostName,
                                        MaxSegments, Width, Height, Bitrate,
                                        AudioBitrate, SampleRate);
+            )
         }
 
-        QObject* AddRecordingLiveStream ( int              ChanId,
-                                         const QDateTime &StartTime,
+        QObject* AddRecordingLiveStream (int              RecordedId,
                                          int              MaxSegments,
                                          int              Width,
                                          int              Height,
@@ -201,9 +216,12 @@ class ScriptableContent : public QObject
                                          int              AudioBitrate,
                                          int              SampleRate )
         {
-            return m_obj.AddRecordingLiveStream(ChanId, StartTime, MaxSegments,
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.AddRecordingLiveStream(RecordedId, 0, QDateTime(),
+                                                MaxSegments,
                                                 Width, Height, Bitrate,
                                                 AudioBitrate, SampleRate);
+            )
         }
 
         QObject* AddVideoLiveStream( int              Id,
@@ -214,32 +232,42 @@ class ScriptableContent : public QObject
                                      int              AudioBitrate,
                                      int              SampleRate )
         {
-            return m_obj.AddVideoLiveStream(Id, MaxSegments, Width, Height,
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.AddVideoLiveStream(Id, MaxSegments, Width, Height,
                                             Bitrate, AudioBitrate, SampleRate);
+            )
         }
 
         QObject* GetLiveStream( int Id )
         {
-            return m_obj.GetLiveStream( Id );
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.GetLiveStream( Id );
+            )
         }
 
         QObject* GetLiveStreamList( const QString &FileName )
         {
-            return m_obj.GetLiveStreamList( FileName );
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.GetLiveStreamList( FileName );
+            )
         }
 
         QObject* StopLiveStream( int Id )
         {
-            return m_obj.StopLiveStream(Id);
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.StopLiveStream(Id);
+            )
         }
 
         bool RemoveLiveStream( int Id )
         {
-            return m_obj.RemoveLiveStream(Id);
+            SCRIPT_CATCH_EXCEPTION( false,
+                return m_obj.RemoveLiveStream(Id);
+            )
         }
 };
 
-Q_SCRIPT_DECLARE_QMETAOBJECT( ScriptableContent, QObject*);
+Q_SCRIPT_DECLARE_QMETAOBJECT_MYTHTV( ScriptableContent, QObject*);
 
 #endif
 

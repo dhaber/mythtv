@@ -105,7 +105,8 @@ DTC::ProgramList* Dvr::GetRecordedList( bool           bDescending,
     {
         ProgramInfo *pInfo = progList[ n ];
 
-        if ((!sTitleRegEx.isEmpty() && !pInfo->GetTitle().contains(rTitleRegEx)) ||
+        if (pInfo->IsDeletePending() ||
+            (!sTitleRegEx.isEmpty() && !pInfo->GetTitle().contains(rTitleRegEx)) ||
             (!sRecGroup.isEmpty() && sRecGroup != pInfo->GetRecordingGroup()) ||
             (!sStorageGroup.isEmpty() && sStorageGroup != pInfo->GetStorageGroup()))
             continue;
@@ -141,12 +142,19 @@ DTC::ProgramList* Dvr::GetRecordedList( bool           bDescending,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DTC::Program* Dvr::GetRecorded(int chanid, const QDateTime &recstarttsRaw)
+DTC::Program* Dvr::GetRecorded(int RecordedId,
+                               int chanid, const QDateTime &recstarttsRaw)
 {
-    if (chanid <= 0 || !recstarttsRaw.isValid())
-        throw QString("Channel ID or StartTime appears invalid.");
+    if ((RecordedId <= 0) &&
+        (chanid <= 0 || !recstarttsRaw.isValid()))
+        throw QString("Recorded ID or Channel ID and StartTime appears invalid.");
 
-    ProgramInfo pi(chanid, recstarttsRaw.toUTC());
+    // TODO Should use RecordingInfo
+    ProgramInfo pi;
+    if (RecordedId > 0)
+        pi = ProgramInfo(RecordedId);
+    else
+        pi = ProgramInfo(chanid, recstarttsRaw.toUTC());
 
     DTC::Program *pProgram = new DTC::Program();
     FillProgramInfo( pProgram, &pi, true );
@@ -158,20 +166,29 @@ DTC::Program* Dvr::GetRecorded(int chanid, const QDateTime &recstarttsRaw)
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Dvr::RemoveRecorded(int chanid, const QDateTime &recstarttsRaw,
+bool Dvr::RemoveRecorded(int RecordedId,
+                         int chanid, const QDateTime &recstarttsRaw,
                          bool forceDelete, bool allowRerecord)
 {
-    return DeleteRecording(chanid, recstarttsRaw, forceDelete, allowRerecord);
+    return DeleteRecording(RecordedId, chanid, recstarttsRaw, forceDelete,
+                           allowRerecord);
 }
 
 
-bool Dvr::DeleteRecording(int chanid, const QDateTime &recstarttsRaw,
+bool Dvr::DeleteRecording(int RecordedId,
+                          int chanid, const QDateTime &recstarttsRaw,
                           bool forceDelete, bool allowRerecord)
 {
-    if (chanid <= 0 || !recstarttsRaw.isValid())
-        throw QString("Channel ID or StartTime appears invalid.");
+    if ((RecordedId <= 0) &&
+        (chanid <= 0 || !recstarttsRaw.isValid()))
+        throw QString("Recorded ID or Channel ID and StartTime appears invalid.");
 
-    ProgramInfo pi(chanid, recstarttsRaw.toUTC());
+    // TODO Should use RecordingInfo
+    ProgramInfo pi;
+    if (RecordedId > 0)
+        pi = ProgramInfo(RecordedId);
+    else
+        pi = ProgramInfo(chanid, recstarttsRaw.toUTC());
 
     if (pi.GetChanID() && pi.HasPathname())
     {
@@ -193,12 +210,18 @@ bool Dvr::DeleteRecording(int chanid, const QDateTime &recstarttsRaw,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Dvr::UnDeleteRecording(int chanid, const QDateTime &recstarttsRaw)
+bool Dvr::UnDeleteRecording(int RecordedId,
+                            int chanid, const QDateTime &recstarttsRaw)
 {
-    if (chanid <= 0 || !recstarttsRaw.isValid())
-        throw QString("Channel ID or StartTime appears invalid.");
+    if ((RecordedId <= 0) &&
+        (chanid <= 0 || !recstarttsRaw.isValid()))
+        throw QString("Recorded ID or Channel ID and StartTime appears invalid.");
 
-    RecordingInfo ri(chanid, recstarttsRaw.toUTC());
+    RecordingInfo ri;
+    if (RecordedId > 0)
+        ri = RecordingInfo(RecordedId);
+    else
+        ri = RecordingInfo(chanid, recstarttsRaw.toUTC());
 
     if (ri.GetChanID() && ri.HasPathname())
     {
@@ -218,14 +241,22 @@ bool Dvr::UnDeleteRecording(int chanid, const QDateTime &recstarttsRaw)
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool Dvr::UpdateRecordedWatchedStatus ( int   chanid,
+bool Dvr::UpdateRecordedWatchedStatus ( int RecordedId,
+                                        int   chanid,
                                         const QDateTime &recstarttsRaw,
                                         bool  watched)
 {
-    if (chanid <= 0 || !recstarttsRaw.isValid())
-        return false;
+    if ((RecordedId <= 0) &&
+        (chanid <= 0 || !recstarttsRaw.isValid()))
+        throw QString("Recorded ID or Channel ID and StartTime appears invalid.");
 
-    ProgramInfo pi(chanid, recstarttsRaw.toUTC());
+    // TODO Should use RecordingInfo
+    ProgramInfo pi;
+    if (RecordedId > 0)
+        pi = ProgramInfo(RecordedId);
+    else
+        pi = ProgramInfo(chanid, recstarttsRaw.toUTC());
+
     pi.SaveWatched(watched);
 
     return true;
@@ -446,10 +477,13 @@ QStringList Dvr::GetTitleList(const QString& RecGroup)
 {
     MSqlQuery query(MSqlQuery::InitCon());
 
-    QString querystr = "SELECT DISTINCT title FROM recorded";
+    QString querystr = "SELECT DISTINCT title FROM recorded "
+                       "WHERE deletepending = 0";
 
     if (!RecGroup.isEmpty())
-        querystr += " WHERE recgroup = :RECGROUP";
+        querystr += " AND recgroup = :RECGROUP";
+    else
+        querystr += " AND recgroup != 'Deleted'";
 
     querystr += " ORDER BY title";
 
@@ -483,6 +517,7 @@ DTC::TitleInfoList* Dvr::GetTitleInfoList()
         "SELECT title, inetref, count(title) as count "
         "    FROM recorded "
         "    WHERE inetref <> '' "
+        "    AND deletepending = 0 "
         "    GROUP BY title, inetref "
         "    ORDER BY title");
 
@@ -530,6 +565,10 @@ DTC::ProgramList* Dvr::GetUpcomingList( int  nStartIndex,
     RecordingList::iterator it = tmpList.begin();
     for(; it < tmpList.end(); ++it)
     {
+        if (nRecordId > 0 &&
+            (*it)->GetRecordingRuleID() != static_cast<uint>(nRecordId))
+            continue;
+
         if ((nRecStatus != 0) &&
             ((*it)->GetRecordingStatus() != nRecStatus))
             continue;
@@ -1044,6 +1083,7 @@ DTC::RecRuleList* Dvr::GetRecordScheduleList( int nStartIndex,
 
 DTC::RecRule* Dvr::GetRecordSchedule( uint      nRecordId,
                                       QString   sTemplate,
+                                      int       nRecordedId,
                                       int       nChanId,
                                       QDateTime dStartTimeRaw,
                                       bool      bMakeOverride )
@@ -1062,8 +1102,17 @@ DTC::RecRule* Dvr::GetRecordSchedule( uint      nRecordId,
         if (!rule.LoadTemplate(sTemplate))
             throw QString("Template does not exist.");
     }
-    else if (nChanId > 0 && dStartTime.isValid())
+    else if (nRecordedId > 0) // Loads from the Recorded/Recorded Program Table
     {
+        // Despite the use of ProgramInfo, this only applies to Recordings.
+        ProgramInfo recInfo(nRecordedId);
+        if (!rule.LoadByProgram(&recInfo))
+            throw QString("Recording does not exist");
+    }
+    else if (nChanId > 0 && dStartTime.isValid()) // Loads from Program Table, should NOT be used with recordings
+    {
+        // Despite the use of RecordingInfo, this only applies to programs in the
+        // present or future, not to recordings? Confused yet?
         RecordingInfo::LoadStatus status;
         RecordingInfo info(nChanId, dStartTime, false, 0, &status);
         if (status != RecordingInfo::kFoundProgram)

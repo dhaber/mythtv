@@ -2550,7 +2550,7 @@ QString ProgramInfo::GetPlaybackURL(
         (gCoreContext->GetNumSetting("MasterBackendOverride", 0)) &&
         (RemoteCheckFile(this, false)))
     {
-        tmpURL = gCoreContext->GenMythURL(gCoreContext->GetMasterServerIP(),
+        tmpURL = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
                                           gCoreContext->GetMasterServerPort(),
                                           basename);
 
@@ -2560,7 +2560,7 @@ QString ProgramInfo::GetPlaybackURL(
     }
 
     // Fallback to streaming from the backend the recording was created on
-    tmpURL = gCoreContext->GenMythURL(gCoreContext->GetBackendServerIP(hostname),
+    tmpURL = gCoreContext->GenMythURL(hostname,
                                       gCoreContext->GetBackendServerPort(hostname),
                                       basename);
 
@@ -2568,72 +2568,6 @@ QString ProgramInfo::GetPlaybackURL(
         QString("GetPlaybackURL: Using default of: '%1'") .arg(tmpURL));
 
     return tmpURL;
-}
-
-/** \fn ProgramInfo::SaveFilesize(uint64_t)
- *  \brief Sets recording file size in database, and sets "filesize" field.
- */
-void ProgramInfo::SaveFilesize(uint64_t fsize)
-{
-    SetFilesize(fsize);
-
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare(
-        "UPDATE recorded "
-        "SET filesize = :FILESIZE "
-        "WHERE chanid    = :CHANID AND "
-        "      starttime = :STARTTIME");
-    query.bindValue(":FILESIZE",  (quint64)fsize);
-    query.bindValue(":CHANID",    chanid);
-    query.bindValue(":STARTTIME", recstartts);
-
-    if (!query.exec())
-        MythDB::DBError("File size update", query);
-
-    updater->insert(chanid, recstartts, kPIUpdateFileSize, fsize);
-}
-
-/** \fn ProgramInfo::SaveAudioProps(int props)
- *  \brief Saves the audio properties to DB
- */
-void ProgramInfo::SaveAudioProps(int props)
-{
-    // first set the props in the object
-    properties |= props;
-
-    // next write it to the DB
-    MSqlQuery query(MSqlQuery::InitCon());
-
-    LOG(VB_AUDIO, LOG_DEBUG, QString("Setting Audio Props %1").arg(props));
-    query.prepare("UPDATE recordedprogram SET audioprop ="
-    " :PROP WHERE chanid = :CHANID AND starttime = :STARTTIME;");
-
-    query.bindValue(":PROP", props);
-    query.bindValue(":CHANID", chanid);
-    query.bindValue(":STARTTIME", startts);
-
-    if (!query.exec())
-        MythDB::DBError("UpdateRes", query);
-
-}
-
-
-/// \brief Gets recording file size from database.
-uint64_t ProgramInfo::QueryFilesize(void) const
-{
-    MSqlQuery query(MSqlQuery::InitCon());
-
-    query.prepare(
-        "SELECT filesize "
-        "FROM recorded "
-        "WHERE chanid    = :CHANID AND "
-        "      starttime = :STARTTIME");
-    query.bindValue(":CHANID", chanid);
-    query.bindValue(":STARTTIME", recstartts);
-    if (query.exec() && query.next())
-        return query.value(0).toULongLong();
-
-    return filesize;
 }
 
 /** \brief Queries multiplex any recording would be made on, zero if unknown.
@@ -4046,7 +3980,7 @@ static uint load_markup_datum(
         "FROM recordedmarkup "
         "WHERE recordedmarkup.chanid    = :CHANID    AND "
         "      recordedmarkup.starttime = :STARTTIME AND "
-        "      recordedmarkup.type      = %1 "
+        "      recordedmarkup.type      = :TYPE "
         "GROUP BY recordedmarkup.data "
         "ORDER BY SUM( ( SELECT IFNULL(rm.mark, recordedmarkup.mark)"
         "                FROM recordedmarkup AS rm "
@@ -4057,10 +3991,11 @@ static uint load_markup_datum(
         "                ORDER BY rm.mark ASC LIMIT 1 "
         "              ) - recordedmarkup.mark "
         "            ) DESC "
-        "LIMIT 1").arg((int)type);
+        "LIMIT 1");
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare(qstr);
+    query.bindValue(":TYPE", (int)type);
     query.bindValue(":CHANID", chanid);
     query.bindValue(":STARTTIME", recstartts);
 
@@ -4145,15 +4080,26 @@ MarkTypes ProgramInfo::QueryAverageAspectRatio(void ) const
     return static_cast<MarkTypes>(query.value(0).toInt());
 }
 
-/** \brief If present in recording this loads total duration of the
- *         main video stream from database's stream markup table.
+/** \brief If present this loads the total duration in milliseconds
+ *         of the main video stream from recordedmarkup table in the database
+ *
+ *  \returns Duration in milliseconds
  */
-int64_t ProgramInfo::QueryTotalDuration(void) const
+uint32_t ProgramInfo::QueryTotalDuration(void) const
 {
     if (gCoreContext->IsDatabaseIgnored())
-        return 0LL;
-    int64_t msec = load_markup_datum(MARK_DURATION_MS, chanid, recstartts);
-    return msec * 1000;
+        return 0;
+
+    // 32Bits is more than sufficient. A recording would need to be almost a
+    // month long to wrap and this is impossible since we cap the maximum
+    // recording length to 6 hours.
+    uint32_t msec = load_markup_datum(MARK_DURATION_MS, chanid, recstartts);
+
+// Impossible condition, load_markup_datum returns an unsigned int
+//     if (msec < 0)
+//         return 0;
+
+    return msec;
 }
 
 /** \brief If present in recording this loads total frames of the
@@ -5822,5 +5768,71 @@ MPUBLIC QString format_season_and_episode(int seasEp, int digits)
 
     return seasEpNum;
 }
+
+// ---------------------------------------------------------------------------
+// DEPRECATED CODE FOLLOWS
+// ---------------------------------------------------------------------------
+
+void ProgramInfo::SetFilesize(uint64_t sz)
+{
+    LOG(VB_GENERAL, LOG_DEBUG, "FIXME: ProgramInfo::SetFilesize() called instead of RecordingInfo::SetFilesize()");
+    filesize     = sz;
+}
+
+
+/** \fn ProgramInfo::SaveFilesize(uint64_t)
+ *  \brief Sets recording file size in database, and sets "filesize" field.
+ */
+void ProgramInfo::SaveFilesize(uint64_t fsize)
+{
+    LOG(VB_GENERAL, LOG_DEBUG, "FIXME: ProgramInfo::SaveFilesize() called instead of RecordingInfo::SaveFilesize()");
+    SetFilesize(fsize);
+
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare(
+        "UPDATE recorded "
+        "SET filesize = :FILESIZE "
+        "WHERE chanid    = :CHANID AND "
+        "      starttime = :STARTTIME");
+    query.bindValue(":FILESIZE",  (quint64)fsize);
+    query.bindValue(":CHANID",    chanid);
+    query.bindValue(":STARTTIME", recstartts);
+
+    if (!query.exec())
+        MythDB::DBError("File size update", query);
+
+    updater->insert(chanid, recstartts, kPIUpdateFileSize, fsize);
+}
+
+uint64_t ProgramInfo::GetFilesize(void) const
+{
+    LOG(VB_GENERAL, LOG_DEBUG, "FIXME: ProgramInfo::GetFilesize() called instead of RecordingInfo::GetFilesize()");
+    return filesize;
+}
+
+
+/// \brief Gets recording file size direct from the database.
+///
+/// In theory this should be redundant, the ProgramInfo updater should sync
+/// all instances on frontends and backends without the need
+/// for any one to go checking the database.
+// uint64_t ProgramInfo::QueryFilesize(void) const
+// {
+//     LOG(VB_GENERAL, LOG_DEBUG, "FIXME: ProgramInfo::QueryFilesize() called instead of RecordingInfo::GetFilesize()");
+//
+//     MSqlQuery query(MSqlQuery::InitCon());
+//
+//     query.prepare(
+//         "SELECT filesize "
+//         "FROM recorded "
+//         "WHERE chanid    = :CHANID AND "
+//         "      starttime = :STARTTIME");
+//     query.bindValue(":CHANID", chanid);
+//     query.bindValue(":STARTTIME", recstartts);
+//     if (query.exec() && query.next())
+//         return query.value(0).toULongLong();
+//
+//     return filesize;
+// }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */

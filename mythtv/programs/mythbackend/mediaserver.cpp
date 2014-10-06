@@ -72,6 +72,7 @@ void MediaServer::Init(bool bIsMaster, bool bDisableUPnp /* = false */)
     LOG(VB_UPNP, LOG_INFO, "MediaServer::Init(): Begin");
 
     int     nPort     = g_pConfig->GetValue( "BackendStatusPort", 6544 );
+    int     nSSLPort  = g_pConfig->GetValue( "BackendSSLPort",    6554 );
 
     HttpServer *pHttpServer = new HttpServer();
     pHttpServer->RegisterExtension(new HttpConfig());
@@ -79,6 +80,7 @@ void MediaServer::Init(bool bIsMaster, bool bDisableUPnp /* = false */)
     if (!pHttpServer->isListening())
     {
         pHttpServer->setProxy(QNetworkProxy::NoProxy);
+        // HTTP
         if (!pHttpServer->listen(nPort))
         {
             LOG(VB_GENERAL, LOG_ERR, "MediaServer: HttpServer Create Error");
@@ -86,6 +88,14 @@ void MediaServer::Init(bool bIsMaster, bool bDisableUPnp /* = false */)
             pHttpServer = NULL;
             return;
         }
+
+#ifndef QT_NO_OPENSSL
+        // HTTPS (SSL)
+        if (!pHttpServer->listen(nSSLPort, true, kSSLServer))
+        {
+            LOG(VB_GENERAL, LOG_ERR, "MediaServer: HttpServer failed to create SSL server");
+        }
+#endif
     }
 
     QString sFileName = g_pConfig->GetValue( "upnpDescXmlPath",
@@ -148,9 +158,9 @@ void MediaServer::Init(bool bIsMaster, bool bDisableUPnp /* = false */)
      pEngine->globalObject().setProperty("Video"  ,
          pEngine->scriptValueFromQMetaObject< ScriptableVideo   >() );
      pEngine->globalObject().setProperty("Capture"  ,
-         pEngine->scriptValueFromQMetaObject< ScriptableCapture   >() );
+         pEngine->scriptValueFromQMetaObject< ScriptableCapture  >() );
      pEngine->globalObject().setProperty("Image"  ,
-         pEngine->scriptValueFromQMetaObject< Image             >() );
+         pEngine->scriptValueFromQMetaObject< ScriptableImage   >() );
 
     // ------------------------------------------------------------------
 

@@ -43,7 +43,7 @@ EITFixUp::EITFixUp()
       m_ukSpaceStart("^ "),
       m_ukPart("\\s*\\(?\\s*(?:Part|Pt)\\s*(\\d{1,2})\\s*(?:of|/)\\s*(\\d{1,2})\\s*\\)?\\s*(?:\\.|:)?", Qt::CaseInsensitive),
       m_ukSeries("\\s*\\(?\\s*(?!Part|Pt)(?:Season|Series|S)?\\s*(\\d{1,2})(?:,|:)?\\s*(?:Episode|Ep)?\\s*(\\d{1,2})\\s*(?:of|/)\\s*(\\d{1,2})\\s*\\)?\\s*(?:\\.|:)?", Qt::CaseInsensitive),
-      m_ukCC("\\[(?:(AD|SL|S|W),?)+\\]"),
+      m_ukCC("\\[(?:(AD|SL|S|W|HD),?)+\\]"),
       m_ukYear("[\\[\\(]([\\d]{4})[\\)\\]]"),
       m_uk24ep("^\\d{1,2}:00[ap]m to \\d{1,2}:00[ap]m: "),
       m_ukStarring("(?:Western\\s)?[Ss]tarring ([\\w\\s\\-']+)[Aa]nd\\s([\\w\\s\\-']+)[\\.|,](?:\\s)*(\\d{4})?(?:\\.\\s)?"),
@@ -715,7 +715,8 @@ void EITFixUp::FixUK(DBEventEIT &event) const
     int position2;
     QString strFull;
 
-    bool isMovie = event.category.startsWith("Movie",Qt::CaseInsensitive);
+    bool isMovie = event.category.startsWith("Movie",Qt::CaseInsensitive) ||
+                   event.category.startsWith("Film",Qt::CaseInsensitive);
     // BBC three case (could add another record here ?)
     event.description = event.description.remove(m_ukThen);
     event.description = event.description.remove(m_ukNew);
@@ -741,6 +742,8 @@ void EITFixUp::FixUK(DBEventEIT &event) const
         QStringList tmpCCitems = tmpCC.cap(0).remove("[").remove("]").split(",");
         if (tmpCCitems.contains("AD"))
             event.audioProps |= AUD_VISUALIMPAIR;
+        if (tmpCCitems.contains("HD"))
+            event.videoProps |= VID_HDTV;
         if (tmpCCitems.contains("S"))
             event.subtitleType |= SUB_NORMAL;
         if (tmpCCitems.contains("SL"))
@@ -803,7 +806,9 @@ void EITFixUp::FixUK(DBEventEIT &event) const
         }
     }
 
-    if (series)
+    if (isMovie)
+        event.categoryType = ProgramInfo::kCategoryMovie;
+    else if (series)
         event.categoryType = ProgramInfo::kCategorySeries;
 
     // Multi-part episodes, or films (e.g. ITV film split by news)

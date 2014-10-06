@@ -50,7 +50,6 @@ QMutex            TVRec::cardsLock;
 QMap<uint,TVRec*> TVRec::cards;
 
 static bool is_dishnet_eit(uint cardid);
-static QString load_profile(QString,void*,RecordingInfo*,RecordingProfile&);
 static int init_jobs(const RecordingInfo *rec, RecordingProfile &profile,
                      bool on_host, bool transcode_bfr_comm, bool on_line_comm);
 static void apply_broken_dvb_driver_crc_hack(ChannelBase*, MPEGStreamData*);
@@ -136,7 +135,7 @@ bool TVRec::CreateChannel(const QString &startchannel,
 
     if (!channel)
     {
-        SetFlags(kFlagErrored);
+        SetFlags(kFlagErrored, __FILE__, __LINE__);
         return false;
     }
 
@@ -193,7 +192,7 @@ TVRec::~TVRec()
 
     if (HasFlags(kFlagRunMainLoop))
     {
-        ClearFlags(kFlagRunMainLoop);
+        ClearFlags(kFlagRunMainLoop, __FILE__, __LINE__);
         eventThread->wait();
         delete eventThread;
         eventThread = NULL;
@@ -208,6 +207,8 @@ TVRec::~TVRec()
 
 void TVRec::TeardownAll(void)
 {
+    LOG(VB_RECORD, LOG_INFO, LOC + "TeardownAll");
+
     TeardownSignalMonitor();
 
     if (scanner)
@@ -448,7 +449,7 @@ RecStatusType TVRec::StartRecording(ProgramInfo *pginfo)
             .arg(curRecording->GetRecordingEndTime(MythDate::ISODate));
         LOG(VB_RECORD, LOG_INFO, LOC + msg);
 
-        ClearFlags(kFlagCancelNextRecording);
+        ClearFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
 
         SetRecordingStatus(rsRecording, __LINE__);
         return rsRecording;
@@ -576,7 +577,7 @@ RecStatusType TVRec::StartRecording(ProgramInfo *pginfo)
         if (did_switch)
         {
             // Make sure scheduler is allowed to end this recording
-            ClearFlags(kFlagCancelNextRecording);
+            ClearFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
 
             SetRecordingStatus(rsRecording, __LINE__);
         }
@@ -610,10 +611,12 @@ RecStatusType TVRec::StartRecording(ProgramInfo *pginfo)
         pginfo->SetRecordingStartTime(curRecording->GetRecordingStartTime());
 
         // Make sure scheduler is allowed to end this recording
-        ClearFlags(kFlagCancelNextRecording);
+        ClearFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
 
         if (m_recStatus != rsFailing)
             SetRecordingStatus(rsTuning, __LINE__);
+        else
+            LOG(VB_RECORD, LOG_WARNING, LOC + "Still failing.");
         ChangeState(kState_RecordingOnly);
     }
     else if (!cancelNext && (GetState() == kState_WatchingLiveTV))
@@ -724,7 +727,7 @@ void TVRec::StopRecording(bool killFile)
     {
         QMutexLocker lock(&stateChangeLock);
         if (killFile)
-            SetFlags(kFlagKillRec);
+            SetFlags(kFlagKillRec, __FILE__, __LINE__);
         else if (curRecording)
         {
             QDateTime now = MythDate::current(true);
@@ -734,7 +737,7 @@ void TVRec::StopRecording(bool killFile)
         ChangeState(RemoveRecording(GetState()));
         // wait for state change to take effect
         WaitForEventThreadSleep();
-        ClearFlags(kFlagCancelNextRecording|kFlagKillRec);
+        ClearFlags(kFlagCancelNextRecording|kFlagKillRec, __FILE__, __LINE__);
 
         SetRecordingStatus(rsUnknown, __LINE__);
     }
@@ -883,10 +886,11 @@ void TVRec::FinishedRecording(RecordingInfo *curRec, RecordingQuality *recq)
 
     // Print something informative to the log
     LOG(VB_RECORD, LOG_INFO, LOC +
-        QString("FinishedRecording(%1)"
-                "\n\t\t\ttitle: %2\n\t\t\t"
-                "in recgroup: %3 status: %4:%5 %6 %7")
+        QString("FinishedRecording(%1) %2 quality"
+                "\n\t\t\ttitle: %3\n\t\t\t"
+                "in recgroup: %4 status: %5:%6 %7 %8")
             .arg(curRec->MakeUniqueKey())
+            .arg(is_good ? "Good" : "Bad")
             .arg(curRec->GetTitle())
             .arg(recgrp)
             .arg(toString(ors, kSingleRecord))
@@ -928,8 +932,7 @@ void TVRec::FinishedRecording(RecordingInfo *curRec, RecordingQuality *recq)
     }
 
     // Generate a preview
-    uint64_t fsize = (curRec->GetFilesize() < 1000) ?
-        curRec->QueryFilesize() : curRec->GetFilesize();
+    uint64_t fsize = curRec->GetFilesize();
     if (curRec->IsLocal() && (fsize >= 1000) &&
         (curRec->GetRecordingStatus() == rsRecorded))
     {
@@ -942,6 +945,10 @@ void TVRec::FinishedRecording(RecordingInfo *curRec, RecordingQuality *recq)
     // send out UPDATE_RECORDING_STATUS message
     if (recgrp != "LiveTV")
     {
+        LOG(VB_RECORD, LOG_INFO, LOC +
+            QString("FinishedRecording -- UPDATE_RECORDING_STATUS: %1")
+            .arg(toString(is_good ? curRec->GetRecordingStatus()
+                          : rsFailed, kSingleRecord)));
         MythEvent me(QString("UPDATE_RECORDING_STATUS %1 %2 %3 %4 %5")
                      .arg(curRec->GetCardID())
                      .arg(curRec->GetChanID())
@@ -1023,7 +1030,7 @@ void TVRec::HandleStateChange(void)
     if (scanner && HasFlags(kFlagEITScannerRunning))
     {
         scanner->StopActiveScan();
-        ClearFlags(kFlagEITScannerRunning);
+        ClearFlags(kFlagEITScannerRunning, __FILE__, __LINE__);
     }
 
     // Handle different state transitions
@@ -1104,6 +1111,9 @@ void TVRec::ChangeState(TVState nextState)
  */
 void TVRec::TeardownRecorder(uint request_flags)
 {
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("TeardownRecorder(%1)")
+        .arg(request_flags & kFlagKillRec ? "kFlagKillRec" : ""));
+
     pauseNotify = false;
     ispip = false;
 
@@ -1114,7 +1124,7 @@ void TVRec::TeardownRecorder(uint request_flags)
         delete recorderThread;
         recorderThread = NULL;
     }
-    ClearFlags(kFlagRecorderRunning);
+    ClearFlags(kFlagRecorderRunning, __FILE__, __LINE__);
 
     RecordingQuality *recq = NULL;
     if (recorder)
@@ -1265,8 +1275,8 @@ static int eit_start_rand(uint cardid, int eitTransportTimeout)
 void TVRec::run(void)
 {
     QMutexLocker lock(&stateChangeLock);
-    SetFlags(kFlagRunMainLoop);
-    ClearFlags(kFlagExitPlayer | kFlagFinishRecording);
+    SetFlags(kFlagRunMainLoop, __FILE__, __LINE__);
+    ClearFlags(kFlagExitPlayer | kFlagFinishRecording, __FILE__, __LINE__);
 
     eitScanStartTime = MythDate::current();
     // check whether we should use the EITScanner in this TVRec instance
@@ -1287,7 +1297,8 @@ void TVRec::run(void)
         if (changeState)
         {
             HandleStateChange();
-            ClearFlags(kFlagFrontendReady | kFlagCancelNextRecording);
+            ClearFlags(kFlagFrontendReady | kFlagCancelNextRecording,
+                       __FILE__, __LINE__);
         }
 
         // Quick exit on fatal errors.
@@ -1295,7 +1306,7 @@ void TVRec::run(void)
         {
             LOG(VB_GENERAL, LOG_ERR, LOC +
                 "RunTV encountered fatal error, exiting event thread.");
-            ClearFlags(kFlagRunMainLoop);
+            ClearFlags(kFlagRunMainLoop, __FILE__, __LINE__);
             TeardownAll();
             return;
         }
@@ -1317,7 +1328,7 @@ void TVRec::run(void)
              HasFlags(kFlagFinishRecording)))
         {
             ChangeState(kState_None);
-            ClearFlags(kFlagFinishRecording);
+            ClearFlags(kFlagFinishRecording, __FILE__, __LINE__);
         }
 
         if (curRecording)
@@ -1406,7 +1417,7 @@ void TVRec::run(void)
                 ChangeState(kState_None);
             else if (StateIsPlaying(internalState))
                 ChangeState(RemovePlaying(internalState));
-            ClearFlags(kFlagExitPlayer);
+            ClearFlags(kFlagExitPlayer, __FILE__, __LINE__);
         }
 
         if (scanner && channel &&
@@ -1427,7 +1438,7 @@ void TVRec::run(void)
             else
             {
                 scanner->StartActiveScan(this, eitTransportTimeout);
-                SetFlags(kFlagEITScannerRunning);
+                SetFlags(kFlagEITScannerRunning, __FILE__, __LINE__);
                 eitScanStartTime = MythDate::current().addYears(1);
             }
         }
@@ -1833,7 +1844,7 @@ bool TVRec::SetupDTVSignalMonitor(bool EITscan)
     QString recording_type = "all";
     RecordingInfo *rec = lastTuningRequest.program;
     RecordingProfile profile;
-    recProfileName = load_profile(genOpt.cardtype, tvchain, rec, profile);
+    recProfileName = LoadProfile(genOpt.cardtype, tvchain, rec, profile);
     const Setting *setting = profile.byName("recordingtype");
     if (setting)
         recording_type = setting->getValue();
@@ -2103,7 +2114,7 @@ int TVRec::SetSignalMonitoringRate(int rate, int notifyFrontend)
         return 0;
     }
 
-    ClearFlags(kFlagRingBufferReady);
+    ClearFlags(kFlagRingBufferReady, __FILE__, __LINE__);
 
     TuningRequest req = (rate > 0) ?
         TuningRequest(kFlagAntennaAdjust, channel->GetCurrentName()) :
@@ -2626,7 +2637,7 @@ void TVRec::SpawnLiveTV(LiveTVChain *newchain, bool pip, QString startchan)
     tvchain->ReloadAll();
 
     QString hostprefix = gCoreContext->GenMythURL(
-                    gCoreContext->GetBackendServerIP(),
+                    gCoreContext->GetHostName(),
                     gCoreContext->GetBackendServerPort());
 
     tvchain->SetHostPrefix(hostprefix);
@@ -2641,7 +2652,7 @@ void TVRec::SpawnLiveTV(LiveTVChain *newchain, bool pip, QString startchan)
     WaitForEventThreadSleep();
 
     // Make sure StartRecording can't steal our tuner
-    SetFlags(kFlagCancelNextRecording);
+    SetFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
 }
 
 /** \fn TVRec::GetChainID()
@@ -2761,7 +2772,7 @@ void TVRec::NotifySchedulerOfRecording(RecordingInfo *rec)
 
     // Allow scheduler to end this recording before post-roll,
     // if it has another recording for this recorder.
-    ClearFlags(kFlagCancelNextRecording);
+    ClearFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
 }
 
 void TVRec::InitAutoRunJobs(RecordingInfo *rec, AutoRunInitType t,
@@ -2772,7 +2783,7 @@ void TVRec::InitAutoRunJobs(RecordingInfo *rec, AutoRunInitType t,
         RecordingProfile profile;
         if (!recpro)
         {
-            load_profile(genOpt.cardtype, NULL, rec, profile);
+            LoadProfile(genOpt.cardtype, NULL, rec, profile);
             recpro = &profile;
         }
         autoRunJobs[rec->MakeUniqueKey()] =
@@ -2815,7 +2826,7 @@ void TVRec::SetLiveRecording(int recording)
     {
         LOG(VB_GENERAL, LOG_INFO, LOC + "SetLiveRecording() -- cancel");
         // cancel -- 'recording' should be 0 or -1
-        SetFlags(kFlagCancelNextRecording);
+        SetFlags(kFlagCancelNextRecording, __FILE__, __LINE__);
         curRecording->SetRecordingGroup("LiveTV");
         InitAutoRunJobs(curRecording, kAutoRunNone, NULL, __LINE__);
     }
@@ -3081,7 +3092,7 @@ QString TVRec::SetInput(QString input, uint requestType)
     }
 
     // Clear the RingBuffer reset flag, in case we wait for a reset below
-    ClearFlags(kFlagRingBufferReady);
+    ClearFlags(kFlagRingBufferReady, __FILE__, __LINE__);
 
     // Actually add the tuning request to the queue, and
     // then wait for it to start tuning
@@ -3125,7 +3136,7 @@ void TVRec::SetChannel(QString name, uint requestType)
     }
 
     // Clear the RingBuffer reset flag, in case we wait for a reset below
-    ClearFlags(kFlagRingBufferReady);
+    ClearFlags(kFlagRingBufferReady, __FILE__, __LINE__);
 
     // Clear out any EITScan channel change requests
     TuningQueue::iterator it = tuningRequests.begin();
@@ -3397,7 +3408,7 @@ void TVRec::SetRingBuffer(RingBuffer *rb)
     if (rb_old && (rb_old != rb))
     {
         if (HasFlags(kFlagDummyRecorderRunning))
-            ClearFlags(kFlagDummyRecorderRunning);
+            ClearFlags(kFlagDummyRecorderRunning, __FILE__, __LINE__);
         delete rb_old;
     }
 
@@ -3550,7 +3561,7 @@ void TVRec::HandleTuning(void)
             else
             {
                 LOG(VB_RECORD, LOG_INFO, LOC + "Waiting for recorder pause..");
-                SetFlags(kFlagWaitingForRecPause);
+                SetFlags(kFlagWaitingForRecPause, __FILE__, __LINE__);
             }
         }
         lastTuningRequest = request;
@@ -3561,7 +3572,7 @@ void TVRec::HandleTuning(void)
         if (!recorder->IsPaused())
             return;
 
-        ClearFlags(kFlagWaitingForRecPause);
+        ClearFlags(kFlagWaitingForRecPause, __FILE__, __LINE__);
         LOG(VB_RECORD, LOG_INFO, LOC +
             "Recorder paused, calling TuningFrequency");
         TuningFrequency(lastTuningRequest);
@@ -3630,6 +3641,9 @@ uint TVRec::TuningCheckForHWChange(const TuningRequest &request,
  */
 void TVRec::TuningShutdowns(const TuningRequest &request)
 {
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("TuningShutdowns(%1)")
+        .arg(request.toString()));
+
     QString channum, inputname;
     uint newCardID = TuningCheckForHWChange(request, channum, inputname);
 
@@ -3637,7 +3651,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
         HasFlags(kFlagEITScannerRunning))
     {
         scanner->StopActiveScan();
-        ClearFlags(kFlagEITScannerRunning);
+        ClearFlags(kFlagEITScannerRunning, __FILE__, __LINE__);
     }
 
     if (scanner && !request.IsOnSameMultiplex())
@@ -3649,7 +3663,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
         if (GetDTVSignalMonitor())
             sd = GetDTVSignalMonitor()->GetStreamData();
         TeardownSignalMonitor();
-        ClearFlags(kFlagSignalMonitorRunning);
+        ClearFlags(kFlagSignalMonitorRunning, __FILE__, __LINE__);
 
         // Delete StreamData if it is not in use by the recorder.
         MPEGStreamData *rec_sd = NULL;
@@ -3659,7 +3673,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
             delete sd;
     }
     if (HasFlags(kFlagWaitingForSignal))
-        ClearFlags(kFlagWaitingForSignal);
+        ClearFlags(kFlagWaitingForSignal, __FILE__, __LINE__);
 
     // At this point any waits are canceled.
 
@@ -3668,7 +3682,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
         if (HasFlags(kFlagDummyRecorderRunning))
         {
             FinishedRecording(curRecording, NULL);
-            ClearFlags(kFlagDummyRecorderRunning);
+            ClearFlags(kFlagDummyRecorderRunning, __FILE__, __LINE__);
             curRecording->MarkAsInUse(false, kRecorderInUseID);
         }
 
@@ -3678,7 +3692,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
             stateChangeLock.unlock();
             TeardownRecorder(request.flags);
             stateChangeLock.lock();
-            ClearFlags(kFlagRecorderRunning);
+            ClearFlags(kFlagRecorderRunning, __FILE__, __LINE__);
         }
         // At this point the recorders are shut down
 
@@ -3707,7 +3721,7 @@ void TVRec::TuningShutdowns(const TuningRequest &request)
     }
 
     // Clear pending actions from last request
-    ClearFlags(kFlagPendingActions);
+    ClearFlags(kFlagPendingActions, __FILE__, __LINE__);
 }
 
 /** \fn TVRec::TuningFrequency(const TuningRequest&)
@@ -3768,7 +3782,7 @@ void TVRec::TuningFrequency(const TuningRequest &request)
         MythEvent me(QString("SIGNAL %1").arg(cardid), slist);
         gCoreContext->dispatch(me);
 
-        SetFlags(kFlagNeedToStartRecorder);
+        SetFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
         return;
     }
 
@@ -3863,8 +3877,8 @@ void TVRec::TuningFrequency(const TuningRequest &request)
             }
 
             // pretend the signal monitor is running to prevent segfault
-            SetFlags(kFlagSignalMonitorRunning);
-            ClearFlags(kFlagWaitingForSignal);
+            SetFlags(kFlagSignalMonitorRunning, __FILE__, __LINE__);
+            ClearFlags(kFlagWaitingForSignal, __FILE__, __LINE__);
             error = true;
         }
 
@@ -3877,13 +3891,13 @@ void TVRec::TuningFrequency(const TuningRequest &request)
                 GetDTVSignalMonitor()->IgnoreEncrypted(true);
             }
 
-            SetFlags(kFlagSignalMonitorRunning);
-            ClearFlags(kFlagWaitingForSignal);
+            SetFlags(kFlagSignalMonitorRunning, __FILE__, __LINE__);
+            ClearFlags(kFlagWaitingForSignal, __FILE__, __LINE__);
             if (!antadj)
             {
                 QDateTime expire = MythDate::current();
 
-                SetFlags(kFlagWaitingForSignal);
+                SetFlags(kFlagWaitingForSignal, __FILE__, __LINE__);
                 if (curRecording)
                 {
                     reachedRecordingDeadline = false;
@@ -3923,9 +3937,9 @@ void TVRec::TuningFrequency(const TuningRequest &request)
             if (recorder)
                 recorder->SetRingBuffer(NULL);
 
-            SetFlags(kFlagDummyRecorderRunning);
+            SetFlags(kFlagDummyRecorderRunning, __FILE__, __LINE__);
             LOG(VB_RECORD, LOG_INFO, "DummyDTVRecorder -- started");
-            SetFlags(kFlagRingBufferReady);
+            SetFlags(kFlagRingBufferReady, __FILE__, __LINE__);
         }
 
         // if we had problems starting the signal monitor,
@@ -3935,9 +3949,9 @@ void TVRec::TuningFrequency(const TuningRequest &request)
     }
 
     // Request a recorder, if the command is a recording command
-    ClearFlags(kFlagNeedToStartRecorder);
+    ClearFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
     if (request.flags & kFlagRec && !antadj)
-        SetFlags(kFlagNeedToStartRecorder);
+        SetFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
 }
 
 /** \fn TVRec::TuningSignalCheck(void)
@@ -3992,13 +4006,13 @@ MPEGStreamData *TVRec::TuningSignalCheck(void)
         LOG(VB_GENERAL, LOG_ERR, LOC + "TuningSignalCheck: SignalMonitor " +
             (signalMonitor->IsErrored() ? "failed" : "timed out"));
 
-        ClearFlags(kFlagNeedToStartRecorder);
+        ClearFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
         newRecStatus = rsFailed;
 
         if (scanner && HasFlags(kFlagEITScannerRunning))
         {
             scanner->StopActiveScan();
-            ClearFlags(kFlagEITScannerRunning);
+            ClearFlags(kFlagEITScannerRunning, __FILE__, __LINE__);
             eitScanStartTime = MythDate::current();
             eitScanStartTime = eitScanStartTime.addSecs(eitCrawlIdleStart +
                                   eit_start_rand(cardid, eitTransportTimeout));
@@ -4075,9 +4089,9 @@ MPEGStreamData *TVRec::TuningSignalCheck(void)
     {
         // shut down signal monitoring
         TeardownSignalMonitor();
-        ClearFlags(kFlagSignalMonitorRunning);
+        ClearFlags(kFlagSignalMonitorRunning, __FILE__, __LINE__);
     }
-    ClearFlags(kFlagWaitingForSignal);
+    ClearFlags(kFlagWaitingForSignal, __FILE__, __LINE__);
 
     if (streamData)
     {
@@ -4157,8 +4171,8 @@ static int init_jobs(const RecordingInfo *rec, RecordingProfile &profile,
     return jobs;
 }
 
-static QString load_profile(QString cardtype, void *tvchain,
-                            RecordingInfo *rec, RecordingProfile &profile)
+QString TVRec::LoadProfile(QString cardtype, void *tvchain,
+                           RecordingInfo *rec, RecordingProfile &profile)
 {
     // Determine the correct recording profile.
     // In LiveTV mode use "Live TV" profile, otherwise use the
@@ -4168,14 +4182,33 @@ static QString load_profile(QString cardtype, void *tvchain,
     if (!tvchain && rec)
         profileName = rec->GetRecordingRule()->m_recProfile;
 
-    if (!profile.loadByType(profileName, cardtype))
+    QString profileRequested = profileName;
+
+    if (profile.loadByType(profileName, cardtype))
+    {
+        LOG(VB_RECORD, LOG_INFO, LOC +
+            QString("Using profile '%1' to record")
+                .arg(profileName));
+    }
+    else
     {
         profileName = "Default";
-        profile.loadByType(profileName, cardtype);
+        if (profile.loadByType(profileName, cardtype))
+        {
+            LOG(VB_RECORD, LOG_INFO, LOC +
+                QString("Profile '%1' not found, using "
+                        "fallback profile '%2' to record")
+                    .arg(profileRequested).arg(profileName));
+        }
+        else
+        {
+            LOG(VB_RECORD, LOG_ERR, LOC +
+                QString("Profile '%1' not found, and unable "
+                        "to load fallback profile '%2'.  Results "
+                        "may be unpredicable")
+                    .arg(profileRequested).arg(profileName));
+        }
     }
-
-    LOG(VB_RECORD, LOG_INFO, QString("Using profile '%1' to record")
-            .arg(profileName));
 
     return profileName;
 }
@@ -4191,7 +4224,7 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
     if (HasFlags(kFlagDummyRecorderRunning))
     {
         FinishedRecording(curRecording, NULL);
-        ClearFlags(kFlagDummyRecorderRunning);
+        ClearFlags(kFlagDummyRecorderRunning, __FILE__, __LINE__);
         curRecording->MarkAsInUse(false, kRecorderInUseID);
         had_dummyrec = true;
     }
@@ -4199,7 +4232,7 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
     RecordingInfo *rec = lastTuningRequest.program;
 
     RecordingProfile profile;
-    recProfileName = load_profile(genOpt.cardtype, tvchain, rec, profile);
+    recProfileName = LoadProfile(genOpt.cardtype, tvchain, rec, profile);
 
     if (tvchain)
     {
@@ -4207,7 +4240,7 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
         if (!ringBuffer)
         {
             ok = CreateLiveTVRingBuffer(channel->GetCurrentName());
-            SetFlags(kFlagRingBufferReady);
+            SetFlags(kFlagRingBufferReady, __FILE__, __LINE__);
         }
         else
             ok = SwitchLiveTVRingBuffer(channel->GetCurrentName(),
@@ -4232,7 +4265,7 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
                 QString("RingBuffer '%1' not open...")
                     .arg(rec->GetPathname()));
             SetRingBuffer(NULL);
-            ClearFlags(kFlagPendingActions);
+            ClearFlags(kFlagPendingActions, __FILE__, __LINE__);
             goto err_ret;
         }
     }
@@ -4288,6 +4321,9 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
         goto err_ret;
     }
 
+    if (rec)
+        recorder->SetRecording(rec);
+
     if (GetDTVRecorder() && streamData)
     {
         const Setting *setting = profile.byName("recordingtype");
@@ -4298,9 +4334,6 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
 
     if (channel && genOpt.cardtype == "MJPEG")
         channel->Open(); // Needed because of NVR::MJPEGInit()
-
-    if (rec)
-        recorder->SetRecording(rec);
 
     // Setup for framebuffer capture devices..
     if (channel)
@@ -4329,9 +4362,9 @@ void TVRec::TuningNewRecorder(MPEGStreamData *streamData)
     if (GetV4LChannel())
         channel->SetFd(recorder->GetVideoFd());
 
-    SetFlags(kFlagRecorderRunning | kFlagRingBufferReady);
+    SetFlags(kFlagRecorderRunning | kFlagRingBufferReady, __FILE__, __LINE__);
 
-    ClearFlags(kFlagNeedToStartRecorder);
+    ClearFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
     return;
 
   err_ret:
@@ -4357,7 +4390,7 @@ void TVRec::TuningRestartRecorder(void)
 
     if (HasFlags(kFlagDummyRecorderRunning))
     {
-        ClearFlags(kFlagDummyRecorderRunning);
+        ClearFlags(kFlagDummyRecorderRunning, __FILE__, __LINE__);
         had_dummyrec = true;
     }
 
@@ -4405,24 +4438,24 @@ void TVRec::TuningRestartRecorder(void)
         InitAutoRunJobs(curRecording, kAutoRunProfile, NULL, __LINE__);
     }
 
-    ClearFlags(kFlagNeedToStartRecorder);
+    ClearFlags(kFlagNeedToStartRecorder, __FILE__, __LINE__);
 }
 
-void TVRec::SetFlags(uint f)
+void TVRec::SetFlags(uint f, const QString & file, int line)
 {
     QMutexLocker lock(&stateChangeLock);
     stateFlags |= f;
-    LOG(VB_RECORD, LOG_INFO, LOC + QString("SetFlags(%1) -> %2")
-            .arg(FlagToString(f)).arg(FlagToString(stateFlags)));
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("SetFlags(%1) -> %2 @ %3:%4")
+        .arg(FlagToString(f)).arg(FlagToString(stateFlags)).arg(file).arg(line));
     WakeEventLoop();
 }
 
-void TVRec::ClearFlags(uint f)
+void TVRec::ClearFlags(uint f, const QString & file, int line)
 {
     QMutexLocker lock(&stateChangeLock);
     stateFlags &= ~f;
-    LOG(VB_RECORD, LOG_INFO, LOC + QString("ClearFlags(%1) -> %2")
-            .arg(FlagToString(f)).arg(FlagToString(stateFlags)));
+    LOG(VB_RECORD, LOG_INFO, LOC + QString("ClearFlags(%1) -> %2 @ %3:%4")
+        .arg(FlagToString(f)).arg(FlagToString(stateFlags)).arg(file).arg(line));
     WakeEventLoop();
 }
 
@@ -4649,7 +4682,7 @@ bool TVRec::CreateLiveTVRingBuffer(const QString & channum)
 
     if (!GetProgramRingBufferForLiveTV(&pginfo, &rb, channum, inputID))
     {
-        ClearFlags(kFlagPendingActions);
+        ClearFlags(kFlagPendingActions, __FILE__, __LINE__);
         ChangeState(kState_None);
         LOG(VB_GENERAL, LOG_ERR, LOC +
             QString("CreateLiveTVRingBuffer(%1) failed").arg(channum));
@@ -4728,7 +4761,7 @@ bool TVRec::SwitchLiveTVRingBuffer(const QString & channum,
         if (discont)
             recorder->CheckForRingBufferSwitch();
         delete pginfo;
-        SetFlags(kFlagRingBufferReady);
+        SetFlags(kFlagRingBufferReady, __FILE__, __LINE__);
     }
     else if (!set_rec)
     {
@@ -4765,7 +4798,7 @@ RecordingInfo *TVRec::SwitchRecordingRingBuffer(const RecordingInfo &rcinfo)
     RecordingInfo   *ri = new RecordingInfo(rcinfo);
     RecordingProfile profile;
 
-    QString pn = load_profile(genOpt.cardtype, NULL, ri, profile);
+    QString pn = LoadProfile(genOpt.cardtype, NULL, ri, profile);
 
     if (pn != recProfileName)
     {
@@ -4796,7 +4829,7 @@ RecordingInfo *TVRec::SwitchRecordingRingBuffer(const RecordingInfo &rcinfo)
     else
     {
         recorder->SetNextRecording(ri, rb);
-        SetFlags(kFlagRingBufferReady);
+        SetFlags(kFlagRingBufferReady, __FILE__, __LINE__);
         recordEndTime = GetRecordEndTime(ri);
         switchingBuffer = true;
         ri->SetRecordingStatus(rsRecording);

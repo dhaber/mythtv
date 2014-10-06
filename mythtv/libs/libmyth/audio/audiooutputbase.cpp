@@ -297,8 +297,8 @@ bool AudioOutputBase::CanPassthrough(int samplerate, int channels,
         return false;
     // Will passthrough if surround audio was defined. Amplifier will
     // do the downmix if required
-    ret &= max_channels >= 6 && channels > 2;
-    // Stereo content will always be decoded so it can later be upmixed
+    bool willupmix = max_channels >= 6 && (channels <= 2 && upmix_default);
+    ret &= !willupmix;
     // unless audio is configured for stereo. We can passthrough otherwise
     ret |= max_channels == 2;
 
@@ -414,13 +414,14 @@ bool AudioOutputBase::IsUpmixing(void)
 bool AudioOutputBase::ToggleUpmix(void)
 {
     // Can only upmix from mono/stereo to 6 ch
-    if (max_channels == 2 || source_channels > 2 || passthru)
+    if (max_channels == 2 || source_channels > 2)
         return false;
 
     upmix_default = !upmix_default;
 
     const AudioSettings settings(format, source_channels, codec,
-                                 source_samplerate, passthru);
+                                 source_samplerate,
+                                 upmix_default ? false : passthru);
     Reconfigure(settings);
     return IsUpmixing();
 }
@@ -430,7 +431,7 @@ bool AudioOutputBase::ToggleUpmix(void)
  */
 bool AudioOutputBase::CanUpmix(void)
 {
-    return !passthru && source_channels <= 2 && max_channels > 2;
+    return source_channels <= 2 && max_channels > 2;
 }
 
 /*
@@ -600,21 +601,27 @@ void AudioOutputBase::Reconfigure(const AudioSettings &orig_settings)
         SetupPassthrough(settings.codec, settings.codec_profile,
                          samplerate_tmp, channels_tmp);
         general_deps = samplerate == samplerate_tmp && channels == channels_tmp;
+        general_deps &= format == output_format && format == FORMAT_S16;
+    }
+    else
+    {
+        general_deps =
+            settings.format == format && lsource_channels == source_channels;
     }
 
     // Check if anything has changed
     general_deps &=
-        settings.format == format &&
         settings.samplerate  == source_samplerate &&
         settings.use_passthru == passthru &&
         lconfigured_channels == configured_channels &&
         lneeds_upmix == needs_upmix && lreenc == reenc &&
-        lsource_channels == source_channels &&
         lneeds_downmix == needs_downmix;
 
     if (general_deps && m_configure_succeeded)
     {
         VBAUDIO("Reconfigure(): No change -> exiting");
+        // if passthrough, source channels may have changed
+        source_channels = lsource_channels;
         return;
     }
 

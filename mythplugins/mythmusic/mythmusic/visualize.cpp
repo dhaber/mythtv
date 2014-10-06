@@ -697,10 +697,13 @@ bool Spectrum::process(VisualNode *node)
 
     for (i = 0; (int)i < rects.size(); i++, w += analyzerBarWidth)
     {
-        tmp = sq(real(lout[index])) + sq(real(lout[FFTW_N - index]));
+        // The 1D output is Hermitian symmetric (Yk = Yn-k) so Yn = Y0 etc.
+        // The dft_r2c_1d plan doesn't output these redundant values
+        // and furthermore they're not allocated in the ctor
+        tmp = 2 * sq(real(lout[index])); // + sq(real(lout[FFTW_N - index]));
         magL = (tmp > 1.) ? (log(tmp) - 22.0) * scaleFactor : 0.;
 
-        tmp = sq(real(rout[index])) + sq(real(rout[FFTW_N - index]));
+        tmp = 2 * sq(real(rout[index])); // + sq(real(rout[FFTW_N - index]));
         magR = (tmp > 1.) ? (log(tmp) - 22.0) * scaleFactor : 0.;
 
         if (magL > size.height() / 2)
@@ -828,7 +831,7 @@ static class SpectrumFactory : public VisFactory
 // NOTE: This visualiser requires mythplugins to be compiled with --enable-fftw
 
 Squares::Squares() :
-    size(0,0), pParent(NULL), fake_height(0), number_of_squares(16)
+    actualSize(0,0), pParent(NULL), fake_height(0), number_of_squares(16)
 {
     fake_height = number_of_squares * analyzerBarWidth;
 }
@@ -841,13 +844,13 @@ void Squares::resize (const QSize &newsize) {
     // Trick the spectrum analyzer into calculating 16 rectangles
     Spectrum::resize (QSize (fake_height, fake_height));
     // We have our own copy, Spectrum has it's own...
-    size = newsize;
+    actualSize = newsize;
 }
 
 void Squares::drawRect(QPainter *p, QRect *rect, int i, int c, int w, int h)
 {
     double r, g, b, per;
-    int correction = (size.width() % rects.size ()) / 2;
+    int correction = (actualSize.width() % rects.size ()) / 2;
     int x = ((i / 2) * w) + correction;
     int y;
 
@@ -880,10 +883,10 @@ void Squares::drawRect(QPainter *p, QRect *rect, int i, int c, int w, int h)
 
 bool Squares::draw(QPainter *p, const QColor &back)
 {
-    p->fillRect (0, 0, size.width (), size.height (), back);
-    int w = size.width () / (rects.size () / 2);
+    p->fillRect (0, 0, actualSize.width(), actualSize.height(), back);
+    int w = actualSize.width() / (rects.size() / 2);
     int h = w;
-    int center = size.height () / 2;
+    int center = actualSize.height() / 2;
 
     QRect *rectsp = rects.data();
     for (uint i = 0; i < (uint)rects.size(); i++)
@@ -1137,10 +1140,7 @@ bool Piano::process_all_types(VisualNode *node, bool /*this_will_be_displayed*/)
             LOG(VB_GENERAL, LOG_DEBUG, QString("Piano : Already seen node offset=%1, returning without processing").arg(node->offset));
             return allZero; // Nothing to see here - the server can stop if it wants to
         }
-    }
 
-    if (node)
-    {
         //LOG(VB_GENERAL, LOG_DEBUG, QString("Piano : Processing node offset=%1, size=%2").arg(node->offset).arg(node->length));
         n = node->length;
 
@@ -1236,8 +1236,12 @@ bool Piano::process_all_types(VisualNode *node, bool /*this_will_be_displayed*/)
         }
     }
 
-    // All done now - record that we've done this offset
-    offset_processed = node->offset;
+    if (node)
+    {
+        // All done now - record that we've done this offset
+        offset_processed = node->offset;
+    }
+
     return allZero;
 }
 

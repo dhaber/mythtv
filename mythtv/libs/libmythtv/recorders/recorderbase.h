@@ -17,6 +17,11 @@
 #include "mythtimer.h"
 #include "mythtvexp.h"
 
+extern "C"
+{
+#include "libavcodec/avcodec.h" // for Video/Audio codec enums
+}
+
 class FireWireDBOptions;
 class GeneralDBOptions;
 class RecordingProfile;
@@ -218,7 +223,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
 
     /** \brief Save the seektable to the DB
      */
-    void SavePositionMap(bool force = false);
+    void SavePositionMap(bool force = false, bool finished = false);
 
     enum AspectRatio {
         ASPECT_UNKNOWN       = 0x00,
@@ -251,7 +256,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     virtual void SetRecordingStatus(RecStatusType status,
                                     const QString& file, int line);
     virtual void ClearStatistics(void);
-    virtual void FinishRecording(void) = 0;
+    virtual void FinishRecording(void);
     virtual void StartNewFile(void) { }
 
     /** \brief Set seektable type
@@ -270,6 +275,14 @@ class MTV_PUBLIC RecorderBase : public QRunnable
      */
     void FrameRateChange(uint framerate, long long frame);
 
+    /** \brief Note a change in video codec
+     */
+    void VideoCodecChange(AVCodecID vCodec);
+
+    /** \brief Note a change in audio codec
+     */
+    void AudioCodecChange(AVCodecID aCodec);
+
     /** \brief Note the total duration in the recordedmark table
      */
     void SetDuration(uint64_t duration);
@@ -282,6 +295,9 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     RingBuffer    *ringBuffer;
     bool           weMadeBuffer;
 
+
+    AVCodecID      m_primaryVideoCodec;
+    AVCodecID      m_primaryAudioCodec;
     QString        videocodec;
     QString        videodevice;
 
@@ -289,7 +305,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     bool           ntsc_framerate;
     double         video_frame_rate;
 
-    uint           m_videoAspect; // AspectRatio
+    uint           m_videoAspect; // AspectRatio (1 = 4:3, 2 = 16:9
 
     uint           m_videoHeight;
     uint           m_videoWidth;

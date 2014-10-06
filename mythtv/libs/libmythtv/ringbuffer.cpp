@@ -689,7 +689,7 @@ void RingBuffer::Start(void)
 
     MThread::start();
 
-    while (readaheadrunning && !reallyrunning)
+    while (!readaheadrunning && !reallyrunning)
         generalWait.wait(&rwlock);
 
     rwlock.unlock();
@@ -1355,7 +1355,7 @@ int RingBuffer::ReadDirect(void *buf, int count, bool peek)
         if (peek)
         {
             // seek should always succeed since we were at this position
-            long long cur_pos;
+            long long cur_pos = -1;
             if (remotefile)
                 cur_pos = remotefile->Seek(old_pos, SEEK_SET);
             else if (fd2 >= 0)
@@ -1426,8 +1426,7 @@ int RingBuffer::ReadPriv(void *buf, int count, bool peek)
         return -1;
     }
 
-    if (!readInternalMode &&
-        (request_pause || stopreads || !readaheadrunning || (ignorereadpos>=0)))
+    if (request_pause || stopreads || !readaheadrunning || (ignorereadpos>=0))
     {
         rwlock.unlock();
         rwlock.lockForWrite();

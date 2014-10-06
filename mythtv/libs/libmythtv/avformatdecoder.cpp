@@ -1286,7 +1286,7 @@ int AvFormatDecoder::OpenFile(RingBuffer *rbuffer, bool novideo,
     if (m_playbackinfo)
     {
         dur = m_playbackinfo->QueryTotalDuration();
-        dur /= 1000000;
+        dur /= 1000;
     }
 
     if (dur == 0)
@@ -3719,20 +3719,23 @@ bool AvFormatDecoder::ProcessVideoFrame(AVStream *stream, AVFrame *mpa_pic)
             .arg(mpa_pic->reordered_opaque).arg(pts).arg(temppts).arg(lastvpts)
             .arg((pts != temppts) ? " fixup" : ""));
 
-    picframe->interlaced_frame = mpa_pic->interlaced_frame;
-    picframe->top_field_first  = mpa_pic->top_field_first;
-    picframe->repeat_pict      = mpa_pic->repeat_pict;
-    picframe->disp_timecode    = NormalizeVideoTimecode(stream, temppts);
-    picframe->frameNumber      = framesPlayed;
-    picframe->aspect           = current_aspect;
-    picframe->dummy            = 0;
-    picframe->directrendering  = directrendering ? 1 : 0;
+    if (picframe)
+    {
+        picframe->interlaced_frame = mpa_pic->interlaced_frame;
+        picframe->top_field_first  = mpa_pic->top_field_first;
+        picframe->repeat_pict      = mpa_pic->repeat_pict;
+        picframe->disp_timecode    = NormalizeVideoTimecode(stream, temppts);
+        picframe->frameNumber      = framesPlayed;
+        picframe->aspect           = current_aspect;
+        picframe->dummy            = 0;
+        picframe->directrendering  = directrendering ? 1 : 0;
 
-    m_parent->ReleaseNextVideoFrame(picframe, temppts);
+        m_parent->ReleaseNextVideoFrame(picframe, temppts);
+    }
 
     decoded_video_frame = picframe;
     gotVideoFrame = 1;
-    framesPlayed++;
+    ++framesPlayed;
 
     lastvpts = temppts;
     if (!firstvpts && firstvptsinuse)
@@ -4647,6 +4650,17 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
         avcodeclock->lock();
         data_size = 0;
 
+        // Check if the number of channels or sampling rate have changed
+        if (ctx->sample_rate != audioOut.sample_rate ||
+            ctx->channels    != audioOut.channels)
+        {
+            LOG(VB_GENERAL, LOG_INFO, LOC + "Audio stream changed");
+            currentTrack[kTrackTypeAudio] = -1;
+            selectedTrack[kTrackTypeAudio].av_stream_index = -1;
+            audIdx = -1;
+            AutoSelectAudioTrack();
+        }
+
         if (audioOut.do_passthru)
         {
             if (!already_decoded)
@@ -4657,7 +4671,9 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
                     decoded_size = data_size;
                 }
                 else
+                {
                     decoded_size = -1;
+                }
             }
             memcpy(audioSamples, tmp_pkt.data, tmp_pkt.size);
             data_size = tmp_pkt.size;
@@ -4672,8 +4688,6 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
                 {
                     ctx->request_channel_layout =
                         av_get_default_channel_layout(m_audio->GetMaxChannels());
-                    if (ctx->codec_id == AV_CODEC_ID_AC3)
-                        ctx->channels = m_audio->GetMaxChannels();
                 }
                 else
                 {
@@ -4682,19 +4696,6 @@ bool AvFormatDecoder::ProcessAudioPacket(AVStream *curstream, AVPacket *pkt,
 
                 ret = m_audio->DecodeAudio(ctx, audioSamples, data_size, &tmp_pkt);
                 decoded_size = data_size;
-            }
-
-            // When decoding some audio streams the number of
-            // channels, etc isn't known until we try decoding it.
-            if (ctx->sample_rate != audioOut.sample_rate ||
-                ctx->channels    != audioOut.channels)
-            {
-                LOG(VB_GENERAL, LOG_INFO, LOC + "Audio stream changed");
-                currentTrack[kTrackTypeAudio] = -1;
-                selectedTrack[kTrackTypeAudio].av_stream_index = -1;
-                audIdx = -1;
-                AutoSelectAudioTrack();
-                data_size = 0;
             }
         }
         avcodeclock->unlock();
@@ -5143,11 +5144,6 @@ void *AvFormatDecoder::GetVideoCodecPrivate(void)
 
 void AvFormatDecoder::SetDisablePassThrough(bool disable)
 {
-    // can only disable never re-enable as once
-    // timestretch is on its on for the session
-    if (disable_passthru)
-        return;
-
     if (selectedTrack[kTrackTypeAudio].av_stream_index < 0)
     {
         disable_passthru = disable;
@@ -5161,9 +5157,15 @@ void AvFormatDecoder::SetDisablePassThrough(bool disable)
         LOG(VB_AUDIO, LOG_INFO, LOC + msg + " pass through");
 
         // Force pass through state to be reanalyzed
-        QMutexLocker locker(avcodeclock);
-        SetupAudioStream();
+        ForceSetupAudioStream();
     }
+}
+
+void AvFormatDecoder::ForceSetupAudioStream(void)
+{
+    QMutexLocker locker(avcodeclock);
+
+    SetupAudioStream();
 }
 
 inline bool AvFormatDecoder::DecoderWillDownmix(const AVCodecContext *ctx)

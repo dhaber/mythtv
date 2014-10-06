@@ -23,6 +23,11 @@
 #include "compat.h"
 #include "mythdate.h"
 
+#if !defined(QT_NO_IPV6)
+static QPair<QHostAddress, int> kLinkLocal6 =
+                            QHostAddress::parseSubnet("fe80::/10");
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -104,8 +109,22 @@ void UPnpSearchTask::SendMsg( MSocketDevice  *pSocket,
     {
         QString ipaddress;
 
+
+        // Avoid announcing the localhost address
+        if (*it == QHostAddress::LocalHost ||
+            *it == QHostAddress::LocalHostIPv6)
+            continue;
+
+        // Descope the Link Local address. The scope is only valid
+        // on the server sending the announcement, not the clients
+        // that receive it
+        if ((*it).isInSubnet(kLinkLocal6))
+        {
+            ipaddress = "[" + (*it).toString()
+                        .remove('%').remove((*it).scopeId()) + "]";
+        }            
         // If this looks like an IPv6 address, then enclose it in []'s
-        if ((*it).protocol() == QAbstractSocket::IPv6Protocol)
+        else if ((*it).protocol() == QAbstractSocket::IPv6Protocol)
             ipaddress = "[" + (*it).toString() + "]";
         else
             ipaddress = (*it).toString();

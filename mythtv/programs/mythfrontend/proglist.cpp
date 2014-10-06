@@ -29,7 +29,7 @@ using namespace std;
 
 ProgLister::ProgLister(MythScreenStack *parent, ProgListType pltype,
                        const QString &view, const QString &extraArg,
-                       const QDateTime selectedTime) :
+                       const QDateTime &selectedTime) :
     ScheduleCommon(parent, "ProgLister"),
     m_type(pltype),
     m_recid(0),
@@ -1494,7 +1494,7 @@ void ProgLister::UpdateDisplay(const ProgramInfo *selected)
         RestoreSelection(selected, offset);
     else if (m_selectedTime.isValid())
     {
-        int i;
+        uint i;
         for (i = 0; i < m_itemList.size(); ++i)
         {
             if (m_selectedTime <= m_itemList[i]->GetScheduledStartTime())

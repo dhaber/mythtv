@@ -662,7 +662,7 @@ QString MythContextPrivate::TestDBconnection(void)
     // No need to ping myself
     if ((host == "localhost") ||
         (host == "127.0.0.1") ||
-        (host == gCoreContext->GetHostName()))
+        gCoreContext->IsThisHost(host))
         doPing = false;
 
     // If WOL is setup, the backend might be sleeping:
@@ -974,8 +974,8 @@ bool MythContextPrivate::UPnPconnect(const DeviceLocation *backend,
     // This backend may have a local DB with the default user/pass/DBname.
     // For whatever reason, we have failed to get anything back via UPnP,
     // so we might as well try the database directly as a last resort.
-    URL.remove("http://");
-    URL.remove(QRegExp("[:/].*"));
+    QUrl theURL(URL);
+    URL = theURL.host();
     if (URL.isEmpty())
         return false;
 
