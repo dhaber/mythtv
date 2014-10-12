@@ -4131,19 +4131,16 @@ static int init_jobs(const RecordingInfo *rec, RecordingProfile &profile,
         JobQueue::RemoveJobsFromMask(JOB_TRANSCODE, jobs);
 
     bool ml = JobQueue::JobIsInMask(JOB_METADATA, jobs);
-    LOG(VB_GENERAL, LOG_INFO, QString("Run AutoMetadata for %1 : %2").arg(rec->GetTitle()).arg(ml));
     if (ml)
     {
         // When allowed, metadata lookup should occur at the
         // start of a recording to make the additional info
         // available immediately (and for use in future jobs).
         QString host = (on_host) ? gCoreContext->GetHostName() : "";
-        bool queued = JobQueue::QueueJob(JOB_METADATA,
+        JobQueue::QueueJob(JOB_METADATA,
                            rec->GetChanID(),
                            rec->GetRecordingStartTime(), "", "",
                            host, JOB_LIVE_REC);
-
-        LOG(VB_GENERAL, LOG_INFO, QString("Queued Auto Metadata Job for %1 : %2").arg(rec->GetTitle()).arg(queued));
 
         // don't do regular metadata lookup, we won't need it.
         JobQueue::RemoveJobsFromMask(JOB_METADATA, jobs);
