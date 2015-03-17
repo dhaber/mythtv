@@ -63,7 +63,7 @@ class ZMLivePlayer : public MythScreenType
     Q_OBJECT
 
   public:
-    ZMLivePlayer(MythScreenStack *parent);
+    ZMLivePlayer(MythScreenStack *parent, bool isMiniPlayer = false);
     ~ZMLivePlayer();
 
     bool Create(void);
@@ -72,12 +72,12 @@ class ZMLivePlayer : public MythScreenType
 
     void setMonitorLayout(int layout, bool restore = false);
 
-  private slots:
+  protected slots:
     void updateFrame(void);
-    bool initMonitorLayout(void);
+    bool initMonitorLayout(int layout);
     void getMonitorList(void);
 
-  private:
+  protected:
     MythUIType* GetMythUIType(const QString &name, bool optional = false);
     bool hideAll();
     void stopPlayers(void);
@@ -89,7 +89,9 @@ class ZMLivePlayer : public MythScreenType
     int                   m_monitorCount;
 
     vector<Player *>     *m_players;
-    vector<Monitor *>    *m_monitors;
+
+    bool                  m_isMiniPlayer;
+    int                   m_alarmMonitor;
 };
 
 #endif

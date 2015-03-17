@@ -19,24 +19,27 @@
 #include <QEventLoop>
 #include <QTimer>
 
+// mythbase headers
 #include "mythdirs.h"
 #include "mythlogging.h"
 #include "mythdownloadmanager.h"
 #include "oldsettings.h"
+#include "mythdb.h"
+#include "remotefile.h"
+#include "mythcorecontext.h"
+#include "storagegroup.h"
+#include "mythdate.h"
+#include "mthreadpool.h"
+
+// mythui headers
+#include "mythprogressdialog.h"
+#include "mythimage.h"
 #include "screensaver.h"
 #include "mythmainwindow.h"
-#include "mythdb.h"
 #include "themeinfo.h"
 #include "x11colors.h"
 #include "mythdisplay.h"
 #include "DisplayRes.h"
-#include "mythprogressdialog.h"
-#include "mythimage.h"
-#include "remotefile.h"
-#include "mythcorecontext.h"
-#include "mthreadpool.h"
-#include "storagegroup.h"
-#include "mythdate.h"
 
 #define LOC      QString("MythUIHelper: ")
 
@@ -145,6 +148,8 @@ public:
     MythUIHelper *parent;
 
     int m_fontStretch;
+
+    QStringList m_searchPaths;
 };
 
 int MythUIHelperPrivate::x_override = -1;
@@ -499,9 +504,13 @@ void MythUIHelper::LoadQtConfig(void)
     d->StoreGUIsettings();
 
     d->m_themepathname = themedir + '/';
+    d->m_searchPaths.clear();
 
-    themedir += "/qtlook.txt";
-    d->m_qtThemeSettings->ReadSettings(themedir);
+    QString qtlook = "qtlook.txt";
+    if (!FindThemeFile(qtlook))
+        LOG(VB_GENERAL, LOG_ERR, LOC + "Failed to find any qtlook.txt in the theme search path");
+
+    d->m_qtThemeSettings->ReadSettings(qtlook);
     d->m_themeloaded = false;
 
     themename = GetMythDB()->GetSetting("MenuTheme", "defaultmenu");
@@ -1015,7 +1024,7 @@ bool MythUIHelper::IsGeometryOverridden(void)
  *  \param themename The theme name.
  *  \return Path to theme or empty string.
  */
-QString MythUIHelper::FindThemeDir(const QString &themename)
+QString MythUIHelper::FindThemeDir(const QString &themename, bool doFallback)
 {
     QString testdir;
     QDir dir;
@@ -1038,6 +1047,9 @@ QString MythUIHelper::FindThemeDir(const QString &themename)
         LOG(VB_GENERAL, LOG_WARNING, LOC + QString("No theme dir: '%1'")
             .arg(dir.absolutePath()));
     }
+
+    if (!doFallback)
+        return QString();
 
     testdir = GetThemesParentDir() + DEFAULT_UI_THEME;
     dir.setPath(testdir);
@@ -1135,16 +1147,60 @@ QString MythUIHelper::GetThemeName(void)
 
 QStringList MythUIHelper::GetThemeSearchPath(void)
 {
-    QStringList searchpath;
+    if (!d->m_searchPaths.isEmpty())
+        return d->m_searchPaths;
 
-    searchpath.append(GetThemeDir());
+    // traverse up the theme inheritance list adding their location to the search path
+    QList<ThemeInfo> themeList = GetThemes(THEME_UI);
+    bool found = true;
+    QString themeName = d->m_themename;
+    QString baseName;
+    QString dirName;
+
+    while (found && !themeName.isEmpty())
+    {
+        // find the ThemeInfo for this theme
+        found = false;
+        baseName = "";
+        dirName = "";
+
+        for (int x = 0; x < themeList.count(); x++)
+        {
+            if (themeList.at(x).GetName() == themeName)
+            {
+                found = true;
+                baseName = themeList.at(x).GetBaseTheme();
+                dirName = themeList.at(x).GetDirectoryName();
+                break;
+            }
+        }
+
+        // try to find where the theme is installed
+        if (found)
+        {
+            QString themedir = FindThemeDir(dirName, false);
+            if (!themedir.isEmpty())
+            {
+                LOG(VB_GUI, LOG_INFO, LOC + QString("Adding path '%1' to theme search paths").arg(themedir));
+                d->m_searchPaths.append(themedir + '/');
+            }
+            else
+                LOG(VB_GENERAL, LOG_ERR, LOC + QString("Could not find ui theme location: %1").arg(themedir));
+        }
+        else
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + QString("Could not find inherited theme: %1").arg(themeName));
+        }
+
+        themeName = baseName;
+    }
 
     if (d->m_isWide)
-        searchpath.append(GetThemesParentDir() + "default-wide/");
+        d->m_searchPaths.append(GetThemesParentDir() + "default-wide/");
 
-    searchpath.append(GetThemesParentDir() + "default/");
-    searchpath.append("/tmp/");
-    return searchpath;
+    d->m_searchPaths.append(GetThemesParentDir() + "default/");
+    d->m_searchPaths.append("/tmp/");
+    return d->m_searchPaths;
 }
 
 QList<ThemeInfo> MythUIHelper::GetThemes(ThemeType type)
@@ -1241,8 +1297,10 @@ void MythUIHelper::ThemeWidget(QWidget *widget)
 
     if (!d->m_qtThemeSettings->GetSetting("BackgroundPixmap").isEmpty())
     {
-        QString pmapname = d->m_themepathname +
-                           d->m_qtThemeSettings->GetSetting("BackgroundPixmap");
+        QString pmapname = d->m_qtThemeSettings->GetSetting("BackgroundPixmap");
+        if (!FindThemeFile(pmapname))
+            LOG(VB_GENERAL, LOG_ERR, QString(LOC + "Failed to find '%1' in the theme search path")
+                .arg(d->m_qtThemeSettings->GetSetting("BackgroundPixmap")));
 
         bgpixmap = LoadScalePixmap(pmapname);
 
@@ -1255,8 +1313,11 @@ void MythUIHelper::ThemeWidget(QWidget *widget)
     else if (!d->m_qtThemeSettings
              ->GetSetting("TiledBackgroundPixmap").isEmpty())
     {
-        QString pmapname = d->m_themepathname +
-                           d->m_qtThemeSettings->GetSetting("TiledBackgroundPixmap");
+        QString pmapname = d->m_qtThemeSettings->GetSetting("TiledBackgroundPixmap");
+
+        if (!FindThemeFile(pmapname))
+            LOG(VB_GENERAL, LOG_ERR, QString(LOC + "Failed to find '%1' in the theme search path")
+                .arg(d->m_qtThemeSettings->GetSetting("TiledBackgroundPixmap")));
 
         int width, height;
         float wmult, hmult;

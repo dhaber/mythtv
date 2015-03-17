@@ -16,6 +16,7 @@
 
 //zoneminder
 #include "zmclient.h"
+#include "zmminiplayer.h"
 
 // the protocol version we understand
 #define ZM_PROTOCOL_VERSION "11"
@@ -24,24 +25,27 @@
 
 ZMClient::ZMClient()
     : QObject(NULL),
+      m_listLock(QMutex::Recursive),
       m_socket(NULL),
       m_socketLock(QMutex::Recursive),
       m_hostname("localhost"),
       m_port(6548),
       m_bConnected(false),
       m_retryTimer(new QTimer(this)),
-      m_zmclientReady(false)
+      m_zmclientReady(false),
+      m_isMiniPlayerEnabled(true)
 {
     setObjectName("ZMClient");
     connect(m_retryTimer, SIGNAL(timeout()),   this, SLOT(restartConnection()));
+
+    gCoreContext->addListener(this);
 }
 
-bool  ZMClient::m_server_unavailable = false;
-class ZMClient *ZMClient::m_zmclient = NULL;
+ZMClient *ZMClient::m_zmclient = NULL;
 
-class ZMClient *ZMClient::get(void)
+ZMClient *ZMClient::get(void)
 {
-    if (m_zmclient == NULL && m_server_unavailable == false)
+    if (!m_zmclient)
         m_zmclient = new ZMClient;
     return m_zmclient;
 }
@@ -51,24 +55,18 @@ bool ZMClient::setupZMClient(void)
     QString zmserver_host;
     int zmserver_port;
 
-    if (m_zmclient)
-    {
-        delete m_zmclient;
-        m_zmclient = NULL;
-        m_server_unavailable = false;
-    }
+    zmserver_host = gCoreContext->GetSetting("ZoneMinderServerIP", "");
+    zmserver_port = gCoreContext->GetNumSetting("ZoneMinderServerPort", -1);
 
-    zmserver_host = gCoreContext->GetSetting("ZoneMinderServerIP", "localhost");
-    zmserver_port = gCoreContext->GetNumSetting("ZoneMinderServerPort", 6548);
-
-    class ZMClient *zmclient = ZMClient::get();
-    if (zmclient->connectToHost(zmserver_host, zmserver_port) == false)
+    // don't try to connect if we don't have a valid host or port
+    if (zmserver_host.isEmpty() || zmserver_port == -1)
     {
-        delete m_zmclient;
-        m_zmclient = NULL;
-        m_server_unavailable = false;
+        LOG(VB_GENERAL, LOG_INFO, "ZMClient: no valid IP or port found for mythzmserver");
         return false;
     }
+
+    if (!ZMClient::get()->connectToHost(zmserver_host, zmserver_port))
+        return false;
 
     return true;
 }
@@ -87,7 +85,7 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
         ++count;
 
         LOG(VB_GENERAL, LOG_INFO,
-            QString("Connecting to zm server: %1:%2 (try %3 of 10)")
+            QString("Connecting to zm server: %1:%2 (try %3 of 2)")
                 .arg(m_hostname).arg(m_port).arg(count));
         if (m_socket)
         {
@@ -96,7 +94,7 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
         }
 
         m_socket = new MythSocket();
-        //m_socket->setCallbacks(this);
+
         if (!m_socket->ConnectToHost(m_hostname, m_port))
         {
             m_socket->DecrRef();
@@ -108,14 +106,18 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
             m_bConnected = true;
         }
 
-        usleep(500000);
+        usleep(999999);
 
-    } while (count < 10 && !m_bConnected);
+    } while (count < 2 && !m_bConnected);
 
     if (!m_bConnected)
     {
-        ShowOkPopup(tr("Cannot connect to the mythzmserver - Is it running? "
-                       "Have you set the correct IP and port in the settings?"));
+        if (GetNotificationCenter())
+        {
+            ShowNotificationError("Can't connect to the mythzmserver" , "MythZoneMinder",
+                               tr("Is it running? "
+                                  "Have you set the correct IP and port in the settings?"));
+        }
     }
 
     // check the server uses the same protocol as us
@@ -125,8 +127,8 @@ bool ZMClient::connectToHost(const QString &lhostname, unsigned int lport)
         m_bConnected = false;
     }
 
-    if (m_bConnected == false)
-        m_server_unavailable = true;
+    if (m_bConnected)
+        doGetMonitorList();
 
     return m_bConnected;
 }
@@ -233,7 +235,6 @@ void ZMClient::restartConnection()
     // Reset the flag
     m_zmclientReady = false;
     m_bConnected = false;
-    m_server_unavailable = false;
 
     // Retry to connect. . .  Maybe the user restarted mythzmserver?
     connectToHost(m_hostname, m_port);
@@ -252,6 +253,8 @@ void ZMClient::shutdown()
 
 ZMClient::~ZMClient()
 {
+    gCoreContext->removeListener(this);
+
     m_zmclient = NULL;
 
     if (m_socket)
@@ -283,10 +286,8 @@ void ZMClient::getServerStatus(QString &status, QString &cpuStat, QString &diskS
     diskStat = strList[3];
 }
 
-void ZMClient::getMonitorStatus(vector<Monitor*> *monitorList)
+void ZMClient::updateMonitorStatus(void)
 {
-    monitorList->clear();
-
     QStringList strList("GET_MONITOR_STATUS");
     if (!sendReceiveStringList(strList))
         return;
@@ -307,18 +308,68 @@ void ZMClient::getMonitorStatus(vector<Monitor*> *monitorList)
         return;
     }
 
+    QMutexLocker locker(&m_listLock);
+
     for (int x = 0; x < monitorCount; x++)
     {
-        Monitor *item = new Monitor;
-        item->id = strList[x * 7 + 2].toInt();
-        item->name = strList[x * 7 + 3];
-        item->zmcStatus = strList[x * 7 + 4];
-        item->zmaStatus = strList[x * 7 + 5];
-        item->events = strList[x * 7 + 6].toInt();
-        item->function = strList[x * 7 + 7];
-        item->enabled = strList[x * 7 + 8].toInt();
-        monitorList->push_back(item);
+        int monID = strList[x * 7 + 2].toInt();
+
+        if (m_monitorMap.contains(monID))
+        {
+            Monitor *mon = m_monitorMap.find(monID).value();
+            mon->name = strList[x * 7 + 3];
+            mon->zmcStatus = strList[x * 7 + 4];
+            mon->zmaStatus = strList[x * 7 + 5];
+            mon->events = strList[x * 7 + 6].toInt();
+            mon->function = strList[x * 7 + 7];
+            mon->enabled = strList[x * 7 + 8].toInt();
+        }
     }
+}
+
+bool ZMClient::updateAlarmStates(void)
+{
+    QStringList strList("GET_ALARM_STATES");
+    if (!sendReceiveStringList(strList))
+        return false;
+
+    // sanity check
+    if (strList.size() < 2)
+    {
+        LOG(VB_GENERAL, LOG_ERR, "ZMClient response too short");
+        return false;
+    }
+
+    bool bOK;
+    int monitorCount = strList[1].toInt(&bOK);
+    if (!bOK)
+    {
+        LOG(VB_GENERAL, LOG_ERR,
+            "ZMClient received bad int in getAlarmStates()");
+        return false;
+    }
+
+    QMutexLocker locker(&m_listLock);
+
+    bool changed = false;
+    for (int x = 0; x < monitorCount; x++)
+    {
+        int monID = strList[x * 2 + 2].toInt();
+        int state = strList[x * 2 + 3].toInt();
+
+        if (m_monitorMap.contains(monID))
+        {
+            Monitor *mon = m_monitorMap.find(monID).value();
+            if (mon->state != state)
+            {
+                // alarm state has changed for this monitor
+                mon->state = (State)state;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
 }
 
 void ZMClient::getEventList(const QString &monitorName, bool oldestFirst,
@@ -747,9 +798,41 @@ void ZMClient::getCameraList(QStringList &cameraList)
     }
 }
 
-void ZMClient::getMonitorList(vector<Monitor*> *monitorList)
+int ZMClient::getMonitorCount(void)
 {
-    monitorList->clear();
+    QMutexLocker locker(&m_listLock);
+    return m_monitorList.count();
+}
+
+Monitor *ZMClient::getMonitorAt(int pos)
+{
+    QMutexLocker locker(&m_listLock);
+
+    if (pos < 0 || pos > m_monitorList.count() - 1)
+        return NULL;
+
+    return m_monitorList.at(pos);
+}
+
+Monitor* ZMClient::getMonitorByID(int monID)
+{
+    QMutexLocker locker(&m_listLock);
+
+    if (m_monitorMap.contains(monID))
+        return m_monitorMap.find(monID).value();
+
+    return NULL;
+}
+
+void ZMClient::doGetMonitorList(void)
+{
+    QMutexLocker locker(&m_listLock);
+
+    for (int x = 0; x < m_monitorList.count(); x++)
+        delete m_monitorList.at(x);
+
+    m_monitorList.clear();
+    m_monitorMap.clear();
 
     QStringList strList("GET_MONITOR_LIST");
     if (!sendReceiveStringList(strList))
@@ -780,6 +863,10 @@ void ZMClient::getMonitorList(vector<Monitor*> *monitorList)
         return;
     }
 
+    // get list of monitor id's that need monitoring
+    QString s = gCoreContext->GetSetting("ZoneMinderNotificationMonitors");
+    QStringList notificationMonitors = s.split(",");
+
     for (int x = 0; x < monitorCount; x++)
     {
         Monitor *item = new Monitor;
@@ -792,7 +879,10 @@ void ZMClient::getMonitorList(vector<Monitor*> *monitorList)
         item->zmaStatus = "";
         item->events = 0;
         item->status = "";
-        monitorList->push_back(item);
+        item->showNotifications = notificationMonitors.contains(QString::number(item->id));
+
+        m_monitorList.append(item);
+        m_monitorMap.insert(item->id, item);
 
         LOG(VB_GENERAL, LOG_NOTICE,
                 QString("Monitor: %1 (%2) is using %3 bytes per pixel")
@@ -809,4 +899,59 @@ void ZMClient::setMonitorFunction(const int monitorID, const QString &function, 
 
     if (!sendReceiveStringList(strList))
         return;
+}
+
+void ZMClient::saveNotificationMonitors(void)
+{
+    QString s;
+
+    for (int x = 0; x < m_monitorList.count(); x++)
+    {
+        Monitor *mon = m_monitorList.at(x);
+        if (!s.isEmpty())
+            s += QString(",%1").arg(mon->id);
+        else
+            s = QString("%1").arg(mon->id);
+    }
+
+    gCoreContext->SaveSetting("ZoneMinderNotificationMonitors", s);
+}
+
+void ZMClient::customEvent (QEvent* event)
+{
+    if (event->type() == MythEvent::MythEventMessage)
+    {
+        MythEvent *me = dynamic_cast<MythEvent*>(event);
+
+        if (!me)
+            return;
+
+        if (me->Message().startsWith("ZONEMINDER_NOTIFICATION"))
+        {
+            QStringList list = me->Message().simplified().split(' ');
+
+            if (list.size() < 2)
+                return;
+
+            int monID = list[1].toInt();
+            showMiniPlayer(monID);
+        }
+    }
+
+    QObject::customEvent(event);
+}
+
+void ZMClient::showMiniPlayer(int monitorID)
+{
+    if (!isMiniPlayerEnabled())
+        return;
+
+    MythScreenStack *popupStack = GetMythMainWindow()->GetStack("popup stack");
+
+    ZMMiniPlayer *miniPlayer = new ZMMiniPlayer(popupStack);
+
+    miniPlayer->setAlarmMonitor(monitorID);
+
+    if (miniPlayer->Create())
+        popupStack->AddScreen(miniPlayer);
 }

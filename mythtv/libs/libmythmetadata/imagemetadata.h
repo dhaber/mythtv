@@ -76,12 +76,13 @@ public:
     int         GetZoom()   const   { return m_zoom; }
     int         GetOrientation();
     void        SetAngle(int);
-    void        SetZoom(int);
+    void        SetZoom(int, bool);
     void        SetOrientation(int, bool);
 
     // Internal thumbnail information
     QString         m_thumbPath;
     QList<QString> *m_thumbFileNameList;
+    QList<int>      m_thumbFileIdList;
 
 private:
     int         m_zoom;

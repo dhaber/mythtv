@@ -1560,7 +1560,7 @@ static bool WasAutomaticStart(void)
                     ProgramList::const_iterator it = progList.begin();
                     for (; it != progList.end(); ++it)
                     {
-                        if (((*it)->GetRecordingStatus() == rsWillRecord) &&
+                        if (((*it)->GetRecordingStatus() == RecStatus::WillRecord) &&
                             ((*it)->GetHostname() == hostname) &&
                             (nextRecordingStart.isNull() ||
                              nextRecordingStart > (*it)->GetRecordingStartTime()))
@@ -1627,6 +1627,9 @@ int main(int argc, char **argv)
     // accelerated Flash playback to work without causing mythfrontend to abort.
     QApplication::setAttribute(Qt::AA_X11InitThreads);
 #endif
+#if QT_VERSION >= 0x050300
+    QApplication::setSetuidAllowed(true);
+#endif
     new QApplication(argc, argv);
     QCoreApplication::setApplicationName(MYTH_APPNAME_MYTHFRONTEND);
 
@@ -1683,6 +1686,7 @@ int main(int argc, char **argv)
         LOG(VB_GENERAL, LOG_ERR, "Failed to init MythContext, exiting.");
         return GENERIC_EXIT_NO_MYTHCONTEXT;
     }
+    gCoreContext->SetAsFrontend(true);
 
     cmdline.ApplySettingsOverride();
 

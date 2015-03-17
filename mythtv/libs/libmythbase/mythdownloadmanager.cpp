@@ -14,6 +14,8 @@
 
 #include "stdlib.h"
 
+#include <unistd.h> // for usleep()
+
 // libmythbase
 #include "compat.h"
 #include "mythcorecontext.h"
@@ -312,7 +314,10 @@ void MythDownloadManager::run(void)
             m_downloadQueue.pop_front();
 
             if (!dlInfo)
+            {
+                m_infoLock->unlock();
                 continue;
+            }
 
             QUrl qurl(dlInfo->m_url);
             if (m_downloadInfos.contains(qurl.toString()))
@@ -450,7 +455,11 @@ void MythDownloadManager::queueDownload(QNetworkRequest *req,
             .arg(req->url().toString()).arg((long long)data)
             .arg((long long)caller));
 
-    queueItem(req->url().toString(), req, QString(), data, caller);
+    queueItem(req->url().toString(), req, QString(), data, caller,
+              kRequestGet,
+              (QNetworkRequest::AlwaysNetwork == req->attribute(
+               QNetworkRequest::CacheLoadControlAttribute,
+               QNetworkRequest::PreferNetwork).toInt()));
 }
 
 /** \brief Downloads a URL to a file in blocking mode.
@@ -522,7 +531,11 @@ bool MythDownloadManager::download(QNetworkRequest *req, QByteArray *data)
 {
     LOG(VB_FILE, LOG_DEBUG, LOC + QString("download('%1', '%2')")
             .arg(req->url().toString()).arg((long long)data));
-    return processItem(req->url().toString(), req, QString(), data);
+    return processItem(req->url().toString(), req, QString(), data,
+                       kRequestGet,
+                       (QNetworkRequest::AlwaysNetwork == req->attribute(
+                        QNetworkRequest::CacheLoadControlAttribute,
+                        QNetworkRequest::PreferNetwork).toInt()));
 }
 
 /** \brief Downloads a URL to a file in blocking mode.
@@ -583,7 +596,11 @@ void MythDownloadManager::queuePost(QNetworkRequest *req,
     }
 
     queueItem(req->url().toString(), req, QString(), data, caller,
-              kRequestPost);
+              kRequestPost,
+              (QNetworkRequest::AlwaysNetwork == req->attribute(
+               QNetworkRequest::CacheLoadControlAttribute,
+               QNetworkRequest::PreferNetwork).toInt()));
+
 }
 
 /** \brief Posts data to a url via the QNetworkAccessManager
@@ -622,7 +639,11 @@ bool MythDownloadManager::post(QNetworkRequest *req, QByteArray *data)
     }
 
     return processItem(req->url().toString(), req, QString(), data,
-                       kRequestPost);
+                       kRequestPost,
+                       (QNetworkRequest::AlwaysNetwork == req->attribute(
+                        QNetworkRequest::CacheLoadControlAttribute,
+                        QNetworkRequest::PreferNetwork).toInt()));
+
 }
 
 /** \brief Posts data to a url via the QNetworkAccessManager
@@ -681,7 +702,12 @@ void MythDownloadManager::downloadQNetworkRequest(MythDownloadInfo *dlInfo)
     else
         request.setUrl(qurl);
 
-    if (!dlInfo->m_reload)
+    if (dlInfo->m_reload)
+    {
+        request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                             QNetworkRequest::AlwaysNetwork);
+    }
+    else
     {
         // Prefer the in-cache item if one exists and it is less than 5 minutes
         // old and it will not expire in the next 10 seconds
@@ -1062,6 +1088,7 @@ void MythDownloadManager::downloadFinished(MythDownloadInfo *dlInfo)
     if (!dlInfo)
         return;
 
+    int statusCode = -1;
     static const char dateFormat[] = "ddd, dd MMM yyyy hh:mm:ss 'GMT'";
     QNetworkReply *reply = dlInfo->m_reply;
 
@@ -1070,11 +1097,24 @@ void MythDownloadManager::downloadFinished(MythDownloadInfo *dlInfo)
         QUrl possibleRedirectUrl =
              reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
 
+        if (!possibleRedirectUrl.isEmpty() &&
+            possibleRedirectUrl.isValid() &&
+            possibleRedirectUrl.isRelative())  // Turn relative Url to absolute
+            possibleRedirectUrl = reply->url().resolved(possibleRedirectUrl);
+
         dlInfo->m_redirectedTo =
              redirectUrl(possibleRedirectUrl, dlInfo->m_redirectedTo);
+
+        QVariant status =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        if (status.isValid())
+            statusCode = status.toInt();
     }
 
-    if(reply && !dlInfo->m_redirectedTo.isEmpty())
+    if(reply && !dlInfo->m_redirectedTo.isEmpty() &&
+       ((dlInfo->m_requestType != kRequestPost) ||
+       (statusCode == 301 || statusCode == 302 ||
+       statusCode == 303)))
     {
         LOG(VB_FILE, LOG_DEBUG, LOC +
             QString("downloadFinished(%1): Redirect: %2 -> %3")
@@ -1089,17 +1129,23 @@ void MythDownloadManager::downloadFinished(MythDownloadInfo *dlInfo)
         dlInfo->m_bytesTotal    = 0;
 
         QNetworkRequest request(dlInfo->m_redirectedTo);
-        if (dlInfo->m_preferCache)
+
+        if (dlInfo->m_reload)
+        {
+            request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                                 QNetworkRequest::AlwaysNetwork);
+        }
+        else if (dlInfo->m_preferCache)
+        {
             request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                                  QNetworkRequest::PreferCache);
+        }
+
         request.setRawHeader("User-Agent",
                              "MythDownloadManager v" MYTH_BINARY_VERSION);
 
         switch (dlInfo->m_requestType)
         {
-            case kRequestPost :
-                dlInfo->m_reply = m_manager->post(request, *dlInfo->m_data);
-                break;
             case kRequestHead :
                 dlInfo->m_reply = m_manager->head(request);
                 break;

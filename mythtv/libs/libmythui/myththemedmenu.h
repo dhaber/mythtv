@@ -5,7 +5,6 @@
 #include "mythdialogbox.h"
 #include "mythuistatetype.h"
 #include "mythuibuttonlist.h"
-#include "xmlparsebase.h"
 
 class MythMainWindow;
 class MythThemedMenuState;
@@ -103,6 +102,7 @@ class MUI_PUBLIC MythThemedMenu : public MythThemedMenuState
 
     bool handleAction(const QString &action, const QString &password = QString());
     bool findDepends(const QString &fileList);
+    bool findDependsExec(const QString &filename);
     QString findMenuFile(const QString &menuname);
 
     bool checkPinCode(const QString &password_setting);

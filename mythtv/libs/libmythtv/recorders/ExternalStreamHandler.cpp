@@ -209,6 +209,60 @@ void ExternIO::Term(bool force)
     LOG(VB_RECORD, LOG_INFO, QString("ExternIO::Term()"));
 }
 
+/* Return true if the process is not, or is no longer running */
+bool ExternIO::KillIfRunning(const QString & cmd)
+{
+#if CONFIG_DARWIN || (__FreeBSD__) || defined(__OpenBSD__)
+    return false;
+#elif defined USING_MINGW
+    return false;
+#elif defined( _MSC_VER )
+    return false;
+#else
+    QString grp = QString("pgrep -x -f \"%1\" 2>&1 > /dev/null").arg(cmd);
+    QString kil = QString("pkill --signal 15 -x -f \"%1\" 2>&1 > /dev/null")
+                  .arg(cmd);
+    int res_grp, res_kil;
+
+    res_grp = system(grp.toUtf8().constData());
+    if (WEXITSTATUS(res_grp) == 1)
+    {
+        LOG(VB_RECORD, LOG_DEBUG, QString("'%1' not running.").arg(cmd));
+        return true;
+    }
+
+    LOG(VB_RECORD, LOG_WARNING, QString("'%1' already running, killing...")
+        .arg(cmd));
+    res_kil = system(kil.toUtf8().constData());
+    if (WEXITSTATUS(res_kil) == 1)
+        LOG(VB_GENERAL, LOG_WARNING, QString("'%1' failed")
+            .arg(kil).arg(ENO));
+
+    res_grp = system(grp.toUtf8().constData());
+    if (WEXITSTATUS(res_grp) == 1)
+    {
+        LOG(WEXITSTATUS(res_kil) == 0 ? VB_RECORD : VB_GENERAL, LOG_WARNING,
+            QString("'%1' terminated.").arg(cmd));
+        return true;
+    }
+
+    usleep(50000);
+
+    kil = QString("pkill --signal 9 -x -f \"%1\" 2>&1 > /dev/null").arg(cmd);
+    res_kil = system(kil.toUtf8().constData());
+    if (WEXITSTATUS(res_kil) > 0)
+        LOG(VB_GENERAL, LOG_WARNING, QString("'%1' failed: %2")
+            .arg(kil).arg(ENO));
+
+    res_grp = system(grp.toUtf8().constData());
+    LOG(WEXITSTATUS(res_kil) == 0 ? VB_RECORD : VB_GENERAL, LOG_WARNING,
+        QString("'%1' %2.").arg(cmd)
+        .arg(WEXITSTATUS(res_grp) == 0 ? "sill running" : "terminated"));
+
+    return (WEXITSTATUS(res_grp) != 0);
+#endif
+}
+
 void ExternIO::Fork(void)
 {
 #if !defined( USING_MINGW ) && !defined( _MSC_VER )
@@ -219,8 +273,22 @@ void ExternIO::Fork(void)
         return;
     }
 
-    LOG(VB_RECORD, LOG_INFO, QString("ExternIO::Fork '%1 %2'")
-        .arg(m_app.canonicalFilePath()).arg(m_args.join(" ")));
+    QString full_command = QString("%1").arg(m_args.join(" "));
+    if (!KillIfRunning(full_command))
+    {
+        // Give it one more chance.
+        usleep(50000);
+        if (!KillIfRunning(full_command))
+        {
+            m_error = QString("Unable to kill existing '%1'.")
+                      .arg(full_command);
+            LOG(VB_GENERAL, LOG_ERR, m_error);
+            return;
+        }
+    }
+
+
+    LOG(VB_RECORD, LOG_INFO, QString("ExternIO::Fork '%1'").arg(full_command));
 
     int in[2]  = {-1, -1};
     int out[2] = {-1, -1};
@@ -316,6 +384,7 @@ void ExternIO::Fork(void)
              << strerror(errno) << endl;
     }
 
+    /* run command */
     char *command = strdup(m_app.canonicalFilePath()
                                  .toUtf8().constData());
     char **arguments;
@@ -331,7 +400,6 @@ void ExternIO::Fork(void)
     }
     arguments[m_args.size()] = reinterpret_cast<char *>(0);
 
-    /* run command */
     if (execv(command, arguments) < 0)
     {
         // Can't use LOG due to locking fun.
@@ -773,30 +841,30 @@ bool ExternalStreamHandler::StartStreaming(bool flush_buffer)
         return false;
     }
 
+    if (flush_buffer && m_replay)
+    {
+        /* If the input is not a 'broadcast' it may only one have
+         * copy of the SPS right at the beginning of the stream,
+         * so make sure we don't miss it!
+         */
+        QMutexLocker listen_lock(&_listener_lock);
+
+        if (!_stream_data_list.empty())
+        {
+            StreamDataList::const_iterator sit = _stream_data_list.begin();
+            for (; sit != _stream_data_list.end(); ++sit)
+                sit.key()->ProcessData(reinterpret_cast<const uint8_t *>
+                                       (m_replay_buffer.constData()),
+                                       m_replay_buffer.size());
+        }
+        LOG(VB_RECORD, LOG_INFO, LOC + QString("Replayed %1 bytes")
+            .arg(m_replay_buffer.size()));
+        m_replay_buffer.clear();
+        m_replay = false;
+    }
+
     if (StreamingCount() == 0)
     {
-        if (flush_buffer)
-        {
-            /* If the input is not a 'broadcast' it may only one have
-             * copy of the SPS right at the beginning of the stream,
-             * so make sure we don't miss it!
-             */
-            QMutexLocker listen_lock(&_listener_lock);
-
-            if (!_stream_data_list.empty())
-            {
-                StreamDataList::const_iterator sit = _stream_data_list.begin();
-                for (; sit != _stream_data_list.end(); ++sit)
-                    sit.key()->ProcessData(reinterpret_cast<const uint8_t *>
-                                           (m_replay_buffer.constData()),
-                                           m_replay_buffer.size());
-            }
-            LOG(VB_RECORD, LOG_INFO, LOC + QString("Replayed %1 bytes")
-                .arg(m_replay_buffer.size()));
-            m_replay_buffer.clear();
-            m_replay = false;
-        }
-
         if (!ProcessCommand("StartStreaming", 5000, result))
         {
             LOG(VB_GENERAL, LOG_ERR, LOC + QString("StartStreaming failed: '%1'")
@@ -943,6 +1011,7 @@ bool ExternalStreamHandler::ProcessCommand(const QString & cmd, uint timeout,
                  (!cmd.startsWith("SendBytes") && !cmd.startsWith("XO")));
     LOG(VB_RECORD, m_notify ? LOG_INFO : LOG_DEBUG,
         LOC + QString("ProcessCommand('%1') = '%2'").arg(cmd).arg(result));
+    m_notify = false;
 
     return result.startsWith("OK");
 }

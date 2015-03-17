@@ -7,14 +7,13 @@
 #include <QVariant>
 
 #include "mythuitype.h"
-#include "mythuiimage.h"
-#include "mythuitext.h"
-#include "mythuigroup.h"
 #include "mythscreentype.h"
+#include "mythimage.h"
 
 class MythUIButtonList;
 class MythUIScrollBar;
 class MythUIStateType;
+class MythUIGroup;
 
 struct TextProperties {
     QString text;
@@ -85,6 +84,9 @@ class MUI_PUBLIC MythUIButtonListItem
     void DisplayState(const QString &state, const QString &name);
     void SetStatesFromMap(const InfoMap &stateMap);
 
+    bool isVisible() const { return m_isVisible; }
+    void setVisible(bool flag) { m_isVisible = flag; }
+
     bool checkable() const;
     void setCheckable(bool flag);
 
@@ -110,6 +112,7 @@ class MUI_PUBLIC MythUIButtonListItem
     CheckState      m_state;
     QVariant        m_data;
     bool            m_showArrow;
+    bool            m_isVisible;
 
     QMap<QString, TextProperties> m_strings;
     QMap<QString, MythImage*> m_images;

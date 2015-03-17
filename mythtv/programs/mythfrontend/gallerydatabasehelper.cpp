@@ -1,25 +1,19 @@
 // Qt headers
+#include <QDir>
 
 // MythTV headers
 #include "mythcontext.h"
-#include "mythdirs.h"
-
 #include "gallerydatabasehelper.h"
-
 
 
 GalleryDatabaseHelper::GalleryDatabaseHelper()
 {
-
 }
-
 
 
 GalleryDatabaseHelper::~GalleryDatabaseHelper()
 {
-
 }
-
 
 
 /** \fn     GalleryDatabaseHelper::LoadParentDirectory(QList<ImageMetadata *>* , int)
@@ -57,34 +51,6 @@ void GalleryDatabaseHelper::LoadParentDirectory(QList<ImageMetadata *>* dbList, 
 
 
 
-/** \fn     GalleryDatabaseHelper::LoadDirectories(QMap<QString, ImageMetadata *>*)
- *  \brief  Loads all directory information from the database
- *  \param  dbList The list where the results are stored
- *  \return void
- */
-void GalleryDatabaseHelper::LoadDirectories(QMap<QString, ImageMetadata *>* dbList)
-{
-    dbList->clear();
-
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("SELECT "
-                   "dir_id, filename, name, path, parent_id, "
-                   "dir_count, file_count, hidden "
-                   "FROM gallery_directories");
-
-    if (!query.exec())
-        LOG(VB_GENERAL, LOG_ERR, MythDB::DBErrorMessage(query.lastError()));
-
-    while (query.next())
-    {
-        ImageMetadata *im = new ImageMetadata();
-        LoadDirectoryValues(query, im);
-        dbList->insert(im->m_fileName, im);
-    }
-}
-
-
-
 /** \fn     GalleryDatabaseHelper::LoadDirectories(QList<ImageMetadata *>* , int)
  *  \brief  Loads all subdirectory information from the database for a given directory
  *  \param  dbList The list where the results are stored
@@ -117,36 +83,6 @@ void GalleryDatabaseHelper::LoadDirectories(QList<ImageMetadata *>* dbList, int 
         dbList->append(im);
     }
 }
-
-
-
-/** \fn     GalleryDatabaseHelper::LoadFiles(QMap<QString, ImageMetadata *>*)
- *  \brief  Loads all file information from the database
- *  \param  dbList The list where the results are stored
- *  \return void
- */
-void GalleryDatabaseHelper::LoadFiles(QMap<QString, ImageMetadata *>* dbList)
-{
-    dbList->clear();
-
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("SELECT "
-                    "file_id, CONCAT_WS('/', path, filename), name, path, dir_id, "
-                    "type, modtime, size, extension, "
-                    "angle, date, zoom, hidden, orientation "
-                    "FROM gallery_files");
-
-    if (!query.exec())
-        LOG(VB_GENERAL, LOG_ERR, MythDB::DBErrorMessage(query.lastError()));
-
-    while (query.next())
-    {
-        ImageMetadata *im = new ImageMetadata();
-        LoadFileValues(query, im);
-        dbList->insert(im->m_fileName, im);
-    }
-}
-
 
 
 
@@ -334,59 +270,6 @@ void GalleryDatabaseHelper::UpdateFile(ImageMetadata *im)
 
 
 
-/** \fn     GalleryDatabaseHelper::RemoveDirectory(ImageMetadata *)
- *  \brief  Deletes the information about a given directory in the database
- *  \param  im Information of the directory
- *  \return void
- */
-void GalleryDatabaseHelper::RemoveDirectory(ImageMetadata *im)
-{
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("DELETE from gallery_directories WHERE dir_id = :ID;");
-    query.bindValue(":ID", im->m_id);
-
-    if (!query.exec())
-        MythDB::DBError("Error removing, query: ", query);
-}
-
-
-
-/** \fn     GalleryDatabaseHelper::RemoveFile(ImageMetadata *)
- *  \brief  Deletes the information about a given file in the database
- *  \param  im Information of the directory
- *  \return void
- */
-void GalleryDatabaseHelper::RemoveFile(ImageMetadata *im)
-{
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("DELETE from gallery_files WHERE file_id = :ID;");
-    query.bindValue(":ID", im->m_id);
-
-    if (!query.exec())
-        MythDB::DBError("Error removing, query: ", query);
-}
-
-
-
-/** \fn     GalleryDatabaseHelper::InsertData(ImageMetadata *)
- *  \brief  Inserts either a new directory or file in the database
- *  \param  im Information of the given item
- *  \return void
- */
-void GalleryDatabaseHelper::InsertData(ImageMetadata *im)
-{
-    if (!im)
-        return;
-
-    if (im->m_type == kSubDirectory || im->m_type == kUpDirectory)
-        InsertDirectory(im);
-
-    if (im->m_type == kImageFile || im->m_type == kVideoFile)
-        InsertFile(im);
-}
-
-
-
 /** \fn     GalleryDatabaseHelper::UpdateData(ImageMetadata *)
  *  \brief  Updates either a directory or a file in the database
  *  \param  im Information of the given item
@@ -406,25 +289,6 @@ void GalleryDatabaseHelper::UpdateData(ImageMetadata *im)
 
 
 
-/** \fn     GalleryDatabaseHelper::RemoveData(ImageMetadata *)
- *  \brief  Deletes either a directory or file from the database
- *  \param  im Information of the given item
- *  \return void
- */
-void GalleryDatabaseHelper::RemoveData(ImageMetadata *im)
-{
-    if (!im)
-        return;
-
-    if (im->m_type == kSubDirectory || im->m_type == kUpDirectory)
-        RemoveDirectory(im);
-
-    if (im->m_type == kImageFile || im->m_type == kVideoFile)
-        RemoveFile(im);
-}
-
-
-
 /** \fn     GalleryDatabaseHelper::LoadDirectoryValues(MSqlQuery &, ImageMetadata *)
  *  \brief  Loads the directory information from the database
  *  \param  query Information from the database
@@ -434,9 +298,9 @@ void GalleryDatabaseHelper::RemoveData(ImageMetadata *im)
 void GalleryDatabaseHelper::LoadDirectoryValues(MSqlQuery &query, ImageMetadata *im)
 {
     im->m_id            = query.value(0).toInt();
-    im->m_fileName      = query.value(1).toString();
     im->m_name          = query.value(2).toString();
     im->m_path          = query.value(3).toString();
+    im->m_fileName      = QDir::cleanPath(QDir(im->m_path).filePath(im->m_name));
     im->m_parentId      = query.value(4).toInt();
     im->m_dirCount      = query.value(5).toInt();
     im->m_fileCount     = query.value(6).toInt();
@@ -459,9 +323,9 @@ void GalleryDatabaseHelper::LoadDirectoryValues(MSqlQuery &query, ImageMetadata 
 void GalleryDatabaseHelper::LoadFileValues(MSqlQuery &query, ImageMetadata *im)
 {
     im->m_id            = query.value(0).toInt();
-    im->m_fileName      = query.value(1).toString();
     im->m_name          = query.value(2).toString();
     im->m_path          = query.value(3).toString();
+    im->m_fileName      = QDir::cleanPath(QDir(im->m_path).filePath(im->m_name));
     im->m_parentId      = query.value(4).toInt();
     im->m_type          = query.value(5).toInt();
     im->m_modTime       = query.value(6).toInt();
@@ -469,7 +333,7 @@ void GalleryDatabaseHelper::LoadFileValues(MSqlQuery &query, ImageMetadata *im)
     im->m_extension     = query.value(8).toString();
     im->SetAngle(         query.value(9).toInt());
     im->m_date          = query.value(10).toInt();
-    im->SetZoom(          query.value(11).toInt());
+    im->SetZoom(          query.value(11).toInt(), true);
     im->m_isHidden      = query.value(12).toInt();
     im->SetOrientation(   query.value(13).toInt(), true);
 
@@ -489,31 +353,32 @@ void GalleryDatabaseHelper::LoadDirectoryThumbnailValues(ImageMetadata *im)
     // Try to get four new thumbnail filenames
     // from the available images in this folder
     MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("SELECT CONCAT_WS('/', path, filename) FROM gallery_files "
+    query.prepare("SELECT file_id, CONCAT_WS('/', path, name) "
+                          "FROM gallery_files "
                           "WHERE path = :PATH "
-                          "AND type = '4' "
+                          "AND type = :TYPE "
                           "AND hidden = '0' LIMIT :LIMIT");
-    query.bindValue(":PATH", im->m_path);
+    query.bindValue(":PATH", im->m_fileName);
+    query.bindValue(":TYPE", kImageFile);
     query.bindValue(":LIMIT", kMaxFolderThumbnails);
 
     if (!query.exec())
         LOG(VB_GENERAL, LOG_ERR, MythDB::DBErrorMessage(query.lastError()));
 
     int i = 0;
-    while (query.next())
+    im->m_thumbFileIdList.clear();
+    while (query.next() && i < im->m_thumbFileNameList->size())
     {
         QString thumbFileName = QString("%1%2")
                 .arg("/MythImage/")
-                .arg(query.value(0).toString());
+                .arg(query.value(1).toString());
 
         thumbFileName = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
                                                  gCoreContext->GetMasterServerPort(),
                                                  thumbFileName, "Temp");
 
-        if (i >= im->m_thumbFileNameList->size())
-            break;
-
         im->m_thumbFileNameList->replace(i, thumbFileName);
+        im->m_thumbFileIdList.append(query.value(0).toInt());
         ++i;
     }
 }
@@ -528,7 +393,6 @@ void GalleryDatabaseHelper::LoadDirectoryThumbnailValues(ImageMetadata *im)
 void GalleryDatabaseHelper::LoadFileThumbnailValues(ImageMetadata *im)
 {
 
-
     // Create the relative path and filename to the thumbnail image
     QString thumbFileName = QString("%1%2")
             .arg("/MythImage/")
@@ -539,11 +403,12 @@ void GalleryDatabaseHelper::LoadFileThumbnailValues(ImageMetadata *im)
     if (im->m_type == kVideoFile)
         thumbFileName.append(".png");
 
-    thumbFileName = gCoreContext->GenMythURL(gCoreContext->GetSetting("MasterServerIP"),
+    thumbFileName = gCoreContext->GenMythURL(gCoreContext->GetMasterHostName(),
                                              gCoreContext->GetNumSetting("MasterServerPort"),
                                              thumbFileName, "Temp");
 
     im->m_thumbFileNameList->replace(0, thumbFileName);
+    im->m_thumbFileIdList.insert(0, im->m_id);
 }
 
 

@@ -5,7 +5,6 @@
 #include <QFileInfo>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
 #include <QDateTime>
 #include <QDate>
 #include <QTime>
@@ -21,6 +20,7 @@
 #include "mythuibuttonlist.h"
 #include "mythuibutton.h"
 #include "mythuistatetype.h"
+#include "mythgesture.h"
 
 QEvent::Type DialogCompletionEvent::kEventType =
     (QEvent::Type) QEvent::registerEventType();

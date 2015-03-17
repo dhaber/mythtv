@@ -13,6 +13,7 @@
 #include "mythcorecontext.h"
 #include "recordinginfo.h"
 #include "tv.h"
+#include "tv_play.h"
 
 // MythUI
 #include "mythuitext.h"
@@ -461,7 +462,7 @@ void ProgFinder::updateTimesList()
             m_showData[i]->ToMap(infoMap);
             item->SetTextFromMap(infoMap);
 
-            QString state = toUIState(m_showData[i]->GetRecordingStatus());
+            QString state = RecStatus::toUIState(m_showData[i]->GetRecordingStatus());
             item->SetText(itemText, "buttontext", state);
             item->DisplayState(state, "status");
         }

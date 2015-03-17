@@ -9,7 +9,7 @@
 #include "galleryconfig.h"
 #include "gallerytypedefs.h"
 #include "imagescan.h"
-
+#include "mythuihelper.h"
 
 
 /** \fn     GalleryView::GalleryView(MythScreenStack *, const char *)
@@ -28,7 +28,6 @@ GalleryView::GalleryView(MythScreenStack *parent, const char *name)
       m_crumbsText(NULL),
       m_positionText(NULL),
       m_imageText(NULL),
-      m_selectedImage(NULL),
       m_syncProgressText(NULL),
       m_thumbProgressText(NULL)
 {
@@ -47,7 +46,7 @@ GalleryView::GalleryView(MythScreenStack *parent, const char *name)
     connect(m_syncStatusThread,  SIGNAL(UpdateSyncProgress(int, int)),
             this,   SLOT(UpdateSyncProgress(int, int)));
 
-    connect(m_syncStatusThread,  SIGNAL(finished()),
+    connect(m_syncStatusThread,  SIGNAL(SyncComplete()),
             this,   SLOT(ResetSyncProgress()));
 
     // Start the sync status thread so that an already
@@ -95,7 +94,6 @@ bool GalleryView::Create()
     UIUtilE::Assign(this, m_imageList,     "images", &err);
     UIUtilW::Assign(this, m_captionText,   "title");
     UIUtilW::Assign(this, m_imageText,     "noimages");
-    UIUtilW::Assign(this, m_selectedImage, "selectedimage");
     UIUtilW::Assign(this, m_positionText,  "position");
     UIUtilW::Assign(this, m_crumbsText,    "breadcrumbs");
 
@@ -107,9 +105,6 @@ bool GalleryView::Create()
         LOG(VB_GENERAL, LOG_ERR, "Cannot load screen 'gallery'");
         return false;
     }
-
-    // set the size of the preview images (usually the thumbnails)
-    m_galleryViewHelper->SetPreviewImageSize(m_imageList);
 
     if (m_syncProgressText)
         m_syncProgressText->SetVisible(false);
@@ -229,13 +224,12 @@ void GalleryView::customEvent(QEvent *event)
             {
                 fileid = tokens[1].toUInt();
 
-                // FIXME: This sucks, must be a better way to do this
-                //
-                // get through the entire list of image items and find
-                // the fileid that matches the created thumbnail filename
-                for (int i = 0; i < m_imageList->GetCount(); i++)
+                // update all widgets using this image
+                QList<MythUIButtonListItem*> itemList = m_imageMap.values(fileid);
+
+                for (int i = 0; i < itemList.size(); ++i)
                 {
-                    MythUIButtonListItem *item = m_imageList->GetItemAt(i);
+                    MythUIButtonListItem *item = itemList.at(i);
                     if (!item)
                         continue;
 
@@ -243,11 +237,7 @@ void GalleryView::customEvent(QEvent *event)
                     if (!im)
                         continue;
 
-                    if (im->m_id == fileid)
-                    {
-                        UpdateThumbnail(item, true);
-                        break;
-                    }
+                    UpdateThumbnail(item, im, true);
                 }
             }
         }
@@ -259,71 +249,43 @@ void GalleryView::customEvent(QEvent *event)
         QString resultid  = dce->GetId();
         int     buttonnum = dce->GetResult();
 
-        // Confirm current file deletion
-        if (resultid == "confirmdelete")
+        if (resultid == "filerename")
         {
-            switch (buttonnum)
-            {
-            case 0 :
-                break;
-            case 1 :
-                FileDelete();
-                break;
-            }
+            QString newName = dce->GetResultText();
+            FileRename(newName);
         }
-
-        // Confirm all selected file deletion
-        if (resultid == "confirmdeleteselected")
+        else if (buttonnum == 1)
         {
-            switch (buttonnum)
+            // Confirm current file deletion
+            if (resultid == "confirmdelete")
             {
-            case 0 :
-                break;
-            case 1 :
-                FileDeleteSelected();
-                break;
+                m_galleryViewHelper->DeleteCurrentNode();
+                UpdateImageList();
             }
-        }
-
-        // Synchronize the database
-        if (resultid == "confirmstartsync")
-        {
-            switch (buttonnum)
+            // Confirm all selected file deletion
+            else if (resultid == "confirmdeleteselected")
             {
-            case 0 :
-                break;
-            case 1 :
+                m_galleryViewHelper->DeleteSelectedNodes();
+                UpdateImageList();
+            }
+            // Synchronize the database
+            else if (resultid == "confirmstartsync")
+            {
                 // Start the sync, the API call will
                 // check if a sync is running already
                 m_galleryViewHelper->m_fileHelper->StartSyncImages();
 
                 if (!m_syncStatusThread->isRunning())
                     m_syncStatusThread->start();
-
-                break;
             }
-        }
-
-        // Stop the database sync
-        if (resultid == "confirmstopsync")
-        {
-            switch (buttonnum)
+            // Stop the database sync
+            else if (resultid == "confirmstopsync" && buttonnum == 1)
             {
-            case 0 :
-                break;
-            case 1 :
                 if (m_syncStatusThread->isRunning())
                     m_syncStatusThread->quit();
 
                 m_galleryViewHelper->m_fileHelper->StopSyncImages();
-                break;
             }
-        }
-
-        if (resultid == "filerename")
-        {
-            QString newName = dce->GetResultText();
-            FileRename(newName);
         }
     }
 }
@@ -338,6 +300,7 @@ void GalleryView::customEvent(QEvent *event)
 void GalleryView::ResetImageItems()
 {
     m_imageList->Reset();
+    m_imageMap.clear();
 
     if (m_positionText)
         m_positionText->Reset();
@@ -401,6 +364,7 @@ void GalleryView::LoadData()
 void GalleryView::UpdateImageList()
 {
     m_imageList->Reset();
+    m_imageMap.clear();
 
     // get all children from the the selected node
     MythGenericTree *selectedNode = m_galleryViewHelper->m_currentNode->getSelectedChild();
@@ -444,7 +408,7 @@ void GalleryView::UpdateImageList()
  *  \param  item The item that shall be updated
  *  \return void
  */
-void GalleryView::UpdateImageItem(MythUIButtonListItem *item)
+void GalleryView::UpdateImageItem(MythUIButtonListItem *item, bool recreateThumb)
 {
     if (!item)
         return;
@@ -515,10 +479,17 @@ void GalleryView::UpdateImageItem(MythUIButtonListItem *item)
     if (item == m_imageList->GetItemCurrent())
         UpdateText(item);
 
-    // set the thumbnail image
-    UpdateThumbnail(item);
-}
+    // register widget as a user of its images
+    for (int i = 0; i < im->m_thumbFileIdList.size(); ++i)
+        m_imageMap.insert(im->m_thumbFileIdList.at(i), item);
 
+    if (recreateThumb)
+        // remove cache image to force a reload
+        GetMythUI()->RemoveFromCacheByFile(im->m_thumbFileNameList->at(0));
+
+    // set the thumbnail image
+    UpdateThumbnail(item, im, recreateThumb);
+}
 
 
 /** \fn     GalleryView::UpdateThumbnail(MythUIButtonListItem *)
@@ -526,75 +497,23 @@ void GalleryView::UpdateImageItem(MythUIButtonListItem *item)
  *  \param  item The item that shall be updated
  *  \return void
  */
-void GalleryView::UpdateThumbnail(MythUIButtonListItem *item, bool forceReload)
+void GalleryView::UpdateThumbnail(MythUIButtonListItem *item,
+                                  ImageMetadata *im,
+                                  bool forceReload)
 {
-    if (!item)
-        return;
-
-    ImageMetadata *im = GetImageMetadataFromButton(item);
-    if (!im)
-        return;
-
-    if (im->m_type == kUpDirectory || im->m_type == kSubDirectory)
+    if (item && im)
     {
-        for (int i = 0; i < im->m_thumbFileNameList->size(); ++i)
+        // directories show multiple thumbnails
+        if (im->m_type == kUpDirectory || im->m_type == kSubDirectory)
         {
-            item->SetImage(im->m_thumbFileNameList->at(i),
-                           QString("thumbimage%1").arg(i+1), forceReload);
+            for (int i = 0; i < im->m_thumbFileNameList->size(); ++i)
+                item->SetImage(im->m_thumbFileNameList->at(i),
+                               QString("thumbimage%1").arg(i+1), forceReload);
         }
-    }
-    else
-    {
-        item->SetImage(im->m_thumbFileNameList->at(0), "", forceReload);
+        else
+            item->SetImage(im->m_thumbFileNameList->at(0), "", forceReload);
     }
 }
-
-
-
-/** \fn     GalleryView::UpdateThumbnail(ImageMetadata *, int)
- *  \brief  Updates the thumbnail image of an image or
- *          folder which contains the given image metadata
- *  \param  item The item that shall be updated
- *  \param  id The thumbnail id that shall be used,
- *          there are 4 ids when the item is a folder
- *  \return void
- */
-void GalleryView::UpdateThumbnail(ImageMetadata *thumbImageMetadata, int id)
-{
-    // get through the entire list of image items and find
-    // the filename that matches the created thumbnail filename
-    for (int i = 0; i < m_imageList->GetCount(); i++)
-    {
-        MythUIButtonListItem *item = m_imageList->GetItemAt(i);
-        if (!item)
-            continue;
-
-        ImageMetadata *im = GetImageMetadataFromButton(item);
-        if (!im)
-            continue;
-
-        // Set the thumbnail image if the thumbnail
-        // image names at the given index are the same
-        if (thumbImageMetadata->m_thumbFileNameList->at(id).compare(
-                    im->m_thumbFileNameList->at(id)) == 0)
-        {
-            // Set the images for the four thumbnail image widgets in case
-            // the node is a folder. Otherwise set the buttonimage widget.
-            if (im->m_type == kUpDirectory ||
-                im->m_type == kSubDirectory)
-            {
-                item->SetImage(thumbImageMetadata->m_thumbFileNameList->at(id),
-                               QString("thumbimage%1").arg(id+1), true);
-            }
-            else
-            {
-                item->SetImage(thumbImageMetadata->m_thumbFileNameList->at(0), "", true);
-            }
-            break;
-        }
-    }
-}
-
 
 
 /** \fn     GalleryView::ResetThumbnailProgress()
@@ -1168,7 +1087,8 @@ void GalleryView::FileRotateCW()
         return;
 
     m_galleryViewHelper->SetFileOrientation(kFileRotateCW);
-    UpdateImageItem(item);
+
+    UpdateImageItem(item, true);
 }
 
 
@@ -1185,7 +1105,8 @@ void GalleryView::FileRotateCCW()
         return;
 
     m_galleryViewHelper->SetFileOrientation(kFileRotateCCW);
-    UpdateImageItem(item);
+
+    UpdateImageItem(item, true);
 }
 
 
@@ -1202,7 +1123,8 @@ void GalleryView::FileFlipHorizontal()
         return;
 
     m_galleryViewHelper->SetFileOrientation(kFileFlipHorizontal);
-    UpdateImageItem(item);
+
+    UpdateImageItem(item, true);
 }
 
 
@@ -1219,7 +1141,8 @@ void GalleryView::FileFlipVertical()
         return;
 
     m_galleryViewHelper->SetFileOrientation(kFileFlipVertical);
-    UpdateImageItem(item);
+
+    UpdateImageItem(item, true);
 }
 
 
@@ -1235,6 +1158,7 @@ void GalleryView::FileZoomIn()
         return;
 
     m_galleryViewHelper->SetFileZoom(kFileZoomIn);
+
     UpdateImageItem(item);
 }
 
@@ -1251,6 +1175,7 @@ void GalleryView::FileZoomOut()
         return;
 
     m_galleryViewHelper->SetFileZoom(kFileZoomOut);
+
     UpdateImageItem(item);
 }
 
@@ -1263,6 +1188,7 @@ void GalleryView::FileZoomOut()
 void GalleryView::FileHide()
 {
     m_galleryViewHelper->SetNodeVisibilityState(kNodeStateInvisible);
+
     UpdateImageList();
 }
 
@@ -1275,6 +1201,7 @@ void GalleryView::FileHide()
 void GalleryView::FileUnhide()
 {
     m_galleryViewHelper->SetNodeVisibilityState(kNodeStateVisible);
+
     UpdateImageList();
 }
 
@@ -1288,7 +1215,7 @@ void GalleryView::FileUnhide()
 void GalleryView::ConfirmFileDelete()
 {
     // Create a confirmation dialog to confirm the file deletion
-    // of the currently selected image. This is only a safety precausion.
+    // of the currently selected image. This is only a safety precaution.
     ImageMetadata *data = GetImageMetadataFromSelectedButton();
     if (!data)
         return;
@@ -1328,30 +1255,6 @@ void GalleryView::ConfirmFileDeleteSelected()
 
 
 
-/** \fn     GalleryView::FileDelete()
- *  \brief  Deletes a single file
- *  \return void
- */
-void GalleryView::FileDelete()
-{
-    m_galleryViewHelper->DeleteCurrentNode();
-    UpdateImageList();
-}
-
-
-
-/** \fn     GalleryView::FileDeleteSelected()
- *  \brief  Deletes all selected files
- *  \return void
- */
-void GalleryView::FileDeleteSelected()
-{
-    m_galleryViewHelper->DeleteSelectedNodes();
-    UpdateImageList();
-}
-
-
-
 /** \fn     GalleryView::FileRenameInput()
  *  \brief  Shows a popup where the user can enter a new filename
  *  \return void
@@ -1386,6 +1289,7 @@ void GalleryView::FileRenameInput()
 void GalleryView::FileRename(QString &newName)
 {
     m_galleryViewHelper->RenameCurrentNode(newName);
+
     UpdateImageList();
 }
 

@@ -372,9 +372,9 @@ bool ImageUtils::RemoveFileFromDB(int id)
 void ImageUtils::LoadDirectoryValues(MSqlQuery &query, ImageMetadata *dm)
 {
     dm->m_id            = query.value(0).toInt();
-    dm->m_fileName      = query.value(1).toString();
     dm->m_name          = query.value(2).toString();
     dm->m_path          = query.value(3).toString();
+    dm->m_fileName      = QDir::cleanPath(QDir(dm->m_path).filePath(dm->m_name));
     dm->m_parentId      = query.value(4).toInt();
     dm->m_dirCount      = query.value(5).toInt();
     dm->m_fileCount     = query.value(6).toInt();
@@ -397,9 +397,9 @@ void ImageUtils::LoadDirectoryValues(MSqlQuery &query, ImageMetadata *dm)
 void ImageUtils::LoadFileValues(MSqlQuery &query, ImageMetadata *dm)
 {
     dm->m_id            = query.value(0).toInt();
-    dm->m_fileName      = query.value(1).toString();
     dm->m_name          = query.value(2).toString();
     dm->m_path          = query.value(3).toString();
+    dm->m_fileName      = QDir::cleanPath(QDir(dm->m_path).filePath(dm->m_name));
     dm->m_parentId      = query.value(4).toInt();
     dm->m_type          = query.value(5).toInt();
     dm->m_modTime       = query.value(6).toInt();
@@ -407,7 +407,7 @@ void ImageUtils::LoadFileValues(MSqlQuery &query, ImageMetadata *dm)
     dm->m_extension     = query.value(8).toString();
     dm->SetAngle(         query.value(9).toInt());
     dm->m_date          = query.value(10).toInt();
-    dm->SetZoom(          query.value(11).toInt());
+    dm->SetZoom(          query.value(11).toInt(), true);
     dm->m_isHidden      = query.value(12).toInt();
     dm->SetOrientation(   query.value(13).toInt(), true);
 
@@ -456,14 +456,14 @@ void ImageUtils::LoadDirectoryData(QFileInfo &fileInfo,
                                    int parentId,
                                    const QString &baseDirectory)
 {
-    QDir baseDir(baseDirectory);
+    QDir dir(baseDirectory);
     data->m_parentId    = parentId;
-    data->m_fileName    = baseDir.relativeFilePath(fileInfo.absoluteFilePath());
+    data->m_fileName    = dir.relativeFilePath(fileInfo.absoluteFilePath());
     data->m_name        = fileInfo.fileName();
-    data->m_path        = baseDir.relativeFilePath(fileInfo.absoluteFilePath());
+    data->m_path        = dir.relativeFilePath(fileInfo.absolutePath());
     data->m_isHidden    = fileInfo.isHidden();
 
-    QDir dir(data->m_fileName);
+    dir.cd(data->m_fileName);
     data->m_dirCount = dir.entryList(QDir::Dirs |
                                      QDir::NoSymLinks |
                                      QDir::NoDotAndDotDot |
@@ -474,7 +474,6 @@ void ImageUtils::LoadDirectoryData(QFileInfo &fileInfo,
                                       QDir::NoDotAndDotDot |
                                       QDir::Readable).count();
 }
-
 
 
 /** \fn     ImageUtils::LoadFileData(QFileInfo &, DataMap *)
@@ -488,11 +487,9 @@ void ImageUtils::LoadFileData(QFileInfo &fileInfo,
                               const QString &baseDirectory)
 {
     QDir baseDir(baseDirectory);
-    data->m_fileName    = fileInfo.fileName();
+    data->m_fileName    = baseDir.relativeFilePath(fileInfo.absoluteFilePath());
     data->m_name        = fileInfo.fileName();
     data->m_path        = baseDir.relativeFilePath(fileInfo.absolutePath());
-    if (data->m_path.isNull()) // Hack because relativeFilePath will return a null instead of empty string
-        data->m_path = "";
     data->m_modTime     = fileInfo.lastModified().toTime_t();
     data->m_size        = fileInfo.size();
     data->m_isHidden    = fileInfo.isHidden();
@@ -668,8 +665,13 @@ QList<QStringList> ImageUtils::GetAllExifValues(const QString &fileName)
                         values.append(QString::fromStdString(i->tagLabel()));
                         values.append(QString::fromStdString(i->value().toString()));
 
-                        // Add the exif information to the list
-                        valueList.append(values);
+                        LOG(VB_FILE, LOG_DEBUG, QString("%1 (Type %2)")
+                            .arg(values.join(" : "))
+                            .arg(i->typeName()));
+
+                        // Add the exif information to the list, ignoring empty labels
+                        if (!values.at(4).isEmpty())
+                            valueList.append(values);
                     }
                 }
             }
@@ -791,11 +793,12 @@ void ImageUtils::SetExifValue(const QString &fileName,
 
         if (image.get())
         {
-            Exiv2::ExifData exifData;
+            image->readMetadata();
+            Exiv2::ExifData &exifData = image->exifData();
+
             Exiv2::Exifdatum &datum = exifData[exifTag.toLocal8Bit().constData()];
             datum.setValue(value.toLocal8Bit().constData());
 
-            image->setExifData(exifData);
             image->writeMetadata();
 
             *ok = true;
@@ -845,11 +848,12 @@ void ImageUtils::LoadDirectoryThumbnailValues(ImageMetadata *im)
     // Try to get four new thumbnail filenames
     // from the available images in this folder
     MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare("SELECT CONCAT_WS('/', path, filename), path FROM gallery_files "
+    query.prepare("SELECT CONCAT_WS('/', path, name), path FROM gallery_files "
                           "WHERE path = :PATH "
-                          "AND type = '4' "
+                          "AND type = :TYPE "
                           "AND hidden = '0' LIMIT :LIMIT");
-    query.bindValue(":PATH", im->m_path);
+    query.bindValue(":PATH", im->m_fileName);
+    query.bindValue(":TYPE", kImageFile);
     query.bindValue(":LIMIT", kMaxFolderThumbnails);
 
     if (!query.exec())

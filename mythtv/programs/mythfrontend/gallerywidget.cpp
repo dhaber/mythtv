@@ -2,19 +2,19 @@
 #include "gallerywidget.h"
 
 // Qt headers
-#include <QByteArray>
-#include <QXmlStreamReader>
 
 // MythTV headers
 #include "mythcontext.h"
 #include "mythmainwindow.h"
+#include "mythuihelper.h"
+#include "mythuiimage.h"
+#include "mythuitext.h"
 
 ImageLoadingThread::ImageLoadingThread() :
     m_image(NULL),
     m_imageData(NULL),
     m_url()
 {
-
 }
 
 void ImageLoadingThread::setImage(MythUIImage *image,
@@ -32,12 +32,10 @@ void ImageLoadingThread::run()
     {
         m_image->SetFilename(m_url);
         m_image->SetOrientation(m_imageData->GetOrientation());
-        m_image->SetZoom(m_imageData->GetZoom() / 100);
+        m_image->SetZoom(static_cast<float>(m_imageData->GetZoom()) / 100);
         m_image->Load(false);
     }
 }
-
-
 
 
 /** \fn     GalleryWidget::GalleryWidget(MythScreenStack *,
@@ -266,7 +264,6 @@ bool GalleryWidget::keyPressEvent(QKeyEvent *event)
 }
 
 
-
 /** \fn     GalleryWidget::customEvent(QEvent *event)
  *  \brief  Translates the keypresses to
  *          specific actions within the plugin
@@ -287,19 +284,19 @@ void GalleryWidget::customEvent(QEvent *event)
             {
             case 0 :
                 m_gvh->SetFileOrientation(kFileRotateCW);
-                LoadFile();
+                LoadFile(true);
                 break;
             case 1 :
                 m_gvh->SetFileOrientation(kFileRotateCCW);
-                LoadFile();
+                LoadFile(true);
                 break;
             case 2 :
                 m_gvh->SetFileOrientation(kFileFlipHorizontal);
-                LoadFile();
+                LoadFile(true);
                 break;
             case 3 :
                 m_gvh->SetFileOrientation(kFileFlipVertical);
-                LoadFile();
+                LoadFile(true);
                 break;
             case 4 :
                 m_gvh->SetFileZoom(kFileZoomIn);
@@ -315,7 +312,6 @@ void GalleryWidget::customEvent(QEvent *event)
         m_menuPopup = NULL;
     }
 }
-
 
 
 /** \fn     GalleryView::MenuMain()
@@ -388,7 +384,7 @@ void GalleryWidget::MenuMetadata(MythMenu *mainMenu)
         if (m_fileDataList->at(m_index)->GetZoom() < 300)
             menu->AddItem(tr("Zoom In"));
 
-        if (m_fileDataList->at(m_index)->GetZoom() > 0)
+        if (m_fileDataList->at(m_index)->GetZoom() > 20)
             menu->AddItem(tr("Zoom Out"));
     }
 
@@ -431,49 +427,7 @@ void GalleryWidget::ShowFileDetails()
     m_infoList->Reset();
 
     // This map holds all the exif tag values
-    QMap<QString, QString> infoList;
-
-    // Get all the available exif header information from the file
-    // and create a data structure that can be displayed nicely
-    QByteArray ba = m_fh->GetExifValues(im);
-    if (ba.count() > 0)
-    {
-        bool readTagValues = false;
-        QString key, value;
-
-        QXmlStreamReader xml(ba);
-        while (!xml.atEnd())
-        {
-            xml.readNext();
-
-            // Read the general information
-            if (xml.isStartElement() &&
-                    (xml.name() == "Count"  ||
-                     xml.name() == "File"   ||
-                     xml.name() == "Path"   ||
-                     xml.name() == "Size"   ||
-                     xml.name() == "Extension"))
-                infoList.insert(xml.name().toString(), xml.readElementText());
-
-            if (xml.isStartElement() && xml.name() == "ImageMetadataInfo")
-                readTagValues = true;
-
-            if (readTagValues)
-            {
-                if (xml.isStartElement() && xml.name() == "Label")
-                    key = xml.readElementText();
-
-                if (xml.isStartElement() && xml.name() == "Value")
-                    value = xml.readElementText();
-            }
-
-            if (xml.isEndElement() && xml.name() == "ImageMetadataInfo")
-            {
-                readTagValues = false;
-                infoList.insert(key, value);
-            }
-        }
-    }
+    QMap<QString, QString> infoList = m_fh->GetExifValues(im);
 
     // Now go through the info list and create a map for the mythui buttonlist
     QMap<QString, QString>::const_iterator i = infoList.constBegin();
@@ -499,10 +453,7 @@ void GalleryWidget::ShowFileDetails()
     // All widgets are visible, remember this
     m_infoVisible = true;
     SetFocusWidget(m_infoList);
-
-    delete im;
 }
-
 
 
 /** \fn     GalleryWidget::LoadFile()
@@ -510,7 +461,7 @@ void GalleryWidget::ShowFileDetails()
  *          from disk or memory in the background.
  *  \return void
  */
-void GalleryWidget::LoadFile()
+void GalleryWidget::LoadFile(bool refresh)
 {
     // Pause the slideshow so that the timer can't fire
     // until the image loading thread has finished
@@ -540,7 +491,11 @@ void GalleryWidget::LoadFile()
 
         QString url = CreateImageUrl(fileName);
 
-        // This thread will loads the image so the UI is not blocked.
+        if (refresh)
+            // remove cache image to force a reload
+            GetMythUI()->RemoveFromCacheByFile(fileName);
+
+        // This thread will load the image so the UI is not blocked.
         m_ilt->setImage(m_fileList->at(m_index),
                         m_fileDataList->at(m_index), url);
         m_ilt->start();
@@ -560,7 +515,7 @@ QString GalleryWidget::CreateImageUrl(QString &fileName)
                                            fileName,
                                            m_gvh->m_sgName);
 
-    LOG(VB_GENERAL, LOG_INFO, QString("Loading image from url '%1'").arg(url));
+    LOG(VB_FILE, LOG_INFO, QString("Loading image from url '%1'").arg(url));
 
     return url;
 }

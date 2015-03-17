@@ -74,6 +74,9 @@ using namespace std;
 #include "filesysteminfo.h"
 #include "metaio.h"
 #include "musicmetadata.h"
+#include "imagescan.h"
+#include "imagethumbgenthread.h"
+#include "imageutils.h"
 
 // mythbackend headers
 #include "backendcontext.h"
@@ -892,6 +895,96 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
         else
             HandleMusicTagChangeImage(listline, pbs);
     }
+    else if (command == "IMAGE_SCAN")
+    {
+        QString err = QString("Bad IMAGE_SCAN");
+
+        if (listline.size() == 2)
+
+            err = HandleScanImages(listline, pbs);
+
+        if (err.isEmpty())
+        {
+            QStringList ok = QStringList("OK");
+            SendResponse(pbs->getSocket(), ok);
+        }
+        else
+            SendErrorResponse(pbs, err);
+    }
+    else if (command == "IMAGE_GET_SCAN_STATUS")
+    {
+        if (listline.size() != 1)
+            SendErrorResponse(pbs, "Bad IMAGE_GET_SCAN_STATUS");
+        else
+            HandleQueryImageScanStatus(pbs);
+    }
+    else if (command == "IMAGE_THUMBNAILS")
+    {
+        if (listline.size() < 3)
+            SendErrorResponse(pbs, "Bad IMAGE_THUMBNAILS");
+        else
+            HandleCreateThumbnails(listline, pbs);
+    }
+    else if (command == "IMAGE_DELETE")
+    {
+        QString err = QString("Bad IMAGE_DELETE");
+
+        if (listline.size() == 2)
+
+            err = HandleDeleteImage(listline, pbs);
+
+        if (err.isEmpty())
+        {
+            QStringList ok = QStringList("OK");
+            SendResponse(pbs->getSocket(), ok);
+        }
+        else
+            SendErrorResponse(pbs, err);
+    }
+    else if (command == "IMAGE_RENAME")
+    {
+        QString err = QString("Bad IMAGE_RENAME");
+
+        if (listline.size() == 3)
+
+            err = HandleRenameImage(listline, pbs);
+
+        if (err.isEmpty())
+        {
+            QStringList ok = QStringList("OK");
+            SendResponse(pbs->getSocket(), ok);
+        }
+        else
+            SendErrorResponse(pbs, err);
+    }
+    else if (command == "IMAGE_SET_EXIF")
+    {
+        QString err = QString("Bad IMAGE_SET_EXIF");
+
+        if (listline.size() == 4)
+
+            err = HandleSetImageExif(listline, pbs);
+
+        if (err.isEmpty())
+        {
+            QStringList ok = QStringList("OK");
+            SendResponse(pbs->getSocket(), ok);
+        }
+        else
+            SendErrorResponse(pbs, err);
+    }
+    else if (command == "IMAGE_GET_EXIF")
+    {
+        QString err = QString("Bad IMAGE_GET_EXIF");
+
+        if (listline.size() == 2)
+
+            err = HandleGetImageExif(listline, pbs);
+
+        if (!err.isEmpty())
+
+            SendErrorResponse(pbs, err);
+    }
     else if (command == "ALLOW_SHUTDOWN")
     {
         if (tokens.size() != 1)
@@ -973,6 +1066,9 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
 
 void MainServer::customEvent(QEvent *e)
 {
+    if (!e)
+        return;
+
     QStringList broadcast;
     QSet<QString> receivers;
 
@@ -1000,7 +1096,7 @@ void MainServer::customEvent(QEvent *e)
             me->ExtraDataCount() >= 5)
         {
             bool ok = true;
-            QString pginfokey = me->ExtraData(0); // pginfo->MakeUniqueKey()
+            uint recordingID  = me->ExtraData(0).toUInt(); // pginfo->GetRecordingID()
             QString filename  = me->ExtraData(1); // outFileName
             QString msg       = me->ExtraData(2);
             QString datetime  = me->ExtraData(3);
@@ -1009,7 +1105,7 @@ void MainServer::customEvent(QEvent *e)
             {
                 LOG(VB_PLAYBACK, LOG_INFO, LOC +
                     QString("Preview Queued: '%1' '%2'")
-                        .arg(pginfokey).arg(filename));
+                        .arg(recordingID).arg(filename));
                 return;
             }
 
@@ -1020,7 +1116,7 @@ void MainServer::customEvent(QEvent *e)
             {
                 QByteArray data = file.readAll();
                 QStringList extra("OK");
-                extra.push_back(pginfokey);
+                extra.push_back(QString::number(recordingID));
                 extra.push_back(msg);
                 extra.push_back(datetime);
                 extra.push_back(QString::number(data.size()));
@@ -1251,7 +1347,7 @@ void MainServer::customEvent(QEvent *e)
             uint cardid = tokens[1].toUInt();
             uint chanid = tokens[2].toUInt();
             QDateTime startts = MythDate::fromString(tokens[3]);
-            RecStatusType recstatus = RecStatusType(tokens[4].toInt());
+            RecStatus::Type recstatus = RecStatus::Type(tokens[4].toInt());
             QDateTime recendts = MythDate::fromString(tokens[5]);
             m_sched->UpdateRecStatus(cardid, chanid, startts,
                                      recstatus, recendts);
@@ -1284,18 +1380,14 @@ void MainServer::customEvent(QEvent *e)
             return;
 
         MythEvent mod_me("");
-        if (me->Message().startsWith("MASTER_UPDATE_PROG_INFO"))
+        if (me->Message().startsWith("MASTER_UPDATE_REC_INFO"))
         {
             QStringList tokens = me->Message().simplified().split(" ");
-            uint chanid = 0;
-            QDateTime recstartts;
-            if (tokens.size() >= 3)
-            {
-                chanid     = tokens[1].toUInt();
-                recstartts = MythDate::fromString(tokens[2]);
-            }
+            uint recordedid = 0;
+            if (tokens.size() >= 2)
+                recordedid = tokens[1].toUInt();
 
-            ProgramInfo evinfo(chanid, recstartts);
+            ProgramInfo evinfo(recordedid);
             if (evinfo.GetChanID())
             {
                 QDateTime rectime = MythDate::current().addSecs(
@@ -1489,7 +1581,10 @@ void MainServer::HandleVersion(MythSocket *socket, const QStringList &slist)
 /**
  * \addtogroup myth_network_protocol
  * \par        ANN Playback \e host \e wantevents
- * Register \e host as a client, and prevent shutdown of the socket.
+ * Register \e host as a non-frontend client, and prevent shutdown of the socket.
+ *
+ * \par        ANN Frontend \e host \e wantevents
+ * Register \e host as a Frontend client, and allow shutdown of the socket when idle
  *
  * \par        ANN Monitor  \e host \e wantevents
  * Register \e host as a client, and allow shutdown of the socket
@@ -1536,7 +1631,8 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
     }
     sockListLock.unlock();
 
-    if (commands[1] == "Playback" || commands[1] == "Monitor")
+    if (commands[1] == "Playback" || commands[1] == "Monitor" ||
+        commands[1] == "Frontend")
     {
         if (commands.size() < 4)
         {
@@ -1560,26 +1656,31 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
                 .arg(commands[2]).arg(eventsMode));
         PlaybackSock *pbs = new PlaybackSock(this, socket, commands[2],
                                              eventsMode);
-        pbs->setBlockShutdown(commands[1] == "Playback");
+        pbs->setBlockShutdown((commands[1] == "Playback") ||
+                              (commands[1] == "Frontend"));
 
         sockListLock.lockForWrite();
         controlSocketList.remove(socket);
         playbackList.push_back(pbs);
         sockListLock.unlock();
 
-        Frontend *frontend = new Frontend();
-        frontend->name = commands[2];
-        // On a combined mbe/fe the frontend will connect using the localhost
-        // address, we need the external IP which happily will be the same as
-        // the backend's external IP
-        if (frontend->name == gCoreContext->GetMasterHostName())
-            frontend->ip = QHostAddress(gCoreContext->GetBackendServerIP());
-        else
-            frontend->ip = socket->GetPeerAddress();
-        if (gBackendContext)
-            gBackendContext->SetFrontendConnected(frontend);
-        else
-            delete frontend;
+        if (commands[1] == "Frontend")
+        {
+            pbs->SetAsFrontend();
+            Frontend *frontend = new Frontend();
+            frontend->name = commands[2];
+            // On a combined mbe/fe the frontend will connect using the localhost
+            // address, we need the external IP which happily will be the same as
+            // the backend's external IP
+            if (frontend->name == gCoreContext->GetMasterHostName())
+                frontend->ip = QHostAddress(gCoreContext->GetBackendServerIP());
+            else
+                frontend->ip = socket->GetPeerAddress();
+            if (gBackendContext)
+                gBackendContext->SetFrontendConnected(frontend);
+            else
+                delete frontend;
+        }
 
     }
     else if (commands[1] == "MediaServer")
@@ -1935,7 +2036,6 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
         delete *mit;
 
     QStringList outputlist(QString::number(destination.size()));
-    QMap<QString, QString> backendIpMap;
     QMap<QString, QString> backendPortMap;
     QString ip   = gCoreContext->GetBackendServerIP();
     int port = gCoreContext->GetBackendServerPort();
@@ -2011,13 +2111,10 @@ void MainServer::HandleQueryRecordings(QString type, PlaybackSock *pbs)
                 ProgramInfo *p      = proginfo;
                 QString hostname    = p->GetHostname();
 
-                if (!backendIpMap.contains(hostname))
-                    backendIpMap[hostname] =
-                        gCoreContext->GetBackendServerIP(hostname);
                 if (!backendPortMap.contains(hostname))
-                    backendPortMap[hostname] =
-                        gCoreContext->GetBackendServerPort(hostname);
-                p->SetPathname(gCoreContext->GenMythURL(backendIpMap[hostname],
+                    backendPortMap[hostname] = gCoreContext->GetBackendServerPort(hostname);
+
+                p->SetPathname(gCoreContext->GenMythURL(hostname,
                                                         backendPortMap[hostname],
                                                         p->GetBasename()));
             }
@@ -2229,31 +2326,28 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
         return;
     }
 
-    // Delete all preview thumbnails and srt subtitles.
-
+    // Delete all related files, though not the recording itself
+    // i.e. preview thumbnails, srt subtitles, orphaned transcode temporary
+    //      files
+    //
+    // TODO: Delete everything with this basename to catch stray
+    //       .tmp and .old files, and future proof it
     QFileInfo fInfo( ds->m_filename );
-    QString nameFilter = fInfo.fileName() + "*.png";
+    QStringList nameFilters;
+    nameFilters.push_back(fInfo.fileName() + "*.png");
+    nameFilters.push_back(fInfo.fileName() + "*.jpg");
+    nameFilters.push_back(fInfo.fileName() + ".tmp");
+    nameFilters.push_back(fInfo.fileName() + ".old");
+    nameFilters.push_back(fInfo.fileName() + ".map");
+    nameFilters.push_back(fInfo.fileName() + ".tmp.map");
+    nameFilters.push_back(fInfo.baseName() + ".srt");  // e.g. 1234_20150213165800.srt
 
-    // QDir's nameFilter uses spaces or semicolons to separate globs,
-    // so replace them with the "match any character" wildcard
-    // since mythrename.pl may have included them in filenames
-    nameFilter.replace(QRegExp("( |;)"), "?");
+    QDir dir (fInfo.path());
+    QFileInfoList miscFiles = dir.entryInfoList(nameFilters);
 
-    QStringList nameFilters(nameFilter);
-
-    nameFilter = fInfo.fileName();
-    nameFilter.replace(QRegExp("\\.mpg$"), ".srt");
-    nameFilters.append(nameFilter);
-
-    QDir      dir  ( fInfo.path() );
-    dir.setNameFilters(nameFilters);
-
-    for (uint nIdx = 0; nIdx < dir.count(); nIdx++)
+    for (int nIdx = 0; nIdx < miscFiles.size(); nIdx++)
     {
-        QString sFileName = QString( "%1/%2" )
-                               .arg( fInfo.path() )
-                               .arg( dir[ nIdx ] );
-
+        QString sFileName = miscFiles.at(nIdx).absoluteFilePath();
         delete_file_immediately( sFileName, followLinks, true);
     }
     // -----------------------------------------------------------------------
@@ -2370,8 +2464,8 @@ void MainServer::DoDeleteInDB(DeleteStruct *ds)
     sleep(1);
 
     // Notify the frontend so it can requery for Free Space
-    QString msg = QString("RECORDING_LIST_CHANGE DELETE %1 %2")
-        .arg(ds->m_chanid).arg(ds->m_recstartts.toString(Qt::ISODate));
+    QString msg = QString("RECORDING_LIST_CHANGE DELETE %1")
+        .arg(ds->m_recordedid);
     gCoreContext->SendEvent(MythEvent(msg));
 
     // sleep a little to let frontends reload the recordings list
@@ -2631,9 +2725,9 @@ void MainServer::HandleStopRecording(QStringList &slist, PlaybackSock *pbs)
             for( uint n = 0; n < schedList.size(); n++)
             {
                 ProgramInfo *pInfo = schedList[n];
-                if ((pInfo->GetRecordingStatus() == rsTuning ||
-                     pInfo->GetRecordingStatus() == rsFailing ||
-                     pInfo->GetRecordingStatus() == rsRecording)
+                if ((pInfo->GetRecordingStatus() == RecStatus::Tuning ||
+                     pInfo->GetRecordingStatus() == RecStatus::Failing ||
+                     pInfo->GetRecordingStatus() == RecStatus::Recording)
                     && recinfo.IsSameProgram(*pInfo))
                     recinfo.SetChanID(pInfo->GetChanID());
             }
@@ -2650,12 +2744,12 @@ void MainServer::DoHandleStopRecording(
         pbssock = pbs->getSocket();
 
     // FIXME!  We don't know what state the recorder is in at this
-    // time.  Simply set the recstatus to rsUnknown and let the
+    // time.  Simply set the recstatus to RecStatus::Unknown and let the
     // scheduler do the best it can with it.  The proper long term fix
     // is probably to have the recorder return the actual recstatus as
     // part of the stop recording response.  That's a more involved
     // change than I care to make during the 0.25 code freeze.
-    recinfo.SetRecordingStatus(rsUnknown);
+    recinfo.SetRecordingStatus(RecStatus::Unknown);
 
     if (ismaster && recinfo.GetHostname() != gCoreContext->GetHostName())
     {
@@ -4304,6 +4398,7 @@ void MainServer::HandleRecorderQuery(QStringList &slist, QStringList &commands,
         else
         {
             ProgramInfo dummy;
+            dummy.SetInputID(enc->GetCardID());
             dummy.ToStringList(retlist);
         }
     }
@@ -4367,6 +4462,7 @@ void MainServer::HandleRecorderQuery(QStringList &slist, QStringList &commands,
         else
         {
             ProgramInfo dummy;
+            dummy.SetInputID(enc->GetCardID());
             dummy.ToStringList(retlist);
         }
     }
@@ -4781,6 +4877,7 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
         else
         {
             ProgramInfo dummy;
+            dummy.SetInputID(enc->GetCardID());
             dummy.ToStringList(retlist);
         }
     }
@@ -6528,6 +6625,352 @@ void MainServer::HandleMusicTagRemoveImage(const QStringList& slist, PlaybackSoc
         SendResponse(pbssock, strlist);
 }
 
+// Expects: START or STOP
+// Replies: OK or error
+QString MainServer::HandleScanImages(QStringList &slist,
+                                     PlaybackSock *pbs)
+{
+    ImageScan *is = ImageScan::getInstance();
+
+    if (slist[1] == "START")
+
+        is->StartSync();
+
+    else if (slist[1] == "STOP")
+
+        is->StopSync();
+
+    else
+        return QString("Unknown Command %1").arg(slist[1]);
+
+    return QString();
+}
+
+// Expects: nothing
+// Replies: current scan status as an int (0 or 1)
+//        : number of images already scanned
+//        : total number of images detected
+void MainServer::HandleQueryImageScanStatus(PlaybackSock *pbs)
+{
+    ImageScan *is = ImageScan::getInstance();
+    QStringList strlist;
+
+    strlist << "OK"
+            << QString::number(is->SyncIsRunning()) // return bool as an int
+            << QString::number(is->GetCurrent())
+            << QString::number(is->GetTotal());
+
+    SendResponse(pbs->getSocket(), strlist);
+}
+
+// Expects: recreate-even-if-already-present boolean flag, list of image ids
+// Replies: OK
+void MainServer::HandleCreateThumbnails(QStringList &slist,
+                                        PlaybackSock *pbs)
+{
+    // single flag applies to all thumbnails
+    bool recreate = slist[1].toInt();
+
+    ImageUtils *iu = ImageUtils::getInstance();
+    ImageThumbGen *thumbGen = ImageThumbGen::getInstance();
+
+    for (int i = 2; i < slist.size(); ++i)
+    {
+        int id = slist[i].toInt();
+
+        ImageMetadata *im = new ImageMetadata();
+
+        // find requested image in DB
+        iu->LoadFileFromDB(im, id);
+
+        if (im->m_fileName.isEmpty())
+        {
+            LOG(VB_FILE, LOG_DEBUG, QString("Image %1 not found in Db").arg(id));
+            delete im;
+        }
+        else
+            // pass to thumbnail generator
+            thumbGen->AddToThumbnailList(im, recreate);
+    }
+
+    // Restart generator
+    thumbGen->StartThumbGen();
+
+    QStringList ok = QStringList("OK");
+    SendResponse(pbs->getSocket(), ok);
+}
+
+// Expects: image id
+// Replies: error or nothing
+QString MainServer::HandleDeleteImage(QStringList &slist, PlaybackSock *pbs)
+{
+    QString sgName = IMAGE_STORAGE_GROUP;
+    StorageGroup sg = StorageGroup(sgName, gCoreContext->GetHostName());
+    ImageUtils *iu = ImageUtils::getInstance();
+
+    int id = slist[1].toInt();
+
+    // Find image in DB
+    ImageMetadata *im = new ImageMetadata();
+    iu->LoadFileFromDB(im, id);
+    QString fileName = im->m_fileName;
+    delete im;
+
+    if (fileName.isEmpty())
+
+        return QString("Image %1 not found in Db").arg(id);
+
+    // Find image file
+    QString imageFileName = sg.FindFile(fileName);
+
+    if (imageFileName.isEmpty())
+
+        return QString("File %1 for image %2 not found")
+                .arg(fileName)
+                .arg(id);
+
+    // Remove file
+    if (!QFile::remove(imageFileName))
+
+        return QString("Could not delete file %1 for image %2")
+                .arg(imageFileName)
+                .arg(id);
+
+    LOG(VB_FILE, LOG_DEBUG,
+        QString("Deleted %1 for image %2")
+        .arg(imageFileName)
+        .arg(id));
+
+    // Remove the database entry once the file has been deleted.
+    if (!iu->RemoveFileFromDB(id))
+
+        return QString("Delete from Db failed for image %1").arg(id);
+
+    // success
+    return QString();
+}
+
+// Expects: image id, new name
+// Replies: error or nothing
+QString MainServer::HandleRenameImage(QStringList &slist, PlaybackSock *pbs)
+{
+    QString sgName = IMAGE_STORAGE_GROUP;
+    StorageGroup sg = StorageGroup(sgName, gCoreContext->GetHostName(), false);
+    ImageUtils *iu = ImageUtils::getInstance();
+
+    int id = slist[1].toInt();
+    QString newName = slist[2];
+
+    // New name must not contain a path
+    if (newName.contains("/") || newName.contains("\\"))
+
+        return QString("New filename '%1' for image %2 must "
+                       "not contain a path")
+                .arg(newName)
+                .arg(id);
+
+    // Find image in DB
+    ImageMetadata *im = new ImageMetadata();
+    iu->LoadFileFromDB(im, id);
+    QString relFileName = im->m_fileName;
+    QString name = im->m_name;
+    QString path = im->m_path;
+    delete im;
+
+    if (relFileName.isEmpty())
+
+        return QString("Image %1 not found in Db").arg(id);
+
+    // Find image file
+    QString absFileName = sg.FindFile(relFileName);
+
+    if (absFileName.isEmpty())
+
+        return QString("File %1 for image %2 not found")
+                .arg(relFileName)
+                .arg(id);
+
+    // Rename the file
+    QFile file;
+    file.setFileName(absFileName);
+    QFileInfo info = QFileInfo(file);
+    QString absNewName = QString("%1/%2").arg(info.absolutePath()).arg(newName);
+
+    if (!file.rename(absNewName))
+
+        return QString("Renaming %1 to %2 failed for image %3")
+                .arg(name)
+                .arg(newName)
+                .arg(id);
+
+    LOG(VB_FILE, LOG_DEBUG,
+        QString("Renamed %1 to %2 for image %3")
+        .arg(name)
+        .arg(newName)
+        .arg(id));
+
+    // Update the database
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare(QString("UPDATE gallery_files SET "
+                          "name           = :NAME "
+                          "WHERE file_id  = :ID;"));
+    query.bindValue(":NAME", newName);
+    query.bindValue(":ID",   id);
+
+    if (!query.exec())
+
+        return QString("Rename in Db failed for image %1").arg(id);
+
+    // success
+    return QString();
+}
+
+// Expects: image id, property, tag value
+// Replies: error or nothing
+QString MainServer::HandleSetImageExif(QStringList &slist, PlaybackSock *pbs)
+{
+    QString sgName = IMAGE_STORAGE_GROUP;
+    StorageGroup sg = StorageGroup(sgName, gCoreContext->GetHostName());
+    ImageUtils *iu = ImageUtils::getInstance();
+
+    int id = slist[1].toInt();
+    QString property = slist[2];
+    QString tagValue = slist[3];
+
+    // validate
+    QString tag;
+    int value;
+    if (property == "ORIENTATION")
+    {
+        tag = "Exif.Image.Orientation";
+        value = tagValue.toInt();
+
+        // See http://jpegclub.org/exif_orientation.html for details
+        if ( value < 1 || value > 8)
+
+            return QString("Invalid orientation %1 requested for image %2")
+                    .arg(tagValue)
+                    .arg(id);
+    }
+    else
+        return QString("Setting property %1 not implemented").arg(property);
+
+    // Find image in DB
+    ImageMetadata *im = new ImageMetadata();
+    iu->LoadFileFromDB(im, id);
+    QString fileName = im->m_fileName;
+    delete im;
+
+    if (fileName.isEmpty())
+
+        return QString("Image %1 not found in Db").arg(id);
+
+    // Find image file
+    QString imageFileName = sg.FindFile(fileName);
+
+    if (imageFileName.isEmpty())
+
+        return QString("File %1 for image %2 not found")
+                .arg(fileName)
+                .arg(id);
+
+    // Set Exif
+    bool ok;
+    iu->SetExifValue(imageFileName, tag, tagValue, &ok);
+
+    if (!ok)
+
+        return QString("Setting exif %1 failed for image %2")
+                .arg(property)
+                .arg(id);
+
+    LOG(VB_FILE, LOG_DEBUG,
+        QString("Set exif %1 to %2 for image %3")
+        .arg(property)
+        .arg(tagValue)
+        .arg(id));
+
+    // Update the database
+    if (property == "ORIENTATION")
+    {
+        MSqlQuery query(MSqlQuery::InitCon());
+        query.prepare(QString("UPDATE gallery_files SET "
+                              "orientation    = :ORIENT "
+                              "WHERE file_id  = :ID;"));
+        query.bindValue(":ORIENT", value);
+        query.bindValue(":ID",     id);
+
+        if (!query.exec())
+
+            return QString("Set exif in Db failed for image %1").arg(id);
+    }
+    // success
+    return QString();
+}
+
+// Expects: image id
+// Replies: error or list of
+QString MainServer::HandleGetImageExif(QStringList &slist, PlaybackSock *pbs)
+{
+    QString sgName = IMAGE_STORAGE_GROUP;
+    StorageGroup sg = StorageGroup(sgName, gCoreContext->GetHostName());
+    ImageUtils *iu = ImageUtils::getInstance();
+
+    int id = slist[1].toInt();
+
+    // Find image in DB
+    ImageMetadata *im = new ImageMetadata();
+    iu->LoadFileFromDB(im, id);
+    QString fileName = im->m_fileName;
+    delete im;
+
+    if (fileName.isEmpty())
+
+        return QString("Image %1 not found in Db").arg(id);
+
+    // Find image file
+    QString imageFileName = sg.FindFile(fileName);
+
+    if (imageFileName.isEmpty())
+
+        return QString("File %1 for image %2 not found")
+                .arg(fileName)
+                .arg(id);
+
+    // Get Exif
+    QList<QStringList> valueList = iu->GetAllExifValues(imageFileName);
+
+    if (valueList.size() == 0)
+
+        return QString("Could not read %1 exif tags for image %2")
+                .arg(imageFileName)
+                .arg(id);
+
+    // Each property is described by a stringlist of
+    // <familyname>, <groupname>, <tagname>, <taglabel>, <value>
+    // Combine label/value using a (hopefully unique) delimiter
+    // to return 1 string per property.
+    // Clients must use the supplied seperator to split the strings
+    const QString seperator = ":|-|:";
+    QStringList result;
+    result << "OK" << seperator;
+
+    for (int i = 0; i < valueList.size(); ++i)
+    {
+        const QStringList values = valueList.at(i);
+
+        result.append(QString("%1%2%3")
+                      .arg(values.at(4))
+                      .arg(seperator)
+                      .arg(values.at(5)));
+    }
+
+    SendResponse(pbs->getSocket(), result);
+
+    // success
+    return QString();
+}
+
 void MainServer::HandleFileTransferQuery(QStringList &slist,
                                          QStringList &commands,
                                          PlaybackSock *pbs)
@@ -7271,7 +7714,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                     QString("SLAVE_DISCONNECTED HOSTNAME %1")
                             .arg(pbs->getHostname()));
             }
-            else if (ismaster)
+            else if (ismaster && pbs->IsFrontend())
             {
                 if (gBackendContext)
                     gBackendContext->SetFrontendDisconnected(pbs->getHostname());
@@ -7317,7 +7760,8 @@ void MainServer::connectionClosed(MythSocket *socket)
 
             // Since we may already be holding the scheduler lock
             // delay handling the disconnect until a little later. #9885
-            SendSlaveDisconnectedEvent(disconnectedSlaves, needsReschedule);
+            if (!disconnectedSlaves.isEmpty())
+                SendSlaveDisconnectedEvent(disconnectedSlaves, needsReschedule);
 
             return;
         }
@@ -7669,6 +8113,7 @@ void MainServer::reconnectTimeout(void)
         else
         {
             ProgramInfo dummy;
+            dummy.SetInputID(elink->GetCardID());
             dummy.ToStringList(strlist);
         }
     }
@@ -7788,3 +8233,4 @@ void MainServer::SendSlaveDisconnectedEvent(
 }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */
+

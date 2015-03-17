@@ -750,8 +750,8 @@ QRect VideoOutWindow::GetVisibleOSDBounds(
     }
 
     // top left and bottom right corners respecting letterboxing
-    QPoint tl = QPoint((uint) ceil(max(-display_video_rect.left(),0)*dv_w),
-                       (uint) ceil(max(-display_video_rect.top(),0)*dv_h));
+    QPoint tl = QPoint(((uint) (max(-display_video_rect.left(),0)*dv_w)) & ~1,
+                       ((uint) (max(-display_video_rect.top(),0)*dv_h)) & ~1);
     QPoint br = QPoint(
         (uint) floor(video_disp_dim.width()  - (right_overflow * dv_w)),
         (uint) floor(video_disp_dim.height() - (lower_overflow * dv_h)));
@@ -774,26 +774,20 @@ QRect VideoOutWindow::GetVisibleOSDBounds(
     vb = QRect(vb.x(), vb.y(), abs(vb.width()), abs(vb.height()));
 
     // set the physical aspect ratio of the displayable area
-    float dispPixelAdj = 1.0f;
-    if (display_visible_rect.width())
-    {
-        dispPixelAdj = GetDisplayAspect() * display_visible_rect.height();
-        dispPixelAdj /= display_visible_rect.width();
-    }
+    const float dispPixelAdj = display_visible_rect.width() ?
+        (GetDisplayAspect() * display_visible_rect.height())
+                / display_visible_rect.width() : 1.f;
 
-    if ((vb.height() >= 0) && overriden_video_aspect >= 0.0f)
-    {
-        // now adjust for scaling of the video on the aspect ratio
-        float vs = ((float)vb.width())/vb.height();
-        visible_aspect =
-            themeaspect * (vs/overriden_video_aspect) * dispPixelAdj;
-    }
+    float vs = video_rect.height() ? (float)video_rect.width() /
+                video_rect.height() : 1.f;
+    visible_aspect = themeaspect / dispPixelAdj *
+        (overriden_video_aspect ? vs / overriden_video_aspect : 1.f);
 
-    if (themeaspect >= 0.0f)
+    if (themeaspect > 0.0f)
     {
         // now adjust for scaling of the video on the size
         float tmp = sqrtf(2.0f/(sq(visible_aspect / themeaspect) + 1.0f));
-        if (tmp >= 0.0f)
+        if (tmp > 0.0f)
             font_scaling = 1.0f / tmp;
         // now adjust for aspect ratio effect on font size
         // (should be in osd.cpp?)

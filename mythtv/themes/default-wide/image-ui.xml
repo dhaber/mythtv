@@ -12,6 +12,11 @@
             </textarea>
         </textarea>
 
+        <textarea name="syncprogresstext" from="basetextarea">
+            <area>540,20,200,30</area>
+            <align>center</align>
+        </textarea>
+
         <!-- the shape where the imagelist is displayed -->
         <shape name="gallerybackground">
             <area>25,60,1230,633</area>
@@ -23,7 +28,7 @@
 
         <!-- shows the name of the folder or image -->
         <textarea name="title" from="basetextarea">
-            <area>45,80,900,30</area>
+            <area>45,70,900,30</area>
             <cutdown>yes</cutdown>
             <font>title</font>
             <align>left,vcenter</align>
@@ -31,13 +36,13 @@
 
         <!-- optional - shows current position in grid eg '1 of 123' -->
         <textarea name="position" from="basetextarea">
-            <area>1055,80,180,30</area>
+            <area>1055,70,180,30</area>
             <align>right,vcenter</align>
         </textarea>
 
         <!-- shows path to current image -->
         <textarea name="breadcrumbs" from="basetextarea">
-            <area>45,120,900,20</area>
+            <area>45,100,900,30</area>
             <font>text_very_small</font>
             <cutdown>yes</cutdown>
         </textarea>
@@ -221,7 +226,7 @@
                         <line color="#000000" alpha="0" width="1" />
                         <fill color="#000000" alpha="130" />
                     </shape>
--
+
                     <statetype name="buttonbackground">
                         <position>0,0</position>
                         <state name="subfolder">
@@ -335,7 +340,7 @@
                                 <area>181,121,58,58</area>
                                 <type>box</type>
                                 <line color="#000000" alpha="0" width="1" />
-                                <fill color="#000000" alpha="130" />v
+                                <fill color="#000000" alpha="130" />
                             </shape>
                             <imagetype name="icon">
                                 <area>183,124,52,52</area>
@@ -359,7 +364,7 @@
             <!-- Show the arrow image that indicates that there are
                 more menu entries above the first visible menu -->
             <statetype name="upscrollarrow">
-                <position>1135,-20</position>
+                <position>1135,-50</position>
                 <state type="off">
                     <imagetype name="upon">
                         <filename>lb-uparrow-reg.png</filename>
@@ -375,7 +380,7 @@
             <!-- Show the arrow image that indicates that there are
                 more menu entries below the last visible menu -->
             <statetype name="downscrollarrow">
-                <position>1160,-20</position>
+                <position>1160,-50</position>
                 <state type="off">
                     <imagetype name="dnon">
                         <filename>lb-dnarrow-reg.png</filename>
@@ -451,8 +456,8 @@
             <value>Clear database contents (Resync required):</value>
         </textarea>
 
-        <buttonlist name="sortorder" from="basewideselector">
-            <position>730,240</position>
+        <buttonlist name="sortorder" from="baseselector">
+            <area>730,240,380,40</area>
         </buttonlist>
         <spinbox name="slideshowtime" from="basespinbox">
             <position>730,290</position>
@@ -467,21 +472,8 @@
             <position>730,445</position>
         </checkbox>
         <button name="cleardatabase" from="basebutton">
-            <area>730,495,40,40</area>
-            <statetype name="buttonstate">
-                <state name="active">
-                    <area>0,0,40,40</area>
-                </state>
-                <state name="selected">
-                    <area>0,0,40,40</area>
-                </state>
-                <state name="disabled">
-                    <area>0,0,40,40</area>
-                </state>
-                <state name="pushed">
-                    <area>0,0,40,40</area>
-                </state>
-            </statetype>
+            <area>730,490,140,40</area>
+            <value>Clear</value>
         </button>
 
         <shape name="description_separator">

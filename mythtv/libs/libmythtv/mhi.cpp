@@ -603,17 +603,33 @@ bool MHIContext::OfferKey(QString key)
     { QMutexLocker locker(&m_keyLock);
     m_keyQueue.enqueue(action);}
     m_engine_wait.wakeAll();
-    // Accept the key except 'exit' (16) in 'always available' (3) state.
-    // This allows re-use of Esc as TEXTEXIT for RC's with a single backup button
-    return action != 16 || m_keyProfile != 3;
+    return true;
 }
 
 // Called from MythPlayer::VideoStart and MythPlayer::ReinitOSD
-void MHIContext::Reinit(const QRect &display)
+void MHIContext::Reinit(const QRect &videoRect, const QRect &dispRect, float aspect)
 {
-    QMutexLocker locker(&m_display_lock);
-    m_videoDisplayRect = m_videoRect = QRect();
-    m_displayRect = display;
+    LOG(VB_MHEG, LOG_INFO,
+         QString("[mhi] Reinit video(y:%1 x:%2 w:%3 h:%4) "
+            "vis(y:%5 x:%6 w:%7 h:%8) aspect=%9")
+        .arg(videoRect.y()).arg(videoRect.x())
+        .arg(videoRect.width()).arg(videoRect.height())
+        .arg(dispRect.y()).arg(dispRect.x())
+        .arg(dispRect.width()).arg(dispRect.height()).arg(aspect));
+    m_videoDisplayRect = QRect();
+
+    // MHEG presumes square pixels
+    enum { kNone, kHoriz, kBoth };
+    int mode = gCoreContext->GetNumSetting("MhegAspectCorrection", kNone);
+    double const vz = (mode == kBoth) ? min(1.15, 1. / sqrt(aspect)) : 1.;
+    double const hz = (mode > kNone) ? vz * aspect : 1.;
+
+    m_displayRect = QRect( int(dispRect.width() * (1 - hz) / 2),
+        int(dispRect.height() * (1 - vz) / 2),
+        int(dispRect.width() * hz), int(dispRect.height() * vz) );
+    m_videoRect = QRect( dispRect.x() + m_displayRect.x(),
+        dispRect.y() + int(dispRect.height() * (1 - hz) / 2),
+        int(dispRect.width() * hz), int(dispRect.height() * hz) );
 }
 
 void MHIContext::SetInputRegister(int num)
@@ -742,6 +758,23 @@ inline QRect MHIContext::Scale(const QRect &r) const
         QSize(ScaleX(r.width(), true), ScaleY(r.height(), true)) );
 }
 
+inline int MHIContext::ScaleVideoX(int n, bool roundup) const
+{
+    return (n * m_videoRect.width() + (roundup ? StdDisplayWidth - 1 : 0)) / StdDisplayWidth;
+}
+
+inline int MHIContext::ScaleVideoY(int n, bool roundup) const
+{
+    return (n * m_videoRect.height() + (roundup ? StdDisplayHeight - 1 : 0)) / StdDisplayHeight;
+}
+
+inline QRect MHIContext::ScaleVideo(const QRect &r) const
+{
+    return QRect( m_videoRect.topLeft() +
+        QPoint(ScaleVideoX(r.x()), ScaleVideoY(r.y())),
+        QSize(ScaleVideoX(r.width(), true), ScaleVideoY(r.height(), true)) );
+}
+
 void MHIContext::AddToDisplay(const QImage &image, const QRect &displayRect, bool bUnder /*=false*/)
 {
     const QRect scaledRect = Scale(displayRect);
@@ -791,14 +824,14 @@ void MHIContext::DrawVideo(const QRect &videoRect, const QRect &dispRect)
     // tell the video player to resize the video stream
     if (m_parent->GetNVP())
     {
-        QRect vidRect = Scale(videoRect);
-        vidRect.setWidth(Roundup(vidRect.width(), 2));
-        vidRect.setHeight(Roundup(vidRect.height(), 2));
-        if (m_videoRect != vidRect)
+        QRect vidRect;
+        if (videoRect != QRect(QPoint(0,0),QSize(StdDisplayWidth,StdDisplayHeight)))
         {
-            m_parent->GetNVP()->SetVideoResize(vidRect);
-            m_videoRect = vidRect;
+            vidRect = ScaleVideo(videoRect);
+            vidRect.setWidth(Roundup(vidRect.width(), 2));
+            vidRect.setHeight(Roundup(vidRect.height(), 2));
         }
+        m_parent->GetNVP()->SetVideoResize(vidRect);
     }
 
     m_videoDisplayRect = Scale(dispRect);
@@ -1029,7 +1062,7 @@ void MHIContext::EndStream()
 // Callback from MythPlayer when a stream starts or stops
 bool MHIContext::StreamStarted(bool bStarted)
 {
-    if (!m_notify)
+    if (!m_engine || !m_notify)
         return false;
 
     LOG(VB_MHEG, LOG_INFO, QString("[mhi] Stream 0x%1 %2")

@@ -101,6 +101,8 @@ DTVRecorder::DTVRecorder(TVRec *rec) :
 
     _minimum_recording_quality =
         gCoreContext->GetNumSetting("MinimumRecordingQuality", 95);
+
+    m_containerFormat = formatMPEG2_TS;
 }
 
 DTVRecorder::~DTVRecorder(void)
@@ -661,7 +663,7 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
             LOG(VB_RECORD, LOG_DEBUG, LOC + QString("Inserted gap %1 dur %2")
                 .arg(recordingGaps.back().toString()).arg(diff/90000.0));
 
-            if (curRecording && curRecording->GetRecordingStatus() != rsFailing)
+            if (curRecording && curRecording->GetRecordingStatus() != RecStatus::Failing)
             {
                 RecordingQuality recq(curRecording, recordingGaps);
                 if (recq.IsDamaged())
@@ -669,8 +671,8 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
                     LOG(VB_GENERAL, LOG_INFO, LOC +
                         QString("HandleTimestamps: too much damage, "
                                 "setting status to %1")
-                        .arg(toString(rsFailing, kSingleRecord)));
-                    SetRecordingStatus(rsFailing, __FILE__, __LINE__);
+                        .arg(RecStatus::toString(RecStatus::Failing, kSingleRecord)));
+                    SetRecordingStatus(RecStatus::Failing, __FILE__, __LINE__);
                 }
             }
         }
@@ -1173,7 +1175,7 @@ void DTVRecorder::FindPSKeyFrames(const uint8_t *buffer, uint len)
         if (hasKeyFrame)
         {
             _last_keyframe_seen = _frames_seen_count;
-            HandleKeyframe(_payload_buffer.size() - (bufptr - bufstart));
+            HandleKeyframe((int64_t)_payload_buffer.size() - (bufptr - bufstart));
         }
 
         if ((aspectRatio > 0) && (aspectRatio != m_videoAspect))
@@ -1363,6 +1365,9 @@ void DTVRecorder::HandleSingleProgramPMT(ProgramMapTable *pmt, bool insert)
                 case StreamID::H264Video:
                     m_primaryVideoCodec = AV_CODEC_ID_H264;
                     break;
+                case StreamID::H265Video:
+                    m_primaryVideoCodec = AV_CODEC_ID_H265;
+                    break;
                 case StreamID::OpenCableVideo:
                     m_primaryVideoCodec = AV_CODEC_ID_MPEG2VIDEO; // TODO Will it always be MPEG2?
                     break;
@@ -1459,6 +1464,11 @@ bool DTVRecorder::ProcessTSPacket(const TSPacket &tspacket)
     {
         FindOtherKeyframes(&tspacket);
         _buffer_packets = false;
+    }
+    else if (_stream_id[pid] == 0)
+    {
+        // Ignore this packet if the PID should be stripped
+        return true;
     }
     else
     {

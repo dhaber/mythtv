@@ -30,13 +30,24 @@
         </checkbox>
 
         <textarea name="enable_text" from="basetextarea">
-            <area>130,270,200,30</area>
+            <area>130,270,250,30</area>
             <align>left,vcenter</align>
             <value>Enabled</value>
         </textarea>
 
+        <checkbox name="notification_check" from="basecheckbox">
+            <position>90,310</position>
+        </checkbox>
+
+        <textarea name="notification_text" from="basetextarea">
+            <area>130,310,250,30</area>
+            <align>left,vcenter</align>
+            <value>Show  Notifications</value>
+        </textarea>
+
         <button name="ok_button" from="basebutton">
-            <position>125,350</position>
+            <position>125,365</position>
+            <value>OK</value>
         </button>
     </window>
 
@@ -1103,6 +1114,56 @@
 
         <imagetype name="frame5-8">
             <area>965,425,295,220</area>
+            <filename>mz_testcard.png</filename>
+        </imagetype>
+
+    </window>
+
+    <window name="miniplayer">
+        <fontdef name="monitor" from="basesmall">
+            <color>#ffff00</color>
+            <size>16</size>
+        </fontdef>
+
+        <fontdef name="idle" from="basesmall">
+            <color>#ffff00</color>
+            <size>16</size>
+        </fontdef>
+
+        <fontdef name="alarm" from="basesmall">
+            <color>#ff0000</color>
+            <size>16</size>
+        </fontdef>
+
+        <fontdef name="alert" from="basesmall">
+            <color>#ffa500</color>
+            <size>16</size>
+        </fontdef>
+
+        <area>-1,5,396,340</area>
+
+        <shape name="background" from="basepopupbackground">
+            <area>0,0,396,320</area>
+        </shape>
+
+        <textarea name="name1-1" from="basetextarea">
+            <area>10,5,230,30</area>
+            <font>monitor</font>
+            <value>Monitor 1</value>
+        </textarea>
+
+        <textarea name="status1-1" from="basetextarea">
+            <area>241,5,145,30</area>
+            <align>right</align>
+            <font>idle</font>
+            <font state="idle">idle</font>
+            <font state="alarm">alarm</font>
+            <font state="alert">alert</font>
+            <value></value>
+        </textarea>
+
+        <imagetype name="frame1-1">
+            <area>10,30,376,280</area>
             <filename>mz_testcard.png</filename>
         </imagetype>
 

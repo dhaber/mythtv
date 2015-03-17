@@ -32,34 +32,46 @@
 
 const int FRAME_UPDATE_TIME = 1000 / 10;  // try to update the frame 10 times a second
 
-ZMLivePlayer::ZMLivePlayer(MythScreenStack *parent)
+ZMLivePlayer::ZMLivePlayer(MythScreenStack *parent, bool isMiniPlayer)
              :MythScreenType(parent, "zmliveview"),
               m_frameTimer(new QTimer(this)), m_paused(false), m_monitorLayout(1),
-              m_monitorCount(0), m_players(NULL), m_monitors(NULL)
+              m_monitorCount(0), m_players(NULL), m_isMiniPlayer(isMiniPlayer),
+              m_alarmMonitor(-1)
 {
+    ZMClient::get()->setIsMiniPlayerEnabled(false);
+
     GetMythUI()->DoDisableScreensaver();
+    GetMythMainWindow()->PauseIdleTimer(true);
 
     connect(m_frameTimer, SIGNAL(timeout()), this,
             SLOT(updateFrame()));
-
-    getMonitorList();
 }
 
 bool ZMLivePlayer::Create(void)
 {
-    bool foundtheme = false;
-
     // Load the theme for this screen
-    foundtheme = LoadWindowFromXML("zoneminder-ui.xml", "zmliveplayer", this);
+    QString winName = m_isMiniPlayer ? "miniplayer" : "zmliveplayer";
 
-    if (!foundtheme)
+    if (!LoadWindowFromXML("zoneminder-ui.xml", winName, this))
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Cannot load screen '%1'").arg(winName));
         return false;
+    }
 
     if (!hideAll())
         return false;
 
-    if (!initMonitorLayout())
-        return false;
+    if (m_isMiniPlayer)
+    {
+        // we only support the single camera layout in the mini player
+        if (!initMonitorLayout(1))
+            return false;
+    }
+    else
+    {
+        if (!initMonitorLayout(gCoreContext->GetNumSetting("ZoneMinderLiveLayout", 1)))
+            return false;
+    }
 
     return true;
 }
@@ -83,36 +95,39 @@ bool ZMLivePlayer::hideAll(void)
         GetMythUIType("status1-1")->SetVisible(false);
         GetMythUIType("frame1-1")->SetVisible(false);
 
-        // two player layout
-        for (int x = 1; x < 3; x++)
+        if (!m_isMiniPlayer)
         {
-            GetMythUIType(QString("name2-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("status2-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("frame2-%1").arg(x))->SetVisible(false);
-        }
+            // two player layout
+            for (int x = 1; x < 3; x++)
+            {
+                GetMythUIType(QString("name2-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("status2-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("frame2-%1").arg(x))->SetVisible(false);
+            }
 
-        // four player layout
-        for (int x = 1; x < 5; x++)
-        {
-            GetMythUIType(QString("name3-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("status3-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("frame3-%1").arg(x))->SetVisible(false);
-        }
+            // four player layout
+            for (int x = 1; x < 5; x++)
+            {
+                GetMythUIType(QString("name3-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("status3-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("frame3-%1").arg(x))->SetVisible(false);
+            }
 
-        // six player layout
-        for (int x = 1; x < 7; x++)
-        {
-            GetMythUIType(QString("name4-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("status4-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("frame4-%1").arg(x))->SetVisible(false);
-        }
+            // six player layout
+            for (int x = 1; x < 7; x++)
+            {
+                GetMythUIType(QString("name4-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("status4-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("frame4-%1").arg(x))->SetVisible(false);
+            }
 
-        // eight player layout
-        for (int x = 1; x < 9; x++)
-        {
-            GetMythUIType(QString("name5-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("status5-%1").arg(x))->SetVisible(false);
-            GetMythUIType(QString("frame5-%1").arg(x))->SetVisible(false);
+            // eight player layout
+            for (int x = 1; x < 9; x++)
+            {
+                GetMythUIType(QString("name5-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("status5-%1").arg(x))->SetVisible(false);
+                GetMythUIType(QString("frame5-%1").arg(x))->SetVisible(false);
+            }
         }
     }
     catch (const QString &name)
@@ -126,10 +141,10 @@ bool ZMLivePlayer::hideAll(void)
     return true;
 }
 
-bool ZMLivePlayer::initMonitorLayout()
+bool ZMLivePlayer::initMonitorLayout(int layout)
 {
     // if we haven't got any monitors there's not much we can do so bail out!
-    if (m_monitors->empty())
+    if (ZMClient::get()->getMonitorCount() == 0)
     {
         LOG(VB_GENERAL, LOG_ERR, "Cannot find any monitors. Bailing out!");
         ShowOkPopup(tr("Can't show live view.") + "\n" +
@@ -137,7 +152,7 @@ bool ZMLivePlayer::initMonitorLayout()
         return false;
     }
 
-    setMonitorLayout(gCoreContext->GetNumSetting("ZoneMinderLiveLayout", 1), true);
+    setMonitorLayout(layout, true);
     m_frameTimer->start(FRAME_UPDATE_TIME);
 
     return true;
@@ -148,6 +163,7 @@ ZMLivePlayer::~ZMLivePlayer()
     gCoreContext->SaveSetting("ZoneMinderLiveLayout", m_monitorLayout);
 
     GetMythUI()->DoRestoreScreensaver();
+    GetMythMainWindow()->PauseIdleTimer(false);
 
     if (m_players)
     {
@@ -169,10 +185,9 @@ ZMLivePlayer::~ZMLivePlayer()
     else
         gCoreContext->SaveSetting("ZoneMinderLiveCameras", "");
 
-    if (m_monitors)
-        delete m_monitors;
-
     delete m_frameTimer;
+
+    ZMClient::get()->setIsMiniPlayerEnabled(true);
 }
 
 bool ZMLivePlayer::keyPressEvent(QKeyEvent *event)
@@ -202,7 +217,7 @@ bool ZMLivePlayer::keyPressEvent(QKeyEvent *event)
                 m_paused = true;
             }
         }
-        else if (action == "INFO")
+        else if (action == "INFO" && !m_isMiniPlayer)
         {
             m_monitorLayout++;
             if (m_monitorLayout > 5)
@@ -234,10 +249,10 @@ void ZMLivePlayer::changePlayerMonitor(int playerNo)
     Monitor *mon;
 
     // find the old monitor ID in the list of available monitors
-    vector<Monitor*>::iterator i = m_monitors->begin();
-    for (; i != m_monitors->end(); ++i)
+    int pos;
+    for (pos = 0; pos < ZMClient::get()->getMonitorCount(); pos++)
     {
-        mon = *i;
+        mon = ZMClient::get()->getMonitorAt(pos);
         if (oldMonID == mon->id)
         {
             break;
@@ -245,14 +260,14 @@ void ZMLivePlayer::changePlayerMonitor(int playerNo)
     }
 
     // get the next monitor in the list
-    if (i != m_monitors->end())
-        ++i;
+    if (pos != ZMClient::get()->getMonitorCount())
+        pos++;
 
     // wrap around to the start if we've reached the end
-    if (i == m_monitors->end())
-        i = m_monitors->begin();
+    if (pos >= ZMClient::get()->getMonitorCount())
+        pos = 0;
 
-    mon = *i;
+    mon = ZMClient::get()->getMonitorAt(pos);
 
     m_players->at(playerNo - 1)->setMonitor(mon);
     m_players->at(playerNo - 1)->updateCamera();
@@ -262,10 +277,6 @@ void ZMLivePlayer::changePlayerMonitor(int playerNo)
 
 void ZMLivePlayer::updateFrame()
 {
-    class ZMClient *zm = ZMClient::get();
-    if (!zm)
-        return;
-
     static unsigned char buffer[MAX_IMAGE_SIZE];
     m_frameTimer->stop();
 
@@ -283,7 +294,7 @@ void ZMLivePlayer::updateFrame()
     for (int x = 0; x < monList.count(); x++)
     {
         QString status;
-        int frameSize = zm->getLiveFrame(monList[x], status, buffer, sizeof(buffer));
+        int frameSize = ZMClient::get()->getLiveFrame(monList[x], status, buffer, sizeof(buffer));
 
         if (frameSize > 0 && !status.startsWith("ERROR"))
         {
@@ -316,7 +327,13 @@ void ZMLivePlayer::stopPlayers()
 
 void ZMLivePlayer::setMonitorLayout(int layout, bool restore)
 {
-    QStringList monList = gCoreContext->GetSetting("ZoneMinderLiveCameras", "").split(",");
+    QStringList monList;
+
+    if (m_alarmMonitor != -1)
+        monList.append(QString::number(m_alarmMonitor));
+    else
+        monList = gCoreContext->GetSetting("ZoneMinderLiveCameras", "").split(",");
+
     m_monitorLayout = layout;
 
     if (m_players)
@@ -341,7 +358,7 @@ void ZMLivePlayer::setMonitorLayout(int layout, bool restore)
 
     hideAll();
 
-    uint monitorNo = 1;
+    int monitorNo = 1;
 
     for (int x = 1; x <= m_monitorCount; x++)
     {
@@ -355,20 +372,12 @@ void ZMLivePlayer::setMonitorLayout(int layout, bool restore)
                 int monID = s.toInt(); 
 
                 // try to find a monitor that matches the monID
-                vector<Monitor*>::iterator i = m_monitors->begin();
-                for (; i != m_monitors->end(); ++i)
-                {
-                    if ((*i)->id == monID)
-                    {
-                        monitor = *i;
-                        break;
-                    }
-                }
+                monitor = ZMClient::get()->getMonitorByID(monID);
             }
         }
 
         if (!monitor)
-            monitor = m_monitors->at(monitorNo - 1);
+            monitor = ZMClient::get()->getMonitorAt(monitorNo - 1);
 
         MythUIImage *frameImage = dynamic_cast<MythUIImage *> (GetChild(QString("frame%1-%2").arg(layout).arg(x)));
         MythUIText  *cameraText = dynamic_cast<MythUIText *> (GetChild(QString("name%1-%2").arg(layout).arg(x)));
@@ -381,22 +390,11 @@ void ZMLivePlayer::setMonitorLayout(int layout, bool restore)
         m_players->push_back(p);
 
         monitorNo++;
-        if (monitorNo > m_monitors->size())
+        if (monitorNo > ZMClient::get()->getMonitorCount())
             monitorNo = 1;
     }
 
     updateFrame();
-}
-
-void ZMLivePlayer::getMonitorList(void)
-{
-    if (!m_monitors)
-        m_monitors = new vector<Monitor *>;
-
-    m_monitors->clear();
-
-    if (class ZMClient *zm = ZMClient::get())
-        zm->getMonitorList(m_monitors);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

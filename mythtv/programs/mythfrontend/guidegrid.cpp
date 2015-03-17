@@ -13,23 +13,31 @@ using namespace std;
 #include <QKeyEvent>
 #include <QDateTime>
 
-// myth
+// mythbase
+#include "mythdate.h"
 #include "mythcorecontext.h"
 #include "mythdbcon.h"
 #include "mythlogging.h"
+
+// libmythtv
+#include "remoteutil.h"
+#include "channelutil.h"
+#include "cardutil.h"
+#include "tvremoteutil.h"
 #include "channelinfo.h"
 #include "programinfo.h"
 #include "recordingrule.h"
 #include "tv_play.h"
 #include "tv_rec.h"
-#include "mythdate.h"
-#include "remoteutil.h"
-#include "channelutil.h"
-#include "cardutil.h"
-#include "tvremoteutil.h"
+
+// libmythui
 #include "mythuibuttonlist.h"
 #include "mythuiguidegrid.h"
+#include "mythuistatetype.h"
 #include "mythdialogbox.h"
+#include "mythuiimage.h"
+#include "mythuitext.h"
+
 #include "progfind.h"
 
 QWaitCondition epgIsVisibleCond;
@@ -444,8 +452,8 @@ void GuideGrid::RunProgramGuide(uint chanid, const QString &channum,
 
     // If chanid/channum are unset, find the channel that would
     // naturally be selected when Live TV is started.  This depends on
-    // the available tuners, their cardinput.livetvorder values, and
-    // their cardinput.startchan values.
+    // the available tuners, their capturecard.livetvorder values, and
+    // their capturecard.startchan values.
     QString actualChannum = channum;
     if (chanid == 0 && actualChannum.isEmpty())
     {
@@ -985,14 +993,15 @@ ProgramList GuideGrid::GetProgramList(uint chanid) const
     ProgramList proglist;
     MSqlBindings bindings;
     QString querystr =
-        "WHERE program.chanid     = :CHANID  AND "
-        "      program.endtime   >= :STARTTS AND "
-        "      program.starttime <= :ENDTS   AND "
+        "WHERE program.chanid     = :CHANID       AND "
+        "      program.endtime   >= :STARTTS      AND "
+        "      program.starttime <= :ENDTS        AND "
+        "      program.starttime >= :STARTLIMITTS AND "
         "      program.manualid   = 0 ";
-    bindings[":STARTTS"] =
-        m_currentStartTime.addSecs(0 - m_currentStartTime.time().second());
-    bindings[":ENDTS"] =
-        m_currentEndTime.addSecs(0 - m_currentEndTime.time().second());
+    QDateTime starttime = m_currentStartTime.addSecs(0 - m_currentStartTime.time().second());
+    bindings[":STARTTS"] = starttime;
+    bindings[":STARTLIMITTS"] = starttime.addDays(-1);
+    bindings[":ENDTS"] = m_currentEndTime.addSecs(0 - m_currentEndTime.time().second());
     bindings[":CHANID"]  = chanid;
 
     ProgramList dummy;
@@ -1340,12 +1349,13 @@ ProgramList *GuideGrid::getProgramListFromProgram(int chanNum)
         QString querystr = "WHERE program.chanid = :CHANID "
                            "  AND program.endtime >= :STARTTS "
                            "  AND program.starttime <= :ENDTS "
+                           "  AND program.starttime >= :STARTLIMITTS "
                            "  AND program.manualid = 0 ";
+        QDateTime starttime = m_currentStartTime.addSecs(0 - m_currentStartTime.time().second());
         bindings[":CHANID"]  = GetChannelInfo(chanNum)->chanid;
-        bindings[":STARTTS"] =
-            m_currentStartTime.addSecs(0 - m_currentStartTime.time().second());
-        bindings[":ENDTS"] =
-            m_currentEndTime.addSecs(0 - m_currentEndTime.time().second());
+        bindings[":STARTTS"] = starttime;
+        bindings[":STARTLIMITTS"] = starttime.addDays(-1);
+        bindings[":ENDTS"] = m_currentEndTime.addSecs(0 - m_currentEndTime.time().second());
 
         LoadFromProgram(*proglist, querystr, bindings, m_recList);
     }
@@ -1628,10 +1638,10 @@ void GuideUpdateProgramRow::fillProgramRowInfosWith(int row, int chanNum,
             }
 
             int recStat;
-            if (pginfo->GetRecordingStatus() == rsConflict ||
-                pginfo->GetRecordingStatus() == rsOffLine)
+            if (pginfo->GetRecordingStatus() == RecStatus::Conflict ||
+                pginfo->GetRecordingStatus() == RecStatus::Offline)
                 recStat = 2;
-            else if (pginfo->GetRecordingStatus() <= rsWillRecord)
+            else if (pginfo->GetRecordingStatus() <= RecStatus::WillRecord)
                 recStat = 1;
             else
                 recStat = 0;

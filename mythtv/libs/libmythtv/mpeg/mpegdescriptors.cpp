@@ -3,6 +3,10 @@
 
 #include <limits.h>
 
+#if QT_VERSION < 0x050000
+#include <QTextDocument> // for escape (note escape misses &apos; TODO fix upstream)
+#endif
+
 #include "sctedescriptors.h"
 #include "atscdescriptors.h"
 #include "dvbdescriptors.h"
@@ -431,6 +435,8 @@ QString MPEGDescriptor::toString() const
         SET_STRING(RevisionDetectionDescriptor);
     else if (DescriptorID::teletext == DescriptorTag())
         SET_STRING(TeletextDescriptor);
+    else if (DescriptorID::hevc_video == DescriptorTag())
+        SET_STRING(HEVCVideoDescriptor);
     /// POSSIBLY UNSAFE ! -- begin
     else if (PrivateDescriptorID::dvb_logical_channel_descriptor == DescriptorTag())
         SET_STRING(DVBLogicalChannelDescriptor);
@@ -476,7 +482,11 @@ QString MPEGDescriptor::toStringXML(uint level) const
 
     str += "\n" + indent_1 + "</Data>\n";
 
-    str += indent_1 + "<Decoded>" + toString() + "</Decoded>\n";
+#if QT_VERSION >= 0x050000
+    str += indent_1 + "<Decoded>" + toString().toHtmlEscaped() + "</Decoded>\n";
+#else
+    str += indent_1 + "<Decoded>" + Qt::escape (toString()) + "</Decoded>\n";
+#endif
 
     str += indent_0 + "</Descriptor>";
 
@@ -617,4 +627,9 @@ QString AVCVideoDescriptor::toString() const
         .arg(ConstaintSet0()).arg(ConstaintSet1()).arg(ConstaintSet2())
         .arg(AVCCompatible()).arg(AVCStill()).arg(AVC24HourPicture())
         .arg(FramePackingSEINotPresentFlag());
+}
+
+QString HEVCVideoDescriptor::toString() const
+{
+    return QString("HEVC Video: ");
 }

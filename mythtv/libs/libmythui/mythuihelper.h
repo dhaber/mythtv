@@ -6,7 +6,6 @@
 #include <QFont>
 #include <QMutex>
 
-#include "mthreadpool.h"
 #include "mythuiexp.h"
 #include "themeinfo.h"
 
@@ -14,6 +13,7 @@
 #define FALLBACK_UI_THEME "MythCenter-wide"
 
 class MythUIHelperPrivate;
+class MThreadPool;
 class MythPainter;
 class MythImage;
 class QImage;
@@ -91,7 +91,7 @@ class MUI_PUBLIC MythUIHelper
 
     void ThemeWidget(QWidget *widget);
 
-    QString FindThemeDir(const QString &themename);
+    QString FindThemeDir(const QString &themename, bool doFallback = true);
     QString FindMenuThemeDir(const QString &menuname);
     QString GetThemeDir(void);
     QString GetThemeName(void);

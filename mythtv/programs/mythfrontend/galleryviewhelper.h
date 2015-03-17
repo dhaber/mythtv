@@ -42,7 +42,6 @@ class GalleryViewHelper : public QObject
     void    SetNodeVisibilityState(int);
     void    SetFileOrientation(int);
     void    SetFileZoom(int);
-    void    SetPreviewImageSize(MythUIButtonList *);
 
     ImageMetadata*  GetImageMetadataFromSelectedNode();
     ImageMetadata*  GetImageMetadataFromNode(MythGenericTree *);
@@ -74,6 +73,7 @@ class GallerySyncStatusThread : public QThread
 
   signals:
     void UpdateSyncProgress(int, int);
+    void SyncComplete();
 };
 
 #endif // GALLERYVIEWHANDLER_H

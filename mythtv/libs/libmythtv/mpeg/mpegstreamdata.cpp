@@ -147,9 +147,8 @@ void MPEGStreamData::SetRecordingType(const QString &recording_type)
 {
     _recording_type = recording_type;
     _recording_type.detach();
-    uint neededVideo = (_recording_type == "tv")    ? 1 : 0;
     uint neededAudio = (_recording_type == "audio") ? 1 : 0;
-    SetVideoStreamsRequired(neededVideo);
+    SetVideoStreamsRequired(0);
     SetAudioStreamsRequired(neededAudio);
 }
 
@@ -578,6 +577,12 @@ bool MPEGStreamData::CreatePMTSingleProgram(const ProgramMapTable &pmt)
             audio_cnt++;
             audioPIDs.push_back(pid);
         }
+        else if (_recording_type == "audio" )
+        {
+            // If not an audio PID but we only want audio,
+            // ignore this PID.
+            continue;
+        }
 
 #ifdef DEBUG_MPEG_RADIO
         if (is_video)
@@ -596,12 +601,13 @@ bool MPEGStreamData::CreatePMTSingleProgram(const ProgramMapTable &pmt)
         // Filter out streams not used for basic television
         if (_recording_type == "tv" && !is_audio && !is_video &&
             !MPEGDescriptor::Find(desc, DescriptorID::teletext) &&
-            !MPEGDescriptor::Find(desc, DescriptorID::subtitling))
+            !MPEGDescriptor::Find(desc, DescriptorID::subtitling) &&
+            pid != pmt.PCRPID()) // We must not strip the PCR!
         {
             continue;
         }
 
-        if (!is_audio && !is_video)
+        if (!is_audio && !is_video) //NOTE: Anything which isn't audio or video is data
             dataPIDs.push_back(pid);
 
         pdesc.push_back(desc);

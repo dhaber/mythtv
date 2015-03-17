@@ -19,7 +19,7 @@
  */
 ImageThumbGenThread::ImageThumbGenThread()
         :   m_progressCount(0), m_progressTotalCount(0),
-            m_width(0), m_height(0),
+            m_width(400), m_height(300),
             m_pause(false), m_fileListSize(0)
 {
     QString sgName = IMAGE_STORAGE_GROUP;
@@ -70,15 +70,9 @@ void ImageThumbGenThread::run()
 
         if (im)
         {
-            if (im->m_type == kSubDirectory ||
-                im->m_type == kUpDirectory)
+            if (im->m_type == kImageFile)
             {
-                for (int i = 0; i < im->m_thumbFileNameList->size(); ++i)
-                    CreateImageThumbnail(im, i);
-            }
-            else if (im->m_type == kImageFile)
-            {
-                CreateImageThumbnail(im, 0);
+                CreateImageThumbnail(im);
             }
             else if (im->m_type == kVideoFile)
             {
@@ -108,9 +102,9 @@ void ImageThumbGenThread::run()
  *  \param  dataid The id of the thumbnail
  *  \return void
  */
-void ImageThumbGenThread::CreateImageThumbnail(ImageMetadata *im, int id)
+void ImageThumbGenThread::CreateImageThumbnail(ImageMetadata *im)
 {
-    if (QFile(im->m_thumbFileNameList->at(id)).exists())
+    if (QFile(im->m_thumbFileNameList->at(0)).exists())
         return;
 
     QDir dir;
@@ -119,19 +113,14 @@ void ImageThumbGenThread::CreateImageThumbnail(ImageMetadata *im, int id)
 
     QString imageFileName = m_storageGroup.FindFile(im->m_fileName);
 
-    // If a folder thumbnail shall be created we need to get
-    // the real filename from the thumbnail filename by removing
-    // the configuration directory and the MythImage path
-    if (im->m_type == kSubDirectory ||
-        im->m_type == kUpDirectory)
-    {
-        imageFileName = im->m_thumbFileNameList->at(id);
-        imageFileName = imageFileName.mid(GetConfDir().append("/MythImage/").count());
-    }
-
     QImage image;
     if (!image.load(imageFileName))
+    {
+        LOG(VB_FILE, LOG_ERR, QString("Failed to create pic thumbnail for %1").arg(imageFileName));
         return;
+    }
+
+    Resize(image);
 
     QMatrix matrix;
     switch (im->GetOrientation())
@@ -178,11 +167,10 @@ void ImageThumbGenThread::CreateImageThumbnail(ImageMetadata *im, int id)
         break;
     }
 
-    Resize(image);
-
     // save the image in the thumbnail directory
-    if (image.save(im->m_thumbFileNameList->at(id)))
+    if (image.save(im->m_thumbFileNameList->at(0)))
     {
+        LOG(VB_FILE, LOG_DEBUG, QString("Created pic thumbnail for %1").arg(imageFileName));
         QString msg = "IMAGE_THUMB_CREATED %1";
         gCoreContext->SendMessage(msg.arg(im->m_id));
     }
@@ -256,38 +244,23 @@ void ImageThumbGenThread::Resize(QImage &image)
 /** \fn     ImageThumbGenThread::AddToThumbnailList(ImageMetadata *)
  *  \brief  Adds a file to the thumbnail list
  *  \param  im The file information
+ *  \param  recreate Force thumbnail regeneration even if it already exists
  *  \return void
  */
-void ImageThumbGenThread::AddToThumbnailList(ImageMetadata *im)
+void ImageThumbGenThread::AddToThumbnailList(ImageMetadata *im,
+                                             bool recreate)
 {
     if (!im)
         return;
+
+    if (recreate)
+        // remove any existing thumbnail to force its regeneration
+        QFile::remove(im->m_thumbFileNameList->at(0));
 
     m_mutex.lock();
     m_fileList.append(im);
     m_fileListSize = m_fileList.size();
     m_mutex.unlock();
-}
-
-
-
-/** \fn     ImageThumbGenThread::RecreateThumbnail(ImageMetadata *)
- *  \brief  Deletes the old thumbnail and creates a new one
- *  \param  im The thumbnail information
- *  \return void
- */
-void ImageThumbGenThread::RecreateThumbnail(ImageMetadata *im)
-{
-    if (!im)
-        return;
-
-    if (QFile::remove(im->m_thumbFileNameList->at(0)))
-    {
-        GetMythUI()->RemoveFromCacheByFile(
-                    im->m_thumbFileNameList->at(0));
-
-        AddToThumbnailList(im);
-    }
 }
 
 
@@ -330,20 +303,6 @@ void ImageThumbGenThread::Resume()
     m_pause = false;
 }
 
-
-
-/** \fn     ImageThumbGenThread::SetThumbnailSize(int, int)
- *  \brief  Saves and specifies the size of the thumbnails.
- *  \return void
- */
-void ImageThumbGenThread::SetThumbnailSize(int width, int height)
-{
-    if (width > 0)
-        m_width = width;
-
-    if (height > 0)
-        m_height = height;
-}
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -422,36 +381,13 @@ int ImageThumbGen::GetTotal()
 
 
 
-bool ImageThumbGen::AddToThumbnailList(ImageMetadata *im)
+bool ImageThumbGen::AddToThumbnailList(ImageMetadata *im,
+                                       bool recreate)
 {
     if (!m_imageThumbGenThread)
         return false;
 
-    m_imageThumbGenThread->AddToThumbnailList(im);
-
-    return true;
-}
-
-
-
-bool ImageThumbGen::RecreateThumbnail(ImageMetadata *im)
-{
-    if (!m_imageThumbGenThread)
-        return false;
-
-    m_imageThumbGenThread->RecreateThumbnail(im);
-
-    return true;
-}
-
-
-
-bool ImageThumbGen::SetThumbnailSize(int width, int height)
-{
-    if (!m_imageThumbGenThread)
-        return false;
-
-    m_imageThumbGenThread->SetThumbnailSize(width, height);
+    m_imageThumbGenThread->AddToThumbnailList(im, recreate);
 
     return true;
 }
